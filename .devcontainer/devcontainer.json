@@ -1,0 +1,23 @@
+{
+  "name": "Project J5 Dev",
+  "image": "ghcr.io/j5-org/j5-dev:latest",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-iot.vscode-ros",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "twxs.cmake",
+        "ms-vscode.cpptools-extension-pack",
+        "github.vscode-github-actions",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

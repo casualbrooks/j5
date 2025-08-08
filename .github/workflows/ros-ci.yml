@@ -1,0 +1,22 @@
+name: ROS CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          rosdep update
+          rosdep install --rosdistro humble --from-paths ros_ws/src -y -r || true
+      - name: Build
+        working-directory: ros_ws
+        run: colcon build --symlink-install --event-handlers console_direct+

@@ -1,0 +1,22 @@
+{
+  // VS Code tasks for building and running ROS 2 on Windows
+  "$schema": "https://json.schemastore.org/tasks.json",
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ROS: colcon build",
+      "type": "shell",
+      "command": "colcon build --symlink-install",
+      "options": { "cwd": "${workspaceFolder}/ros_ws" },
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "ROS: launch bringup",
+      "type": "shell",
+      "command": "ros2 launch j5_bringup bringup.launch.py",
+      "options": { "cwd": "${workspaceFolder}/ros_ws" },
+      "dependsOn": ["ROS: colcon build"]
+    }
+  ]
+}

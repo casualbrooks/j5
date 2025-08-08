@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "ms-iot.vscode-ros",
+    "ms-python.python",
+    "ms-vscode.powershell"
+  ]
+}

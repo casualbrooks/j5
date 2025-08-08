@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>j5_manipulation</name>
+  <version>0.0.1</version>
+  <description>Manipulation and control for J5.</description>
+  <maintainer email="devnull@example.com">J5 Team</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+</package>

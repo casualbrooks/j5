@@ -1,6 +1,11 @@
 {
   "name": "Project J5 Dev",
-  "image": "ghcr.io/j5-org/j5-dev:latest",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": { "VARIANT": "cpu", "ROS_DISTRO": "iron" }
+  },
+  "runArgs": ["--gpus=all"],
+  "updateRemoteUserUID": true,
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}

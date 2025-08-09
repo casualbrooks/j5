@@ -3,7 +3,7 @@
 ARG VARIANT=cpu
 ARG ROS_DISTRO=iron
 
-# --- Base stage ---
+# --- Base stage definitions ---
 FROM ubuntu:22.04 AS cpu
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04 AS gpu
 
@@ -28,20 +28,20 @@ RUN mkdir -p /etc/apt/keyrings \
  && chmod a+r /etc/apt/keyrings/ros-archive-keyring.gpg \
  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
-# Locale, dev tools, and Python, then pip install ros tooling
+# Locale, dev tools, and Python tooling
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion build-essential git \
-    python3-pip python3-venv \
+    python3-pip python3-venv python3-apt \
+    python3-colcon-common-extensions python3-rosdep python3-vcstool \
  && python3 -m pip install --no-cache-dir --upgrade pip \
- && python3 -m pip install --no-cache-dir rosdep vcstool colcon-common-extensions \
- && locale-gen en_US en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
  && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8
+RUN locale-gen en_US en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 
 # Install ROS desktop
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-desktop \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (vscode)
 ARG USER=vscode

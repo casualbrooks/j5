@@ -4,7 +4,8 @@
     "dockerfile": "Dockerfile",
     "args": { "VARIANT": "cpu", "ROS_DISTRO": "iron" }
   },
-  "runArgs": ["--gpus=all"],
+  "workspaceFolder": "/workspaces/j5",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/j5,type=bind,consistency=cached",
   "updateRemoteUserUID": true,
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
@@ -12,6 +13,7 @@
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "remoteUser": "vscode",
+  "remoteEnv": { "ROS_DISTRO": "iron" },
   "customizations": {
     "vscode": {
       "extensions": [

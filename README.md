@@ -48,6 +48,10 @@ If `ros2` is not found, re-run the `source` command above.
 Run `make lint` to format and `make test` to run tests.
 
 
+### Development
+Run `make lint` to format and `make test` to run tests.
+
+
 ## Roadmap
 1. Hardware bringup
 2. Perception + manipulation

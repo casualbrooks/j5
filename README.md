@@ -26,9 +26,20 @@
 ## Quick start
 **Codespaces is CPU-only**; for docs/CI. Use local GPU or GPU VM for Isaac Sim.
 
+Install dependencies:
+```bash
+pip install -r requirements.txt
+pre-commit install
 ```
+
+Launch the robot:
+```bash
 ros2 launch j5_bringup bringup.launch.py
 ```
+
+### Development
+Run `make lint` to format and `make test` to run tests.
+
 
 ## Roadmap
 1. Hardware bringup

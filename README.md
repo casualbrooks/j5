@@ -26,7 +26,13 @@
 ## Quick start
 **Codespaces is CPU-only**; for docs/CI. Use local GPU or GPU VM for Isaac Sim.
 
-Install dependencies:
+Install ROS 2 Iron and source the environment:
+```bash
+# follow https://docs.ros.org/en/iron/Installation.html
+source /opt/ros/iron/setup.bash
+```
+
+Install Python dependencies:
 ```bash
 pip install -r requirements.txt
 pre-commit install
@@ -36,6 +42,11 @@ Launch the robot:
 ```bash
 ros2 launch j5_bringup bringup.launch.py
 ```
+If `ros2` is not found, re-run the `source` command above.
+
+### Development
+Run `make lint` to format and `make test` to run tests.
+
 
 ### Development
 Run `make lint` to format and `make test` to run tests.

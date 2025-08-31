@@ -1,7 +1,11 @@
 # Contributing
 
 ## Day 1 Setup
-1. Install Python 3 and ROS 2 Iron.
+1. Install Python 3 and ROS 2 Iron, then source the ROS 2 environment:
+   ```bash
+   source /opt/ros/iron/setup.bash
+   ```
+   Verify with `ros2 --version`.
 2. Install dependencies:
    ```bash
    pip install -r requirements.txt

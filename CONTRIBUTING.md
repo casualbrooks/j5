@@ -4,7 +4,7 @@
 1. Install Python 3 and ROS 2 Iron, then source the environments:
    ```bash
    source /opt/ros/iron/setup.bash
-   source ~/alive/j5/ros_ws/install/setup.bash
+   source ~/j5/ros_ws/install/setup.bash
    ```
    Verify with `ros2 --version`.
 2. Install dependencies:

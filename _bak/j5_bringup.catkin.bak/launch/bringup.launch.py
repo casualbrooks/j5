@@ -8,6 +8,6 @@ def generate_launch_description():
         [
             # Placeholder nodes
             # Node(package='j5_perception', executable='vision_node', name='vision'),
-            Node(package="j5_voice", executable="hello", name="voice_hello"),
+            Node(package="j5_voice", executable="voice_hello", name="voice_hello"),
         ]
     )

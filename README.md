@@ -30,7 +30,8 @@ Install ROS 2 Iron and source the environment:
 ```bash
 # follow https://docs.ros.org/en/iron/Installation.html
 source /opt/ros/iron/setup.bash
-source ~/alive/j5/ros_ws/install/setup.bash
+source ~/j5/ros_ws/install/setup.bash
+
 ```
 
 Install Python dependencies:

@@ -1,7 +1,6 @@
 from setuptools import setup
 
-package_name = "j5_voice"
-
+package_name = "j5_bringup"
 setup(
     name=package_name,
     version="0.0.1",
@@ -9,16 +8,12 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        ("share/" + package_name + "/launch", ["launch/bringup.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="You",
     maintainer_email="you@example.com",
-    description="Minimal voice node (placeholder)",
+    description="Bring-up launch files and minimal health checks for J5.",
     license="Apache-2.0",
-    entry_points={
-        "console_scripts": [
-            "hello = j5_voice.hello:main",
-        ],
-    },
 )

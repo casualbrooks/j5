@@ -26,9 +26,37 @@
 ## Quick start
 **Codespaces is CPU-only**; for docs/CI. Use local GPU or GPU VM for Isaac Sim.
 
+Install ROS 2 Iron and source the environment:
+```bash
+# follow https://docs.ros.org/en/iron/Installation.html
+source /opt/ros/iron/setup.bash
+source ~/alive/j5/ros_ws/install/setup.bash
 ```
+
+Install Python dependencies:
+```bash
+pip install -r requirements.txt
+pre-commit install
+```
+
+Launch the robot:
+```bash
 ros2 launch j5_bringup bringup.launch.py
 ```
+If `ros2` or bringup packages are not found, verify:
+- You're running **Ubuntu 22.04** (required for ROS 2 Iron).
+- All packages are built for ROS 2 (mixing ROS 1 can break discovery).
+- Your environment includes the workspace:
+  ```bash
+  echo $AMENT_PREFIX_PATH
+  echo $CMAKE_PREFIX_PATH
+  echo $COLCON_CURRENT_PREFIX
+  ```
+Re-run the `source` commands above after any changes.
+
+### Development
+Run `make lint` to format and `make test` to run tests.
+
 
 ## Roadmap
 1. Hardware bringup

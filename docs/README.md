@@ -7,8 +7,6 @@ Contents
 - SAFETY.md – Safety and risk guidance
 - CONTRIBUTING.md – Contribution guidelines
 - LICENSES.md – Third‑party licenses
-- use_cases/track_lap_counter.md – Vision lap counter appliance use case
-- race_manager.md – Web race manager folder layout and lap counter integration
 
 Getting started
 - See the top‑level README.md for quick start.

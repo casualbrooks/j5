@@ -42,7 +42,9 @@ repo_provider = RepoProvider()
 
 @app.get("/health")
 def health(settings: Annotated[Settings, Depends(get_settings)]) -> JSONResponse:
-    return JSONResponse({"status": "ok", "config": settings.dict()})
+    return JSONResponse(
+        {"status": "ok", "config": settings.dict(include_sensitive=False)}
+    )
 
 
 @app.post("/ingest/lap", response_model=LapResponse)

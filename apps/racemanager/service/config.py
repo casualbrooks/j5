@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(ENV_PATH)
 
 
 class Settings:
@@ -22,6 +29,8 @@ class Settings:
         race_db_name: Optional[str] = None,
         laps_collection: Optional[str] = None,
         websocket_public_url: Optional[str] = None,
+        http_host: Optional[str] = None,
+        http_port: Optional[int] = None,
     ) -> None:
         self.atlas_uri = atlas_uri or os.getenv(
             "ATLAS_URI", "mongodb://localhost:27017"
@@ -31,14 +40,21 @@ class Settings:
             "LAPS_COLLECTION", "laps_live"
         )
         self.websocket_public_url = websocket_public_url or os.getenv("WS_PUBLIC_URL")
+        self.http_host = http_host or os.getenv("HTTP_HOST", "0.0.0.0")
+        self.http_port = http_port or int(os.getenv("HTTP_PORT", "4000"))
 
-    def dict(self) -> dict[str, Optional[str]]:
-        return {
+    def dict(self, *, include_sensitive: bool = True) -> dict[str, Optional[str | int]]:
+        config = {
             "atlas_uri": self.atlas_uri,
             "race_db_name": self.race_db_name,
             "laps_collection": self.laps_collection,
             "websocket_public_url": self.websocket_public_url,
+            "http_host": self.http_host,
+            "http_port": self.http_port,
         }
+        if not include_sensitive:
+            config["atlas_uri"] = "<redacted>"
+        return config
 
 
 @lru_cache(maxsize=1)

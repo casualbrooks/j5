@@ -21,7 +21,20 @@ HTTP_PORT=4000
 JWT_SECRET=change-me
 ```
 
-The UI should point to the same HTTP/websocket endpoints (e.g., `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_WS_URL`).
+For the FastAPI service, copy `apps/racemanager/service/.env.example` to `.env` in
+the same folder and fill in your MongoDB connection string and collection
+names. The config loader reads that file automatically on startup.
+
+Quickstart for the service (from the repo root):
+
+1. `cp apps/racemanager/service/.env.example apps/racemanager/service/.env` and
+   edit the values
+2. `python -m venv apps/racemanager/service/.venv && source apps/racemanager/service/.venv/bin/activate`
+3. `pip install -r apps/racemanager/service/requirements.txt`
+4. `python -m uvicorn apps.racemanager.service.main:app --reload --env-file apps/racemanager/service/.env`
+
+The UI should point to the same HTTP/websocket endpoints (e.g.,
+`NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_WS_URL`).
 
 ## Data flow (live + replay)
 1. **Lap counter node (ROS 2)** publishes validated laps: `{ carId, gateTime, lapTimeMs, headingOk, onTrack, minLapTimeOk }`.
@@ -50,7 +63,7 @@ Expose per-car aggregates that the UI can bind to existing proof-of-concept fiel
 
 ## Local development
 - Start Atlas tunnel or use a local Mongo instance with the same schemas.
-- **Run the service**: `cd apps/racemanager/service && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && uvicorn main:app --reload --port 4000`.
+- **Run the service**: `python -m venv apps/racemanager/service/.venv && source apps/racemanager/service/.venv/bin/activate && pip install -r apps/racemanager/service/requirements.txt && python -m uvicorn apps.racemanager.service.main:app --reload --env-file apps/racemanager/service/.env`.
 - **Smoke test ingest**: from another shell run `python apps/racemanager/bridge/bridge.py` to push a demo lap into the service (requires Mongo running).
 - **Run the UI**: `cd apps/racemanager/ui && npm install && npm run dev`, pointing to the service URLs above.
 - **ROS-side testing without hardware**: feed recorded lap messages through the bridge (bag replay) and confirm the UI updates instantly.

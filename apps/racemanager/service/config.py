@@ -22,8 +22,6 @@ class Settings:
         race_db_name: Optional[str] = None,
         laps_collection: Optional[str] = None,
         websocket_public_url: Optional[str] = None,
-        http_host: Optional[str] = None,
-        http_port: Optional[int] = None,
     ) -> None:
         self.atlas_uri = atlas_uri or os.getenv(
             "ATLAS_URI", "mongodb://localhost:27017"
@@ -33,8 +31,6 @@ class Settings:
             "LAPS_COLLECTION", "laps_live"
         )
         self.websocket_public_url = websocket_public_url or os.getenv("WS_PUBLIC_URL")
-        self.http_host = http_host or os.getenv("HTTP_HOST", "0.0.0.0")
-        self.http_port = int(http_port or os.getenv("HTTP_PORT", 4000))
 
     def dict(self) -> dict[str, Optional[str]]:
         return {
@@ -42,8 +38,6 @@ class Settings:
             "race_db_name": self.race_db_name,
             "laps_collection": self.laps_collection,
             "websocket_public_url": self.websocket_public_url,
-            "http_host": self.http_host,
-            "http_port": self.http_port,
         }
 
 

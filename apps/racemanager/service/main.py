@@ -63,14 +63,10 @@ def ingest_lap(
 @app.get("/races/{race_id}/leaderboard", response_model=LeaderboardResponse)
 def race_leaderboard(
     race_id: str,
-    include_replay: bool = False,
-    include_invalid: bool = False,
     repository: Annotated[RaceRepository, Depends(repo_provider)],
 ) -> LeaderboardResponse:
     try:
-        return repository.leaderboard(
-            race_id, include_replay=include_replay, include_invalid=include_invalid
-        )
+        return repository.leaderboard(race_id)
     except PyMongoError as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

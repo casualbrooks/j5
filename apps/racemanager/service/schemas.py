@@ -59,12 +59,8 @@ class LapResponse(BaseModel):
 class LeaderboardEntry(BaseModel):
     carId: str
     lapCount: int
-    avgLapMs: float
     bestLapMs: int
-    lastLapMs: int
-    lastTimestamp: datetime
     avgSpeedKph: float
-    lastSpeedKph: float
     totalTimeMs: int
     gapToLeaderMs: int
 

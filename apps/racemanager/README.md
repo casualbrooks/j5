@@ -30,14 +30,14 @@ The UI should point to the same HTTP/websocket endpoints (e.g., `NEXT_PUBLIC_API
 4. **UI** listens for `lap`, `race_status`, and `standings` events to repaint per-car cards and leaderboards in real time.
 
 ## Derived stats (track distance + lap times)
-The service enriches each lap with:
+The service should enrich each lap with:
 - `trackDistanceM`: pulled from race config.
 - `speedKph`: `(trackDistanceM / lapTimeMs) * 3.6`.
 - `isValid`: `onTrack && headingOk && minLapTimeOk`.
 
-Per-car aggregates served by the FastAPI starter (filtered to valid laps by default):
+Expose per-car aggregates that the UI can bind to existing proof-of-concept fields:
 - Lap count, last lap, best lap, average lap time, and rolling median.
-- Average speed per lap and session average, plus last-lap speed.
+- Average speed per lap and session average.
 - Delta to leader: `gapMs = carElapsedMs - leaderElapsedMs`.
 - Consistency: standard deviation of recent N lap times + a percentage (e.g., `1 - (stdev/mean)`).
 - Championship rollups: accumulate points/podiums/wins/best-lap counts into `championships.standings` after each race.
@@ -45,7 +45,6 @@ Per-car aggregates served by the FastAPI starter (filtered to valid laps by defa
 ## Suggested endpoints/events (implemented in FastAPI starter)
 - `POST /ingest/lap`: accepts the payload above plus `raceId`, `sessionLap`, and optional `sectorTimes`.
 - `GET /races/:raceId/standings`: returns leaderboard with computed gaps and best laps.
-- `GET /races/:raceId/leaderboard?include_replay=0&include_invalid=0`: aggregates lap count, best/average/last lap, last speed, and gap to leader. Replay laps are excluded by default; pass `include_replay=1` to mix them into the standings.
 - `GET /health` / root: sanity endpoints for probes.
 - Websocket events: `lap`, `leaderboard`, `race_status`, `championship` (stubbed; add via FastAPI websockets or a sidecar socket server).
 

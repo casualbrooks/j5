@@ -26,10 +26,6 @@ Use capped collections for fast streams and archival collections for history. Th
 
 Enable Atlas **change streams** on `laps_live` to push real-time updates to the UI and refresh caches/derived tables.
 
-### Service endpoints
-- `POST /ingest/lap`: validate a lap payload, derive speed, and persist with validity flags.
-- `GET /races/{raceId}/leaderboard?include_replay=0&include_invalid=0`: aggregates lap count, best/average/last lap, last speed, cumulative time, and gap to leader. Replay laps and invalid laps stay excluded unless the query params are flipped for debugging.
-
 ## Wiring the lap counter into the race manager
 1. **Lap counter emitter** (ROS 2 node): publish a normalized lap event message containing car ID, gate crossing time, lap duration, heading validity, and on-track mask verdict.
 2. **Bridge subscriber**: listen to the lap counter topic and call the `apps/racemanager/service` ingest endpoint; drop any lap marked invalid by anti-cheat flags.
@@ -43,7 +39,7 @@ Enable Atlas **change streams** on `laps_live` to push real-time updates to the 
 - **Average speed**: mean of `speedKph` across valid laps; display per lap and session average.
 - **Best lap / sector delta**: keep rolling minimum lap time and show gap to best.
 - **Consistency score**: standard deviation of lap times (lower is better) and a rolling “consistency %”.
-- **Gap to leader**: compute cumulative race time per car; `gap = carTime - leaderTime`. Replay laps stay out of the gap unless explicitly requested on the leaderboard endpoint.
+- **Gap to leader**: compute cumulative race time per car; `gap = carTime - leaderTime`.
 - **Points + standings**: apply scoring rules in `championships.scoringRules` after each race; update totals and podium counts.
 - **Pace trend**: EMA of lap times to surface improvements/declines; store as derived field for quick charting.
 - **Flags**: surface invalid laps (off-track, wrong direction, too fast) inline to explain why a lap was rejected.

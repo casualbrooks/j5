@@ -40,33 +40,16 @@ class RaceRepository:
         result = self.laps.insert_one(payload)
         return str(result.inserted_id)
 
-    def leaderboard(
-        self,
-        race_id: str,
-        *,
-        include_replay: bool = False,
-        include_invalid: bool = False,
-    ) -> LeaderboardResponse:
+    def leaderboard(self, race_id: str) -> LeaderboardResponse:
         now = datetime.utcnow()
-        match: dict[str, object] = {"raceId": race_id}
-        if not include_replay:
-            match["source"] = "live"
-        if not include_invalid:
-            match["isValid"] = True
-
         pipeline: List[dict] = [
-            {"$match": match},
-            {"$sort": {"carId": 1, "timestamp": 1}},
+            {"$match": {"raceId": race_id}},
             {
                 "$group": {
                     "_id": "$carId",
                     "lapCount": {"$sum": 1},
                     "bestLapMs": {"$min": "$lapTimeMs"},
-                    "avgLapMs": {"$avg": "$lapTimeMs"},
                     "avgSpeedKph": {"$avg": "$speedKph"},
-                    "lastLapMs": {"$last": "$lapTimeMs"},
-                    "lastSpeedKph": {"$last": "$speedKph"},
-                    "lastTimestamp": {"$last": "$timestamp"},
                     "totalTimeMs": {"$sum": "$lapTimeMs"},
                 }
             },

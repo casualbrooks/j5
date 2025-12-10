@@ -41,6 +41,7 @@ class LapEvent:
         base = asdict(self)
         for key in ["onTrack", "directionOk", "minLapTimeOk"]:
             base.pop(key)
+        base["timestamp"] = self.timestamp.isoformat()
         base["validity"] = validity
         return base
 

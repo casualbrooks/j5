@@ -5,8 +5,6 @@ live nodes and prerecorded video replays. Replace the `emit_lap` call
 with ROS 2 subscription callbacks in deployment.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 from datetime import datetime
@@ -60,7 +58,7 @@ class LapEvent:
         self.source = source
         self.replayId = replayId
 
-    def as_payload(self) -> dict:
+    def as_payload(self):
         validity = {
             "onTrack": self.onTrack,
             "directionOk": self.directionOk,
@@ -75,10 +73,10 @@ class LapEvent:
 
 
 class RaceManagerBridge:
-    def __init__(self, service_base_url: str) -> None:
+    def __init__(self, service_base_url):
         self.service_base_url = service_base_url.rstrip("/")
 
-    def emit_lap(self, lap: LapEvent) -> dict:
+    def emit_lap(self, lap):
         url = f"{self.service_base_url}/ingest/lap"
         payload = lap.as_payload()
         logger.debug("Posting lap payload: %s", json.dumps(payload, default=str))

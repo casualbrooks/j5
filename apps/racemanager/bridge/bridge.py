@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import requests
 
@@ -19,6 +19,19 @@ logger = logging.getLogger(__name__)
 
 class LapEvent:
     """Lightweight Lap representation safe for older Python interpreters."""
+
+    if TYPE_CHECKING:
+        raceId: str
+        carId: str
+        sessionLap: int
+        lapTimeMs: int
+        trackDistanceM: float
+        timestamp: datetime
+        onTrack: bool
+        directionOk: bool
+        minLapTimeOk: bool
+        source: str
+        replayId: Optional[str]
 
     def __init__(
         self,

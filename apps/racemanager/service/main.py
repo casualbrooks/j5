@@ -1,9 +1,11 @@
 """Minimal FastAPI race manager service aligned with lap counter outputs."""
 
-from __future__ import annotations
-
 from datetime import datetime
-from typing import Annotated
+
+try:
+    from typing import Annotated
+except ImportError:  # pragma: no cover - fallback for older Python
+    from typing_extensions import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse

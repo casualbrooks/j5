@@ -7,9 +7,8 @@ with ROS 2 subscription callbacks in deployment.
 
 import json
 import logging
-import os
-import sys
 from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
 import requests
 from requests import RequestException
@@ -20,20 +19,34 @@ logger = logging.getLogger(__name__)
 class LapEvent:
     """Lightweight Lap representation safe for older Python interpreters."""
 
+    if TYPE_CHECKING:
+        raceId: str
+        carId: str
+        sessionLap: int
+        lapTimeMs: int
+        trackDistanceM: float
+        timestamp: datetime
+        onTrack: bool
+        directionOk: bool
+        minLapTimeOk: bool
+        source: str
+        replayId: Optional[str]
+
     def __init__(
         self,
-        raceId,
-        carId,
-        sessionLap,
-        lapTimeMs,
-        trackDistanceM,
-        timestamp,
-        onTrack,
-        directionOk,
-        minLapTimeOk,
-        source="live",
-        replayId=None,
-    ):
+        raceId: str,
+        carId: str,
+        sessionLap: int,
+        lapTimeMs: int,
+        trackDistanceM: float,
+        timestamp: datetime,
+        onTrack: bool,
+        directionOk: bool,
+        minLapTimeOk: bool,
+        *,
+        source: str = "live",
+        replayId: Optional[str] = None,
+    ) -> None:
         self.raceId = raceId
         self.carId = carId
         self.sessionLap = sessionLap

@@ -5,40 +5,51 @@ live nodes and prerecorded video replays. Replace the `emit_lap` call
 with ROS 2 subscription callbacks in deployment.
 """
 
-from __future__ import annotations
-
 import json
 import logging
-from dataclasses import dataclass, asdict
 from datetime import datetime
-from typing import Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
 class LapEvent:
-    raceId: str
-    carId: str
-    sessionLap: int
-    lapTimeMs: int
-    trackDistanceM: float
-    timestamp: datetime
-    onTrack: bool
-    directionOk: bool
-    minLapTimeOk: bool
-    source: str = "live"
-    replayId: Optional[str] = None
+    """Lightweight Lap representation safe for older Python interpreters."""
 
-    def as_payload(self) -> dict:
+    def __init__(
+        self,
+        raceId,
+        carId,
+        sessionLap,
+        lapTimeMs,
+        trackDistanceM,
+        timestamp,
+        onTrack,
+        directionOk,
+        minLapTimeOk,
+        source="live",
+        replayId=None,
+    ):
+        self.raceId = raceId
+        self.carId = carId
+        self.sessionLap = sessionLap
+        self.lapTimeMs = lapTimeMs
+        self.trackDistanceM = trackDistanceM
+        self.timestamp = timestamp
+        self.onTrack = onTrack
+        self.directionOk = directionOk
+        self.minLapTimeOk = minLapTimeOk
+        self.source = source
+        self.replayId = replayId
+
+    def as_payload(self):
         validity = {
             "onTrack": self.onTrack,
             "directionOk": self.directionOk,
             "minLapTimeOk": self.minLapTimeOk,
         }
-        base = asdict(self)
+        base = dict(self.__dict__)
         for key in ["onTrack", "directionOk", "minLapTimeOk"]:
             base.pop(key)
         base["timestamp"] = self.timestamp.isoformat()
@@ -47,10 +58,10 @@ class LapEvent:
 
 
 class RaceManagerBridge:
-    def __init__(self, service_base_url: str) -> None:
+    def __init__(self, service_base_url):
         self.service_base_url = service_base_url.rstrip("/")
 
-    def emit_lap(self, lap: LapEvent) -> dict:
+    def emit_lap(self, lap):
         url = f"{self.service_base_url}/ingest/lap"
         payload = lap.as_payload()
         logger.debug("Posting lap payload: %s", json.dumps(payload, default=str))

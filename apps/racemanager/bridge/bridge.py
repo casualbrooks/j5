@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Optional
 
@@ -18,19 +17,35 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-@dataclass
 class LapEvent:
-    raceId: str
-    carId: str
-    sessionLap: int
-    lapTimeMs: int
-    trackDistanceM: float
-    timestamp: datetime
-    onTrack: bool
-    directionOk: bool
-    minLapTimeOk: bool
-    source: str = "live"
-    replayId: Optional[str] = None
+    """Lightweight Lap representation safe for older Python interpreters."""
+
+    def __init__(
+        self,
+        raceId: str,
+        carId: str,
+        sessionLap: int,
+        lapTimeMs: int,
+        trackDistanceM: float,
+        timestamp: datetime,
+        onTrack: bool,
+        directionOk: bool,
+        minLapTimeOk: bool,
+        *,
+        source: str = "live",
+        replayId: Optional[str] = None,
+    ) -> None:
+        self.raceId = raceId
+        self.carId = carId
+        self.sessionLap = sessionLap
+        self.lapTimeMs = lapTimeMs
+        self.trackDistanceM = trackDistanceM
+        self.timestamp = timestamp
+        self.onTrack = onTrack
+        self.directionOk = directionOk
+        self.minLapTimeOk = minLapTimeOk
+        self.source = source
+        self.replayId = replayId
 
     def as_payload(self) -> dict:
         validity = {
@@ -38,7 +53,7 @@ class LapEvent:
             "directionOk": self.directionOk,
             "minLapTimeOk": self.minLapTimeOk,
         }
-        base = asdict(self)
+        base = dict(self.__dict__)
         for key in ["onTrack", "directionOk", "minLapTimeOk"]:
             base.pop(key)
         base["timestamp"] = self.timestamp.isoformat()

@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 import requests
+from requests import RequestException
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,8 @@ class RaceManagerBridge:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    demo = RaceManagerBridge("http://localhost:4000")
+    service_url = os.getenv("RACEMANAGER_URL", "http://localhost:4000")
+    demo = RaceManagerBridge(service_url)
     sample_lap = LapEvent(
         raceId="demo-race",
         carId="car-42",
@@ -101,4 +103,13 @@ if __name__ == "__main__":
         source="replay",
         replayId="mp4-smoke-test",
     )
-    logger.info("Service response: %s", demo.emit_lap(sample_lap))
+    try:
+        response = demo.emit_lap(sample_lap)
+    except RequestException as exc:
+        logger.error(
+            "Failed to reach race manager at %s: %s. Ensure the service is running.",
+            service_url,
+            exc,
+        )
+        sys.exit(1)
+    logger.info("Service response: %s", response)

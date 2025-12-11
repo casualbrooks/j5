@@ -7,17 +7,11 @@ with ROS 2 subscription callbacks in deployment.
 
 import json
 import logging
-import os
-import sys
 from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
-try:
-    import requests
-    from requests import RequestException
-except ImportError as exc:  # pragma: no cover - defensive import guard
-    requests = None
-    RequestException = Exception
-    _REQUESTS_IMPORT_ERROR = exc
+import requests
+from requests import RequestException
 
 logger = logging.getLogger(__name__)
 
@@ -25,20 +19,34 @@ logger = logging.getLogger(__name__)
 class LapEvent:
     """Lightweight Lap representation safe for older Python interpreters."""
 
+    if TYPE_CHECKING:
+        raceId: str
+        carId: str
+        sessionLap: int
+        lapTimeMs: int
+        trackDistanceM: float
+        timestamp: datetime
+        onTrack: bool
+        directionOk: bool
+        minLapTimeOk: bool
+        source: str
+        replayId: Optional[str]
+
     def __init__(
         self,
-        raceId,
-        carId,
-        sessionLap,
-        lapTimeMs,
-        trackDistanceM,
-        timestamp,
-        onTrack,
-        directionOk,
-        minLapTimeOk,
-        source="live",
-        replayId=None,
-    ):
+        raceId: str,
+        carId: str,
+        sessionLap: int,
+        lapTimeMs: int,
+        trackDistanceM: float,
+        timestamp: datetime,
+        onTrack: bool,
+        directionOk: bool,
+        minLapTimeOk: bool,
+        *,
+        source: str = "live",
+        replayId: Optional[str] = None,
+    ) -> None:
         self.raceId = raceId
         self.carId = carId
         self.sessionLap = sessionLap
@@ -67,11 +75,6 @@ class LapEvent:
 
 class RaceManagerBridge:
     def __init__(self, service_base_url):
-        if requests is None:
-            raise RuntimeError(
-                "requests is required to run the bridge. Install with `pip install -r "
-                "apps/racemanager/bridge/requirements.txt`."
-            )
         self.service_base_url = service_base_url.rstrip("/")
 
     def emit_lap(self, lap):
@@ -85,13 +88,6 @@ class RaceManagerBridge:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    if requests is None:
-        logger.error(
-            "The bridge requires the `requests` package. Install it with `pip install -r "
-            "apps/racemanager/bridge/requirements.txt` (import error: %s)",
-            _REQUESTS_IMPORT_ERROR,
-        )
-        sys.exit(1)
     service_url = os.getenv("RACEMANAGER_URL", "http://localhost:4000")
     demo = RaceManagerBridge(service_url)
     sample_lap = LapEvent(

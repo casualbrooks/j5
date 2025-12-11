@@ -9,22 +9,10 @@ Subscribe to websocket events (`lap`, `leaderboard`, `race_status`, `championshi
 
 ## Getting started
 
-1. Install a Node.js runtime that bundles a recent `npm`. Using [`nvm`](https://github.com/nvm-sh/nvm) with the provided `.nvmrc` keeps you on the tested Node 18.17.x line (installs will fail fast if `npm` is older than 10.9.2 because `engine-strict` is enabled):
-
-   ```bash
-   nvm install
-   nvm use
-   corepack prepare npm@10.9.2 --activate
-   ```
-
-2. Install dependencies and start the dev server:
-
-   ```bash
-   cd apps/racemanager/ui
-   npm install
-   npm run dev
-   ```
-
-   If you see `npm ERR! code EBADENGINE` or the `TypeError: Class extends value undefined is not a constructor or null` from a system-wide `npm`, switch to the Corepack-activated version above to avoid distro-packaged `npm` bugs.
+```bash
+cd apps/racemanager/ui
+npm install
+npm run dev
+```
 
 Then open http://localhost:3000. Environment variables can be provided in a `.env.local` file.

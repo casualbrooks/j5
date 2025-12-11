@@ -1,7 +1,5 @@
 """Minimal FastAPI race manager service aligned with lap counter outputs."""
 
-from __future__ import annotations
-
 from datetime import datetime
 
 try:

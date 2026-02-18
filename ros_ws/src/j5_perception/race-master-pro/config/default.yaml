@@ -1,0 +1,54 @@
+# Race Master Pro — Default Configuration
+# This file is loaded on startup. Override with environment variables or config/local.yaml.
+
+app:
+  name: "Race Master Pro"
+  version: "1.0.0"
+  debug: true
+
+server:
+  host: "0.0.0.0"
+  backend_port: 8080
+  frontend_port: 5173
+
+database:
+  # SQLite database path (relative to backend/ directory)
+  path: "data/racetracker.db"
+
+perception:
+  # Mode: "standalone" (no ROS2) or "ros2" (requires ROS2 installed)
+  mode: "standalone"
+
+  # AI model configuration
+  ai_model: "yolov8n"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, custom
+  model_path: "perception/models/"
+  confidence_threshold: 0.7
+  tracker: "deepsort"  # Options: deepsort, bytetrack
+
+  # Camera sources (for standalone mode)
+  cameras:
+    - id: "cam1"
+      name: "Main Camera"
+      source: "0"  # 0 = first USB camera, or RTSP URL
+    # - id: "cam2"
+    #   name: "Turn 1 Camera"
+    #   source: "rtsp://192.168.1.100:554/stream"
+
+  # Mock mode (generates fake detections for development)
+  use_mock: true
+  mock_racer_count: 4
+
+  # ROS2 topics (only used when mode: "ros2")
+  ros2:
+    camera_topics:
+      - "/camera/cam1/image_raw"
+    detection_topic: "/race/detections"
+    position_topic: "/race/positions"
+
+deployment:
+  # For cloud deployment, override these in config/deploy.yaml
+  # See docs/CLOUD_DEPLOY.md for instructions
+  cloud_provider: "none"  # none, aws
+  # aws:
+  #   region: "us-east-1"
+  #   instance_type: "t3.medium"

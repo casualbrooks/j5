@@ -1,0 +1,309 @@
+@import "tailwindcss";
+
+/* ── Design Tokens ──────────────────────────────────────── */
+
+:root {
+  /* Racing-inspired color palette */
+  --color-bg-primary: #0d0d12;
+  --color-bg-secondary: #16161e;
+  --color-bg-card: #1c1c27;
+  --color-bg-card-hover: #24243a;
+  --color-bg-surface: #22222f;
+
+  --color-text-primary: #f0f0f5;
+  --color-text-secondary: #9d9db5;
+  --color-text-muted: #6b6b82;
+
+  --color-accent-red: #e63946;
+  --color-accent-blue: #4a7ff7;
+  --color-accent-green: #2ecc71;
+  --color-accent-yellow: #f4d03f;
+  --color-accent-orange: #f39c12;
+  --color-accent-purple: #9b59b6;
+
+  /* Position badge colors */
+  --color-pos-1: #f4d03f;
+  --color-pos-2: #bdc3c7;
+  --color-pos-3: #cd7f32;
+
+  /* Status colors */
+  --color-status-connected: #2ecc71;
+  --color-status-disconnected: #e74c3c;
+  --color-status-warning: #f39c12;
+  --color-status-racing: #4a7ff7;
+  --color-status-finished: #2ecc71;
+  --color-status-dnf: #e74c3c;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Sidebar */
+  --sidebar-width: 56px;
+  --topbar-height: 48px;
+  --bottombar-height: 44px;
+
+  /* Shadows */
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms ease;
+}
+
+/* ── Base Styles ────────────────────────────────────────── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* ── Utility Classes ────────────────────────────────────── */
+
+.font-timing {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.text-position-1 { color: var(--color-pos-1); }
+.text-position-2 { color: var(--color-pos-2); }
+.text-position-3 { color: var(--color-pos-3); }
+
+.bg-position-1 { background-color: var(--color-pos-1); color: #000; }
+.bg-position-2 { background-color: var(--color-pos-2); color: #000; }
+.bg-position-3 { background-color: var(--color-pos-3); color: #fff; }
+
+/* ── Layout Shell ───────────────────────────────────────── */
+
+.app-shell {
+  display: grid;
+  grid-template-rows: var(--topbar-height) 1fr var(--bottombar-height);
+  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-areas:
+    "topbar  topbar"
+    "sidebar main"
+    "bottombar bottombar";
+  height: 100vh;
+  width: 100vw;
+}
+
+.app-topbar {
+  grid-area: topbar;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-md);
+  gap: var(--space-md);
+  z-index: 20;
+}
+
+.app-sidebar {
+  grid-area: sidebar;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-sm) 0;
+  gap: var(--space-xs);
+  z-index: 10;
+}
+
+.app-main {
+  grid-area: main;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-md);
+}
+
+.app-bottombar {
+  grid-area: bottombar;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-md);
+  gap: var(--space-md);
+  z-index: 20;
+}
+
+/* ── Sidebar Tab Buttons ────────────────────────────────── */
+
+.sidebar-tab {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.sidebar-tab:hover {
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+}
+
+.sidebar-tab.active {
+  background: var(--color-accent-blue);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(74, 127, 247, 0.3);
+}
+
+.sidebar-tab.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  background: var(--color-accent-blue);
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Cards ──────────────────────────────────────────────── */
+
+.race-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: var(--space-md);
+  transition: all var(--transition-fast);
+}
+
+.race-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Leaderboard ────────────────────────────────────────── */
+
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 80px 100px 100px 80px;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  gap: var(--space-sm);
+  transition: background var(--transition-fast);
+}
+
+.leaderboard-row:hover {
+  background: var(--color-bg-card-hover);
+}
+
+.leaderboard-row.expanded {
+  background: var(--color-bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── Status Indicators ──────────────────────────────────── */
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.connected { background: var(--color-status-connected); box-shadow: 0 0 6px var(--color-status-connected); }
+.status-dot.disconnected { background: var(--color-status-disconnected); }
+.status-dot.warning { background: var(--color-status-warning); animation: pulse 2s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Position Badge ─────────────────────────────────────── */
+
+.position-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+/* ── Animations ─────────────────────────────────────────── */
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.slide-in-right {
+  animation: slideInRight var(--transition-normal) ease-out;
+}
+
+.fade-in {
+  animation: fadeIn var(--transition-normal) ease-out;
+}

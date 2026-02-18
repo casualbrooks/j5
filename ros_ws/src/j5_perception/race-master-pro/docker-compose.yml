@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      target: backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./config:/app/config
+    environment:
+      - DATABASE_PATH=/app/backend/data/racetracker.db
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-build
+    command: npx serve -s dist -l 5173
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped

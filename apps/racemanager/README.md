@@ -83,3 +83,46 @@ If the branch was recreated locally and you need to publish it to your GitHub fo
 - **Endpoints to align**: ensure it exposes `POST /ingest/lap` plus websocket topics `lap`, `leaderboard`, `race_status`, and `championship` so the bridge and UI continue to interoperate.
 - **Schema mapping**: map incoming lap fields to the lap counter payload `{ carId, raceId, lapTimeMs, onTrack, headingOk, minLapTimeOk, trackDistanceM, speedKph }` and store them in the Atlas collections noted above.
 - **Replay parity**: feed prerecorded MP4s through the same ingestion endpoint with `source: "replay"` and `replayId` to validate against live sessions.
+
+## Standalone + ROS 2 bridge modes
+
+The bridge now supports both non-ROS and ROS 2 execution so you can run on a
+single mini PC with only a USB camera and add ROS later.
+
+### Standalone (no ROS 2 required)
+1. Start the API service with SQLite (default):
+   ```bash
+   cp apps/racemanager/service/.env.example apps/racemanager/service/.env
+   python -m venv apps/racemanager/service/.venv
+   source apps/racemanager/service/.venv/bin/activate
+   pip install -r apps/racemanager/service/requirements.txt
+   uvicorn apps.racemanager.service.main:app --reload --env-file apps/racemanager/service/.env
+   ```
+2. In another shell, run a demo lap feed:
+   ```bash
+   python apps/racemanager/bridge/bridge.py --mode demo --service-url http://localhost:4000
+   ```
+3. Query leaderboard:
+   ```bash
+   curl http://localhost:4000/races/demo-race/leaderboard
+   ```
+
+### ROS 2 mode (when available)
+1. Source ROS 2:
+   ```bash
+   source /opt/ros/iron/setup.bash
+   ```
+2. Run bridge subscriber:
+   ```bash
+   python apps/racemanager/bridge/bridge.py --mode ros2 --topic /race/lap_event
+   ```
+3. Publish JSON lap event on topic for smoke test:
+   ```bash
+   ros2 topic pub /race/lap_event std_msgs/msg/String '{data: "{\"raceId\":\"demo-race\",\"carId\":\"car-7\",\"sessionLap\":1,\"lapTimeMs\":70000,\"trackDistanceM\":350.0,\"validity\":{\"onTrack\":true,\"directionOk\":true,\"minLapTimeOk\":true}}"}' --once
+   ```
+
+### Websocket updates for GUI
+- Connect GUI clients to `ws://<host>:4000/ws`.
+- Service broadcasts:
+  - `type="lap"` after each ingest
+  - `type="leaderboard"` with recalculated standings

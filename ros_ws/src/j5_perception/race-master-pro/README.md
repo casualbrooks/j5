@@ -77,6 +77,24 @@ Edit `config/default.yaml` for:
 - Camera sources
 - Perception mode (standalone vs ROS2)
 
+
+## Raspberry Pi Deployment Workflow
+
+Run the preflight checker from your SSH session before each track setup:
+
+```bash
+python3 scripts/pi_preflight.py --backend-host <api-host> --backend-port 8080 --health-url http://<api-host>:8080/health --wizard
+```
+
+This verifies:
+- ROS2 CLI availability
+- Backend TCP/HTTP connectivity
+- Camera discovery
+- Optional track snapshot capture
+- Interactive race setup summary (racers, laps, scale assumptions)
+
+See `docs/PI_DEPLOYMENT_GAP_ANALYSIS.md` for architecture status and priority roadmap.
+
 ## Documentation
 
 - [Quick Start](docs/QUICKSTART.md)

@@ -16,3 +16,12 @@ npm run dev
 ```
 
 Then open http://localhost:3000. Environment variables can be provided in a `.env.local` file.
+
+
+For headless servers (e.g., Raspberry Pi), bind dev server to all interfaces:
+
+```bash
+npm run dev -- --hostname 0.0.0.0 --port 3000
+```
+
+Then open `http://<pi-ip>:3000` from another device on the same network.

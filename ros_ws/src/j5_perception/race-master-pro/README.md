@@ -11,6 +11,11 @@ Run from a fresh shell before starting backend/frontend/perception:
 source ~/ros2_kilted/install/setup.bash
 source ~/j5/ros_ws/install/setup.bash
 
+# build/install the race-master-pro ROS2 node into the overlay
+cd ~/j5/ros_ws
+colcon build --symlink-install --packages-select racetracker_perception
+source ~/j5/ros_ws/install/setup.bash
+
 # verify CLI + package visibility
 command -v ros2
 ros2 -h | rg -w launch

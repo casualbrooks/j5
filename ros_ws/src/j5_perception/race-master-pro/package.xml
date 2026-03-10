@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>racetracker_perception</name>
+  <name>racetracker_perception_stack</name>
   <version>0.1.0</version>
   <description>ROS 2 perception node for Race Master Pro.</description>
   <maintainer email="opensource@j5.ai">J5 Maintainers</maintainer>

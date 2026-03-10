@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = "racetracker_perception"
+package_name = "racetracker_perception_stack"
 
 setup(
     name=package_name,
@@ -19,7 +19,7 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
-            "perception_node = racetracker_perception.perception_node:main",
+            "perception_node = racetracker_perception_stack.perception_node:main",
         ],
     },
 )

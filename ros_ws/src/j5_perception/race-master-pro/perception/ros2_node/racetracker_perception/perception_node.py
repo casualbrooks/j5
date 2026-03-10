@@ -3,7 +3,7 @@ ROS2 Perception Node — Subscribes to camera topics, runs AI inference, publish
 Requires ROS2 (Humble or later) and rclpy installed.
 
 Usage:
-  ros2 run racetracker_perception perception_node
+  ros2 run racetracker_perception_stack perception_node
 """
 
 import sys

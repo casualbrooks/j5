@@ -19,7 +19,7 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
-            "perception_node = racetracker_perception.perception_node:main",
+            "perception_node = racetracker_perception_stack.perception_node:main",
         ],
     },
 )

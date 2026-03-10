@@ -2,31 +2,71 @@
 
 A comprehensive real-time race tracking system with AI-powered computer vision, designed as a ROS2 perception module. Uses cameras as data sources and AI models (YOLO + DeepSORT) to track racing vehicles, compute lap times, and visualize race data.
 
-## Quick Start (3 Steps)
+## Prerequisites (verify first)
 
-### 1. Start the Backend
+Run from a fresh shell before starting backend/frontend/perception:
+
+```bash
+# source ROS2 underlay + J5 overlay (source-build flow)
+source ~/ros2_kilted/install/setup.bash
+source ~/j5/ros_ws/install/setup.bash
+
+# verify CLI + package visibility
+command -v ros2
+ros2 -h | rg -w launch
+ros2 pkg list | rg '^racetracker_perception$'
+```
+
+If `ros2` or `launch` is missing, fix underlay/overlay first (do not continue to backend/frontend until this passes).
+
+## Quick Start (source-build workflow)
+
+### 1. Start the Backend (Python deps in venv)
+
 ```bash
 cd backend
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python -m app.main
 ```
+
 Backend starts at `http://localhost:8080` (API docs at `/docs`).
 
+For headless/remote access from another device on the same network, use the Pi host IP
+(for example `http://<pi-ip>:8080`) instead of `localhost`.
+
+> `ModuleNotFoundError: No module named 'fastapi'` means the backend venv is not active
+> (or requirements were not installed in that interpreter).
+
 ### 2. Start the Frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+
 Frontend starts at `http://localhost:5173`.
 
+For remote browser access, open `http://<pi-ip>:5173` and run Vite with host binding
+(for example `npm run dev -- --host 0.0.0.0`) if needed.
+
 ### 3. Run the Perception System
+
 ```bash
 # Standalone mode (no ROS2 needed, uses mock cameras)
 python -m perception.standalone.standalone_runner
 
-# Or with ROS2
+# ROS2 node mode (requires sourced underlay + overlay in THIS shell)
 ros2 run racetracker_perception perception_node
+```
+
+If you see `ros2: command not found` here, re-source before running the node:
+
+```bash
+source ~/ros2_kilted/install/setup.bash
+source ~/j5/ros_ws/install/setup.bash
 ```
 
 ## Features

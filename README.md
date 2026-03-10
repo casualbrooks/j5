@@ -33,11 +33,16 @@ source ~/j5/ros_ws/install/setup.bash
 
 ```
 
-Install Python dependencies:
+Install Python dependencies (system Python on Debian/Ubuntu may enforce PEP 668):
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 pre-commit install
 ```
+
+If you need system-wide installs, prefer apt packages; use `pip --break-system-packages`
+only when you understand the trade-offs.
 
 Launch the robot:
 ```bash
@@ -142,10 +147,59 @@ Then rebuild the J5 overlay:
 ```bash
 cd ~/j5/ros_ws
 rm -rf build install log
-colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+colcon build --symlink-install --allow-overriding fastdds \
+  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 source install/setup.bash
 ```
 
+If `ros2 launch` returns `invalid choice: 'launch'`, you are in a partial ROS CLI environment.
+From a fresh shell, verify the launch command is actually available before attempting bringup:
+```bash
+source ~/ros2_kilted/install/setup.bash
+source ~/j5/ros_ws/install/setup.bash
+ros2 -h | rg -w launch || true
+ros2 pkg list | rg '^j5_bringup$' || true
+```
+Only run bringup when `ros2 -h` includes `launch`:
+```bash
+ros2 launch j5_bringup bringup.launch.py
+```
+If `ros2 -h` still does not include `launch`, your underlay may be missing launch CLI plugins, or
+your shell may be invoking the wrong `ros2` binary. After installing/building `ros2launch` and
+`launch_ros`, verify binary + plugin discovery explicitly:
+```bash
+hash -r
+command -v ros2
+ros2 extensions | rg 'launch|ros2launch' || true
+ROS2_BIN="$(find ~/ros2_kilted/install -type f -path '*/bin/ros2' | head -n 1)"
+echo "$ROS2_BIN"
+"$ROS2_BIN" -h | rg -w launch || true
+```
+If `"$ROS2_BIN"` shows `launch` but `ros2` does not, your PATH is pointing at another install.
+`j5_bringup` being discoverable alone is not sufficient.
+If `"$ROS2_BIN"` still does **not** show `launch` (your current case), your source underlay
+`~/ros2_kilted` is missing launch plugins in that same install tree.
+
+For a source-only workflow, build launch packages in that underlay and re-source:
+```bash
+cd ~/ros2_kilted
+colcon list | rg '^(ros2launch|launch_ros)$' || true
+colcon build --symlink-install --packages-up-to ros2launch launch_ros
+source install/setup.bash
+source ~/j5/ros_ws/install/setup.bash
+ros2 -h | rg -w launch
+```
+Do **not** mix ROS distro package names (for example installing `ros-iron-*` on a Kilted setup):
+underlay, apt packages, and sourced environment must all target the same distro.
+
+`demo_nodes_py` is optional and may be absent in source-built setups; it is not a
+reliable bringup health check for this repo. Prefer non-execution checks first:
+```bash
+ros2 pkg list | rg '^j5_'
+ros2 pkg executables j5_voice
+```
+If the package is present but runtime nodes crash on your target, treat that as a package-level
+bug to debug separately from underlay/overlay environment setup.
 
 Because CMake caches the interpreter path, if you ever configured in a venv you must clean the ROS underlay build cache before retrying:
 ```bash

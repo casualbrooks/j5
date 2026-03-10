@@ -12,17 +12,26 @@ source ~/ros2_kilted/install/setup.bash
 
 # build + source the J5 overlay so racetracker_perception is registered
 cd ~/j5/ros_ws
-colcon build --symlink-install --packages-select racetracker_perception
+colcon build --symlink-install \
+  --base-paths src/j5_perception/race-master-pro/perception/ros2_node \
+  --packages-select racetracker_perception
 source ~/j5/ros_ws/install/setup.bash
 
 # build/install the race-master-pro ROS2 node into the overlay
 cd ~/j5/ros_ws
-colcon build --symlink-install --packages-select racetracker_perception
+colcon build --symlink-install \
+  --base-paths src/j5_perception/race-master-pro/perception/ros2_node \
+  --packages-select racetracker_perception
 source ~/j5/ros_ws/install/setup.bash
 
 # verify CLI + package visibility
 command -v ros2
 ros2 -h | rg -w launch
+
+# verify the package exists in your source tree first
+find src -name package.xml | rg 'racetracker_perception'
+
+# then verify it's registered in ROS after build+source
 ros2 pkg list | rg '^racetracker_perception$'
 ```
 
@@ -82,10 +91,132 @@ If you see `Package 'racetracker_perception' not found`, build and re-source the
 
 ```bash
 cd ~/j5/ros_ws
-colcon build --symlink-install --packages-select racetracker_perception
+colcon build --symlink-install \
+  --base-paths src/j5_perception/race-master-pro/perception/ros2_node \
+  --packages-select racetracker_perception
 source ~/j5/ros_ws/install/setup.bash
 ros2 pkg list | rg '^racetracker_perception$'
 ```
+
+If `ros2 run racetracker_perception perception_node` fails with `ModuleNotFoundError: No module named 'sensor_msgs'`, your underlay is missing ROS message packages in the active environment. Re-source first, then verify:
+
+```bash
+source ~/ros2_kilted/install/setup.bash
+source ~/j5/ros_ws/install/setup.bash
+ros2 pkg list | rg '^sensor_msgs$'
+python3 -c "from sensor_msgs.msg import Image; print('sensor_msgs OK')"
+```
+
+If `sensor_msgs` is still missing, make sure you are building the underlay (not `~/j5/ros_ws`), then re-source both layers:
+
+```bash
+cd ~/ros2_kilted
+find src -name package.xml | rg 'sensor_msgs'
+
+# if listed, build it from the underlay
+colcon build --symlink-install --packages-select sensor_msgs \
+  || colcon build --symlink-install \
+       --base-paths src/common_interfaces/sensor_msgs \
+       --packages-select sensor_msgs
+source ~/ros2_kilted/install/setup.bash
+
+cd ~/j5/ros_ws
+source ~/j5/ros_ws/install/setup.bash
+ros2 pkg list | rg '^sensor_msgs$'
+python3 -c "from sensor_msgs.msg import Image; print('sensor_msgs OK')"
+ros2 run racetracker_perception perception_node
+```
+
+If `find src -name package.xml | rg 'sensor_msgs'` returns nothing in `~/ros2_kilted`, your underlay sources are incomplete; sync/update `common_interfaces` in that workspace, rebuild underlay, then retry.
+
+If `colcon` prints `ignoring unknown package 'racetracker_perception'`, that build did not run (no-op). `ros2 pkg list` may still show a previously-installed copy, so force a targeted rebuild from `--base-paths` before trusting runtime behavior.
+
+If `colcon` says the package is unknown, confirm package metadata and env paths first:
+
+```bash
+cd ~/j5/ros_ws
+find src -name package.xml | rg 'racetracker_perception'
+echo $AMENT_PREFIX_PATH
+echo $CMAKE_PREFIX_PATH
+echo $COLCON_CURRENT_PREFIX
+```
+
+If `package.xml` exists but `--packages-select racetracker_perception` is still unknown, build from the ROS2 node directory explicitly (the parent `src/j5_perception` package can prevent nested package discovery):
+
+```bash
+cd ~/j5/ros_ws
+colcon build --symlink-install \
+  --base-paths src/j5_perception/race-master-pro/perception/ros2_node \
+  --packages-select racetracker_perception
+source ~/j5/ros_ws/install/setup.bash
+ros2 pkg list | rg '^racetracker_perception$'
+```
+
+If `find` returns nothing, your workspace checkout is missing the Race Master Pro ROS2 package; sync/update `~/j5/ros_ws/src/j5_perception/race-master-pro` and retry.
+
+If the traceback still shows `self.subscriptions = []`, first verify your *source file* is updated:
+
+```bash
+cd ~/j5/ros_ws
+rg 'image_subscriptions|self\.subscriptions' \
+  src/j5_perception/race-master-pro/perception/ros2_node/racetracker_perception/perception_node.py
+
+# expected: image_subscriptions only
+# if source still shows self.subscriptions, your local file is old
+```
+
+Confirm the tracked version at current HEAD too (catches accidental edits / wrong branch):
+
+```bash
+cd ~/j5
+git status --short ros_ws/src/j5_perception/race-master-pro/perception/ros2_node/racetracker_perception/perception_node.py
+git show HEAD:ros_ws/src/j5_perception/race-master-pro/perception/ros2_node/racetracker_perception/perception_node.py | rg 'image_subscriptions|self\.subscriptions'
+```
+
+If HEAD still shows `self.subscriptions`, your current branch does not include the fix yet. Sync to a branch/commit that contains it, or apply this local patch and rebuild:
+
+```bash
+cd ~/j5
+python3 - <<'PY2'
+from pathlib import Path
+p = Path('ros_ws/src/j5_perception/race-master-pro/perception/ros2_node/racetracker_perception/perception_node.py')
+s = p.read_text()
+s = s.replace('self.subscriptions = []', 'self.image_subscriptions = []')
+s = s.replace('self.subscriptions.append(sub)', 'self.image_subscriptions.append(sub)')
+p.write_text(s)
+print('patched perception_node.py')
+PY2
+```
+
+Also verify which module path your current shell will import (to catch wrong/old overlays):
+
+```bash
+python3 -c "import racetracker_perception.perception_node as p; print(p.__file__)"
+ros2 pkg prefix racetracker_perception
+```
+
+If either path points outside `~/j5/ros_ws`, re-source the intended underlay/overlay and retry.
+
+Then rebuild from a clean state:
+
+```bash
+cd ~/j5/ros_ws
+rm -rf build/racetracker_perception install/racetracker_perception
+
+# optional: clear stale deleted-path warning in current shell
+export AMENT_PREFIX_PATH=$(echo "$AMENT_PREFIX_PATH" | tr ':' '\n' | rg -v 'install/racetracker_perception$' | paste -sd: -)
+
+colcon build --symlink-install \
+  --base-paths src/j5_perception/race-master-pro/perception/ros2_node \
+  --packages-select racetracker_perception
+source ~/j5/ros_ws/install/setup.bash
+
+# verify rebuilt artifact now matches source
+rg 'image_subscriptions|self\.subscriptions' \
+  build/racetracker_perception/racetracker_perception/perception_node.py
+ros2 run racetracker_perception perception_node
+```
+
 
 ## Features
 

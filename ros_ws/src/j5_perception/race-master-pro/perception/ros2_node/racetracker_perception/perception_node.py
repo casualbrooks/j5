@@ -3,7 +3,7 @@ ROS2 Perception Node — Subscribes to camera topics, runs AI inference, publish
 Requires ROS2 (Humble or later) and rclpy installed.
 
 Usage:
-  ros2 run racetracker_perception_stack perception_node
+  ros2 run racetracker_perception perception_node
 """
 
 import sys
@@ -52,7 +52,7 @@ if ROS2_AVAILABLE:
             )
 
             # Create subscribers for each camera topic
-            self.subscriptions = []
+            self.image_subscriptions = []
             for topic in camera_topics:
                 sub = self.create_subscription(
                     Image,
@@ -60,7 +60,7 @@ if ROS2_AVAILABLE:
                     lambda msg, t=topic: self.image_callback(msg, t),
                     10,
                 )
-                self.subscriptions.append(sub)
+                self.image_subscriptions.append(sub)
                 self.get_logger().info(f"Subscribed to camera topic: {topic}")
 
             self.get_logger().info("Race Master Pro — Perception Node started")

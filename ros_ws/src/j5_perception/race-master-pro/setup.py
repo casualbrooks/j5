@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = "racetracker_perception"
+package_name = "racetracker_perception_stack"
 
 setup(
     name=package_name,

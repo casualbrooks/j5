@@ -7,8 +7,12 @@ A comprehensive real-time race tracking system with AI-powered computer vision, 
 Run from a fresh shell before starting backend/frontend/perception:
 
 ```bash
-# source ROS2 underlay + J5 overlay (source-build flow)
+# source ROS2 underlay
 source ~/ros2_kilted/install/setup.bash
+
+# build + source the J5 overlay so racetracker_perception is registered
+cd ~/j5/ros_ws
+colcon build --symlink-install --packages-select racetracker_perception
 source ~/j5/ros_ws/install/setup.bash
 
 # build/install the race-master-pro ROS2 node into the overlay
@@ -72,6 +76,15 @@ If you see `ros2: command not found` here, re-source before running the node:
 ```bash
 source ~/ros2_kilted/install/setup.bash
 source ~/j5/ros_ws/install/setup.bash
+```
+
+If you see `Package 'racetracker_perception' not found`, build and re-source the overlay:
+
+```bash
+cd ~/j5/ros_ws
+colcon build --symlink-install --packages-select racetracker_perception
+source ~/j5/ros_ws/install/setup.bash
+ros2 pkg list | rg '^racetracker_perception$'
 ```
 
 ## Features

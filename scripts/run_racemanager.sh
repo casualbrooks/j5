@@ -56,12 +56,41 @@ find_ros2_bin() {
 
 usage() {
   cat <<USAGE
-Usage: $0 [--mode standalone|ros2] [--host 0.0.0.0] [--api-port 4000] [--ui-port 3000] [--pi-ip <LAN_IP>] [--topic /race/lap_event] [--ros-setup /path/to/install/setup.bash]
+Usage: $0 [--mode standalone|ros2] [--host 0.0.0.0] [--api-port 4000] [--ui-port 3000] [--pi-ip <LAN_IP>] [--topic /race/lap_event] [--ros-setup /path/to/install/setup.bash] [--print-systemd]
 
 Starts race manager backend + frontend and optional bridge.
 - standalone: bridge runs demo mode (no ROS 2 required)
 - ros2: bridge subscribes to ROS 2 topic (requires a source-built ROS 2 workspace)
+- print-systemd: print a ready-to-run systemd setup snippet and exit
 USAGE
+}
+
+print_systemd_snippet() {
+  local service_user
+  service_user="${SUDO_USER:-$(id -un)}"
+  cat <<SYSTEMD
+sudo tee /etc/systemd/system/racemanager.service >/dev/null <<'EOF'
+[Unit]
+Description=Race Manager stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${service_user}
+WorkingDirectory=${REPO_ROOT}
+ExecStart=${REPO_ROOT}/scripts/run_racemanager.sh --mode ${MODE} --host ${HOST} --api-port ${API_PORT} --ui-port ${UI_PORT} --pi-ip ${PI_IP} --topic ${RACE_TOPIC}${ROS_SETUP:+ --ros-setup ${ROS_SETUP}}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now racemanager.service
+sudo systemctl status racemanager.service --no-pager
+SYSTEMD
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,9 +102,18 @@ while [[ $# -gt 0 ]]; do
     --pi-ip) PI_IP="$2"; shift 2 ;;
     --topic) RACE_TOPIC="$2"; shift 2 ;;
     --ros-setup) ROS_SETUP="$2"; shift 2 ;;
+    --print-systemd) PRINT_SYSTEMD="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
+done
+
+for cmd in npm; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing dependency: '$cmd' is not on PATH."
+    echo "Install once on Ubuntu Server: sudo apt update && sudo apt install -y nodejs npm python3-venv"
+    exit 2
+  fi
 done
 
 if [[ "$MODE" != "standalone" && "$MODE" != "ros2" ]]; then
@@ -85,6 +123,11 @@ fi
 
 if [[ -z "$PI_IP" ]]; then
   PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+
+if [[ "$PRINT_SYSTEMD" == "true" ]]; then
+  print_systemd_snippet
+  exit 0
 fi
 if [[ -z "$PI_IP" ]]; then
   PI_IP="localhost"

@@ -107,6 +107,7 @@ fi
 "$VENV_PYTHON" -m pip install -r apps/racemanager/service/requirements.txt >/dev/null
 
 if [[ "$MODE" == "ros2" ]]; then
+  ROS_UNDERLAY_SETUP="$HOME/ros2_kilted/install/setup.bash"
   if [[ -z "$ROS_SETUP" ]]; then
     if [[ -f "$HOME/j5/ros_ws/install/setup.bash" ]]; then
       ROS_SETUP="$HOME/j5/ros_ws/install/setup.bash"

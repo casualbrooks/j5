@@ -27,14 +27,6 @@ find_python_bin() {
   return 1
 }
 
-source_setup_bash() {
-  local setup_file="$1"
-  set +u
-  # shellcheck disable=SC1090
-  source "$setup_file"
-  set -u
-}
-
 
 find_ros2_bin() {
   local base="$1"

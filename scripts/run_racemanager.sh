@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
 MODE="standalone"
 HOST="0.0.0.0"
 API_PORT="4000"
@@ -8,6 +12,28 @@ UI_PORT="3000"
 PI_IP=""
 RACE_TOPIC="/race/lap_event"
 ROS_SETUP=""
+VENV_DIR="apps/racemanager/service/.venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
+
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
+
+source_setup_bash() {
+  local setup_file="$1"
+  set +u
+  # shellcheck disable=SC1090
+  source "$setup_file"
+  set -u
+}
 
 
 find_ros2_bin() {
@@ -65,14 +91,20 @@ if [[ ! -f "apps/racemanager/service/.env" && -f "apps/racemanager/service/.env.
   cp apps/racemanager/service/.env.example apps/racemanager/service/.env
 fi
 
-if [[ ! -d "apps/racemanager/service/.venv" ]]; then
-  python -m venv apps/racemanager/service/.venv
+PYTHON_BIN="$(find_python_bin || true)"
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "Python is required but neither 'python3' nor 'python' was found on PATH."
+  exit 2
 fi
 
-source apps/racemanager/service/.venv/bin/activate
-pip install -r apps/racemanager/service/requirements.txt >/dev/null
+if [[ ! -d "$VENV_DIR" ]]; then
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
+
+"$VENV_PYTHON" -m pip install -r apps/racemanager/service/requirements.txt >/dev/null
 
 if [[ "$MODE" == "ros2" ]]; then
+  ROS_UNDERLAY_SETUP="$HOME/ros2_kilted/install/setup.bash"
   if [[ -z "$ROS_SETUP" ]]; then
     if [[ -f "$HOME/j5/ros_ws/install/setup.bash" ]]; then
       ROS_SETUP="$HOME/j5/ros_ws/install/setup.bash"
@@ -94,15 +126,12 @@ if [[ "$MODE" == "ros2" ]]; then
   unset CMAKE_PREFIX_PATH
   unset COLCON_CURRENT_PREFIX
 
-  # shellcheck disable=SC1090
-  source "$ROS_SETUP"
+  source_setup_bash "$ROS_SETUP"
 
   if ! command -v ros2 >/dev/null 2>&1; then
-    if [[ -f "$HOME/ros2_kilted/install/setup.bash" ]]; then
-      # shellcheck disable=SC1090
-      source "$HOME/ros2_kilted/install/setup.bash"
-      # shellcheck disable=SC1090
-      source "$ROS_SETUP"
+    if [[ -f "$ROS_UNDERLAY_SETUP" ]]; then
+      source_setup_bash "$ROS_UNDERLAY_SETUP"
+      source_setup_bash "$ROS_SETUP"
     fi
   fi
 
@@ -142,7 +171,7 @@ export HTTP_PORT="$API_PORT"
 export NEXT_PUBLIC_API_BASE="http://$PI_IP:$API_PORT"
 export NEXT_PUBLIC_WS_URL="ws://$PI_IP:$API_PORT/ws"
 
-python -m uvicorn apps.racemanager.service.main:app --host "$HOST" --port "$API_PORT" --env-file apps/racemanager/service/.env &
+"$VENV_PYTHON" -m uvicorn apps.racemanager.service.main:app --host "$HOST" --port "$API_PORT" --env-file apps/racemanager/service/.env &
 API_PID=$!
 
 (
@@ -155,10 +184,10 @@ UI_PID=$!
 sleep 2
 
 if [[ "$MODE" == "ros2" ]]; then
-  python apps/racemanager/bridge/bridge.py --mode ros2 --service-url "http://localhost:$API_PORT" --topic "$RACE_TOPIC" &
+  "$VENV_PYTHON" apps/racemanager/bridge/bridge.py --mode ros2 --service-url "http://localhost:$API_PORT" --topic "$RACE_TOPIC" &
   BRIDGE_PID=$!
 else
-  python apps/racemanager/bridge/bridge.py --mode demo --service-url "http://localhost:$API_PORT" &
+  "$VENV_PYTHON" apps/racemanager/bridge/bridge.py --mode demo --service-url "http://localhost:$API_PORT" &
   BRIDGE_PID=$!
 fi
 

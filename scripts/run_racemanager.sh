@@ -27,6 +27,17 @@ find_python_bin() {
   return 1
 }
 
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
 
 find_ros2_bin() {
   local base="$1"

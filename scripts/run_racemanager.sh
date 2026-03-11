@@ -117,15 +117,12 @@ if [[ "$MODE" == "ros2" ]]; then
   unset CMAKE_PREFIX_PATH
   unset COLCON_CURRENT_PREFIX
 
-  # shellcheck disable=SC1090
-  source "$ROS_SETUP"
+  source_setup_bash "$ROS_SETUP"
 
   if ! command -v ros2 >/dev/null 2>&1; then
     if [[ -f "$HOME/ros2_kilted/install/setup.bash" ]]; then
-      # shellcheck disable=SC1090
-      source "$HOME/ros2_kilted/install/setup.bash"
-      # shellcheck disable=SC1090
-      source "$ROS_SETUP"
+      source_setup_bash "$HOME/ros2_kilted/install/setup.bash"
+      source_setup_bash "$ROS_SETUP"
     fi
   fi
 

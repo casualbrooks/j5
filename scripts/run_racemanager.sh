@@ -222,7 +222,9 @@ API_PID=$!
 
 (
   cd apps/racemanager/ui
-  npm install >/dev/null
+  if [[ ! -d node_modules ]]; then
+    npm install >/dev/null
+  fi
   npm run dev -- --hostname "$HOST" --port "$UI_PORT"
 ) &
 UI_PID=$!

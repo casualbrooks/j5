@@ -27,13 +27,16 @@ find_python_bin() {
   return 1
 }
 
-# Backward-compatible helper for ROS setup sourcing.
-source_setup_bash() {
-  local setup_file="$1"
-  set +u
-  # shellcheck disable=SC1090
-  source "$setup_file"
-  set -u
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
 }
 
 find_ros2_bin() {
@@ -129,8 +132,8 @@ if [[ "$MODE" == "ros2" ]]; then
   source_setup_bash "$ROS_SETUP"
 
   if ! command -v ros2 >/dev/null 2>&1; then
-    if [[ -f "$ROS_UNDERLAY_SETUP" ]]; then
-      source_setup_bash "$ROS_UNDERLAY_SETUP"
+    if [[ -f "$HOME/ros2_kilted/install/setup.bash" ]]; then
+      source_setup_bash "$HOME/ros2_kilted/install/setup.bash"
       source_setup_bash "$ROS_SETUP"
     fi
   fi

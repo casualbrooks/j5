@@ -4,6 +4,28 @@ This is a `colcon` overlay workspace containing J5 ROS 2 packages.
 
 ## Linux / Raspberry Pi quick start
 
+### Race manager script from `ros_ws`
+
+If you are already working from `~/j5/ros_ws`, run the existing repo-root script
+with a relative path:
+
+```bash
+../scripts/run_racemanager.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip>
+```
+
+For unattended headless startup on boot (systemd), print and run the generated
+service setup snippet:
+
+```bash
+../scripts/run_racemanager.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip> --print-systemd
+```
+
+If the service restarts/fails, inspect logs with:
+
+```bash
+sudo journalctl -u racemanager.service -n 200 --no-pager
+```
+
 1. Verify underlay launch support first (before moving to this overlay):
 
    ```bash

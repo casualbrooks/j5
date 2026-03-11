@@ -14,7 +14,18 @@ RACE_TOPIC="/race/lap_event"
 ROS_SETUP=""
 VENV_DIR="apps/racemanager/service/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
-PRINT_SYSTEMD="false"
+
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
 
 find_python_bin() {
   if command -v python3 >/dev/null 2>&1; then
@@ -136,11 +147,6 @@ if [[ ! -d "$VENV_DIR" ]]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
-if [[ ! -x "$VENV_PYTHON" ]]; then
-  echo "Virtualenv python not found at $VENV_PYTHON"
-  exit 2
-fi
-
 "$VENV_PYTHON" -m pip install -r apps/racemanager/service/requirements.txt >/dev/null
 
 if [[ "$MODE" == "ros2" ]]; then
@@ -166,19 +172,12 @@ if [[ "$MODE" == "ros2" ]]; then
   unset CMAKE_PREFIX_PATH
   unset COLCON_CURRENT_PREFIX
 
-  set +u
-  # shellcheck disable=SC1090
-  source "$ROS_SETUP"
-  set -u
+  source_setup_bash "$ROS_SETUP"
 
   if ! command -v ros2 >/dev/null 2>&1; then
-    if [[ -f "$ROS_UNDERLAY_SETUP" ]]; then
-      set +u
-      # shellcheck disable=SC1090
-      source "$ROS_UNDERLAY_SETUP"
-      # shellcheck disable=SC1090
-      source "$ROS_SETUP"
-      set -u
+    if [[ -f "$HOME/ros2_kilted/install/setup.bash" ]]; then
+      source_setup_bash "$HOME/ros2_kilted/install/setup.bash"
+      source_setup_bash "$ROS_SETUP"
     fi
   fi
 

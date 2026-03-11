@@ -13,13 +13,6 @@ with a relative path:
 ../scripts/run_racemanager.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip>
 ```
 
-For unattended headless startup on boot (systemd), print and run the generated
-service setup snippet:
-
-```bash
-../scripts/run_racemanager.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip> --print-systemd
-```
-
 1. Verify underlay launch support first (before moving to this overlay):
 
    ```bash

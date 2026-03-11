@@ -14,7 +14,18 @@ RACE_TOPIC="/race/lap_event"
 ROS_SETUP=""
 VENV_DIR="apps/racemanager/service/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
-PRINT_SYSTEMD="false"
+
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
 
 find_python_bin() {
   if command -v python3 >/dev/null 2>&1; then
@@ -56,20 +67,7 @@ USAGE
 
 print_systemd_snippet() {
   local service_user
-  local service_home
-  local service_ros_setup
   service_user="${SUDO_USER:-$(id -un)}"
-  service_home="$(eval echo "~${service_user}")"
-  service_ros_setup="${ROS_SETUP:-}"
-
-  if [[ "$MODE" == "ros2" && -z "$service_ros_setup" ]]; then
-    if [[ -f "$service_home/j5/ros_ws/install/setup.bash" ]]; then
-      service_ros_setup="$service_home/j5/ros_ws/install/setup.bash"
-    elif [[ -f "$REPO_ROOT/ros_ws/install/setup.bash" ]]; then
-      service_ros_setup="$REPO_ROOT/ros_ws/install/setup.bash"
-    fi
-  fi
-
   cat <<SYSTEMD
 sudo tee /etc/systemd/system/racemanager.service >/dev/null <<'EOF'
 [Unit]
@@ -81,9 +79,7 @@ Wants=network-online.target
 Type=simple
 User=${service_user}
 WorkingDirectory=${REPO_ROOT}
-Environment=HOME=${service_home}
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=${REPO_ROOT}/scripts/run_racemanager.sh --mode ${MODE} --host ${HOST} --api-port ${API_PORT} --ui-port ${UI_PORT} --pi-ip ${PI_IP} --topic ${RACE_TOPIC}${service_ros_setup:+ --ros-setup ${service_ros_setup}}
+ExecStart=${REPO_ROOT}/scripts/run_racemanager.sh --mode ${MODE} --host ${HOST} --api-port ${API_PORT} --ui-port ${UI_PORT} --pi-ip ${PI_IP} --topic ${RACE_TOPIC}${ROS_SETUP:+ --ros-setup ${ROS_SETUP}}
 Restart=on-failure
 RestartSec=3
 
@@ -129,7 +125,7 @@ if [[ -z "$PI_IP" ]]; then
   PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 fi
 
-if [[ "${PRINT_SYSTEMD:-false}" == "true" ]]; then
+if [[ "$PRINT_SYSTEMD" == "true" ]]; then
   print_systemd_snippet
   exit 0
 fi
@@ -149,11 +145,6 @@ fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
-fi
-
-if [[ ! -x "$VENV_PYTHON" ]]; then
-  echo "Virtualenv python not found at $VENV_PYTHON"
-  exit 2
 fi
 
 "$VENV_PYTHON" -m pip install -r apps/racemanager/service/requirements.txt >/dev/null
@@ -181,19 +172,12 @@ if [[ "$MODE" == "ros2" ]]; then
   unset CMAKE_PREFIX_PATH
   unset COLCON_CURRENT_PREFIX
 
-  set +u
-  # shellcheck disable=SC1090
-  source "$ROS_SETUP"
-  set -u
+  source_setup_bash "$ROS_SETUP"
 
   if ! command -v ros2 >/dev/null 2>&1; then
-    if [[ -f "$ROS_UNDERLAY_SETUP" ]]; then
-      set +u
-      # shellcheck disable=SC1090
-      source "$ROS_UNDERLAY_SETUP"
-      # shellcheck disable=SC1090
-      source "$ROS_SETUP"
-      set -u
+    if [[ -f "$HOME/ros2_kilted/install/setup.bash" ]]; then
+      source_setup_bash "$HOME/ros2_kilted/install/setup.bash"
+      source_setup_bash "$ROS_SETUP"
     fi
   fi
 

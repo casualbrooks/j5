@@ -13,38 +13,6 @@ with a relative path:
 ../scripts/run_racemanager.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip>
 ```
 
-For unattended headless startup on boot (systemd), print and run the generated
-service setup snippet:
-
-```bash
-../scripts/run_racemanager.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip> --print-systemd
-```
-
-If the service restarts/fails, inspect logs with:
-
-```bash
-sudo journalctl -u racemanager.service -n 200 --no-pager
-```
-
-After updating `scripts/run_racemanager.sh`, reload and restart the service to
-pick up the new script version:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart racemanager.service
-sudo systemctl status racemanager.service --no-pager
-```
-
-If you still see `PRINT_SYSTEMD: unbound variable`, verify the script on the Pi
-contains `PRINT_SYSTEMD="false"` near the top, then restart the service:
-
-```bash
-grep -n 'PRINT_SYSTEMD' ~/j5/scripts/run_racemanager.sh
-sudo systemctl daemon-reload
-sudo systemctl restart racemanager.service
-sudo journalctl -u racemanager.service -n 50 --no-pager
-```
-
 1. Verify underlay launch support first (before moving to this overlay):
 
    ```bash

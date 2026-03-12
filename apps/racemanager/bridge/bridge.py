@@ -145,18 +145,12 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
     class Ros2LapBridge(Node):
         def __init__(self) -> None:
             super().__init__("race_manager_bridge")
-            self._pending_messages: queue.Queue[Optional[str]] = queue.Queue(
-                maxsize=256
-            )
-            self._shutdown_event = threading.Event()
-            self._worker = threading.Thread(target=self._process_messages, daemon=True)
             # Keep a strong reference to the subscription. rclpy subscriptions can
             # be garbage-collected if not assigned, which may lead to unstable
             # runtime behavior when messages are published.
             self._subscription = self.create_subscription(
                 String, topic, self._on_message, 10
             )
-            self._worker.start()
             self.get_logger().info(f"Subscribed to {topic}")
 
         def _on_message(self, msg: String) -> None:

@@ -179,6 +179,15 @@ single mini PC with only a USB camera and add ROS later.
 Use `scripts/run_racemanager.sh` from the repo root to start backend + frontend and
 (optionally) the bridge in standalone/demo or ROS 2 mode.
 
+This launcher is the **all-in-one equivalent** of the manual service/UI/bridge steps above
+(so you can run without `tmux` if preferred).
+
+Before starting processes, run:
+
+```bash
+./scripts/run_racemanager.sh --mode ros2 --doctor
+```
+
 Examples:
 
 ```bash

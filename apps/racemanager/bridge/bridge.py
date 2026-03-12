@@ -182,6 +182,8 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
 
     rclpy.init()
     node = Ros2LapBridge()
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

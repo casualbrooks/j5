@@ -12,7 +12,9 @@ import argparse
 import json
 import logging
 import os
+import queue
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -153,31 +155,41 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
 
         def _on_message(self, msg: String) -> None:
             try:
-                # Copy to a pure Python string before processing.
-                raw_message = str(msg.data)
-                lap = LapEvent.from_json(raw_message)
-                bridge.emit_lap(lap)
-                self.get_logger().info(
-                    f"forwarded lap car={lap.carId} lap={lap.sessionLap}"
+                self._pending_messages.put_nowait(msg.data)
+            except queue.Full:
+                self.get_logger().error(
+                    "dropping lap message because processing queue is full"
                 )
-            except Exception as err:
-                self.get_logger().error(f"failed to process lap message: {err}")
+
+        def _process_messages(self) -> None:
+            while not self._shutdown_event.is_set():
+                raw_message = self._pending_messages.get()
+                if raw_message is None:
+                    return
+                try:
+                    lap = LapEvent.from_json(raw_message)
+                    bridge.emit_lap(lap)
+                    self.get_logger().info(
+                        f"forwarded lap car={lap.carId} lap={lap.sessionLap}"
+                    )
+                except Exception as err:
+                    self.get_logger().error(f"failed to process lap message: {err}")
+
+        def close(self) -> None:
+            self._shutdown_event.set()
+            self._pending_messages.put(None)
+            self._worker.join(timeout=2)
 
     rclpy.init()
     node = Ros2LapBridge()
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
     try:
-        while rclpy.ok():
-            executor.spin_once(timeout_sec=0.2)
+        rclpy.spin(node)
     except KeyboardInterrupt:
         logger.info("received Ctrl-C, shutting down ROS 2 bridge")
     finally:
-        try:
-            executor.remove_node(node)
-            executor.shutdown(timeout_sec=1.0)
-        except Exception as err:
-            logger.debug("executor shutdown warning: %s", err)
+        node.close()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

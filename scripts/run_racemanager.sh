@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -119,6 +123,24 @@ done
 if [[ "$MODE" != "standalone" && "$MODE" != "ros2" ]]; then
   echo "--mode must be standalone or ros2"
   exit 1
+fi
+
+apply_defaults
+
+if [[ "${PRINT_SYSTEMD:-false}" == "true" ]]; then
+  print_systemd_snippet
+  exit 0
+fi
+
+if [[ "${DOCTOR_MODE:-false}" == "true" ]]; then
+  echo "[run_racemanager] doctor: mode=$MODE host=$HOST api_port=$API_PORT ui_port=$UI_PORT"
+  echo "[run_racemanager] doctor: repo_root=$REPO_ROOT"
+  echo "[run_racemanager] doctor: python=$(find_python_bin || echo missing) npm=$(command -v npm || echo missing)"
+  echo "[run_racemanager] doctor: ros2=$(command -v ros2 || echo missing)"
+  if [[ "$MODE" == "ros2" ]]; then
+    echo "[run_racemanager] doctor: ros_setup=${ROS_SETUP:-auto}"
+  fi
+  exit 0
 fi
 
 if [[ -z "$PI_IP" ]]; then

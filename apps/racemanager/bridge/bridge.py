@@ -143,7 +143,12 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
     class Ros2LapBridge(Node):
         def __init__(self) -> None:
             super().__init__("race_manager_bridge")
-            self.create_subscription(String, topic, self._on_message, 10)
+            # Keep a strong reference to the subscription. rclpy subscriptions can
+            # be garbage-collected if not assigned, which may lead to unstable
+            # runtime behavior when messages are published.
+            self._subscription = self.create_subscription(
+                String, topic, self._on_message, 10
+            )
             self.get_logger().info(f"Subscribed to {topic}")
 
         def _on_message(self, msg: String) -> None:

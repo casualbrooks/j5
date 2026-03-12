@@ -143,12 +143,19 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
     class Ros2LapBridge(Node):
         def __init__(self) -> None:
             super().__init__("race_manager_bridge")
-            self.create_subscription(String, topic, self._on_message, 10)
+            # Keep a strong reference to the subscription. rclpy subscriptions can
+            # be garbage-collected if not assigned, which may lead to unstable
+            # runtime behavior when messages are published.
+            self._subscription = self.create_subscription(
+                String, topic, self._on_message, 10
+            )
             self.get_logger().info(f"Subscribed to {topic}")
 
         def _on_message(self, msg: String) -> None:
             try:
-                lap = LapEvent.from_json(msg.data)
+                # Copy to a pure Python string before processing.
+                raw_message = str(msg.data)
+                lap = LapEvent.from_json(raw_message)
                 bridge.emit_lap(lap)
                 self.get_logger().info(
                     f"forwarded lap car={lap.carId} lap={lap.sessionLap}"
@@ -158,11 +165,22 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
 
     rclpy.init()
     node = Ros2LapBridge()
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        while rclpy.ok():
+            executor.spin_once(timeout_sec=0.2)
+    except KeyboardInterrupt:
+        logger.info("received Ctrl-C, shutting down ROS 2 bridge")
     finally:
+        try:
+            executor.remove_node(node)
+            executor.shutdown(timeout_sec=1.0)
+        except Exception as err:
+            logger.debug("executor shutdown warning: %s", err)
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
     return 0
 
 

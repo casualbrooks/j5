@@ -184,6 +184,8 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
     node = Ros2LapBridge()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        logger.info("received Ctrl-C, shutting down ROS 2 bridge")
     finally:
         node.close()
         node.destroy_node()

@@ -12,7 +12,9 @@ import argparse
 import json
 import logging
 import os
+import queue
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -143,26 +145,56 @@ def run_ros2(bridge: RaceManagerBridge, *, topic: str) -> int:
     class Ros2LapBridge(Node):
         def __init__(self) -> None:
             super().__init__("race_manager_bridge")
-            self.create_subscription(String, topic, self._on_message, 10)
+            self._pending_messages: queue.Queue[Optional[str]] = queue.Queue(
+                maxsize=256
+            )
+            self._shutdown_event = threading.Event()
+            self._worker = threading.Thread(target=self._process_messages, daemon=True)
+            # Keep a strong reference to the subscription. rclpy subscriptions can
+            # be garbage-collected if not assigned, which may lead to unstable
+            # runtime behavior when messages are published.
+            self._subscription = self.create_subscription(
+                String, topic, self._on_message, 10
+            )
+            self._worker.start()
             self.get_logger().info(f"Subscribed to {topic}")
 
         def _on_message(self, msg: String) -> None:
             try:
-                lap = LapEvent.from_json(msg.data)
-                bridge.emit_lap(lap)
-                self.get_logger().info(
-                    f"forwarded lap car={lap.carId} lap={lap.sessionLap}"
+                self._pending_messages.put_nowait(msg.data)
+            except queue.Full:
+                self.get_logger().error(
+                    "dropping lap message because processing queue is full"
                 )
-            except Exception as err:
-                self.get_logger().error(f"failed to process lap message: {err}")
+
+        def _process_messages(self) -> None:
+            while not self._shutdown_event.is_set():
+                raw_message = self._pending_messages.get()
+                if raw_message is None:
+                    return
+                try:
+                    lap = LapEvent.from_json(raw_message)
+                    bridge.emit_lap(lap)
+                    self.get_logger().info(
+                        f"forwarded lap car={lap.carId} lap={lap.sessionLap}"
+                    )
+                except Exception as err:
+                    self.get_logger().error(f"failed to process lap message: {err}")
+
+        def close(self) -> None:
+            self._shutdown_event.set()
+            self._pending_messages.put(None)
+            self._worker.join(timeout=2)
 
     rclpy.init()
     node = Ros2LapBridge()
     try:
         rclpy.spin(node)
     finally:
+        node.close()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
     return 0
 
 

@@ -5,6 +5,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
 MODE="standalone"
 HOST="0.0.0.0"
 API_PORT="4000"
@@ -14,21 +18,18 @@ RACE_TOPIC="/race/lap_event"
 ROS_SETUP=""
 VENV_DIR="apps/racemanager/service/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
-PRINT_SYSTEMD="false"
-DOCTOR_MODE="false"
 
-# Defensive defaults for strict shells/systemd environments.
-MODE="${MODE:-standalone}"
-HOST="${HOST:-0.0.0.0}"
-API_PORT="${API_PORT:-4000}"
-UI_PORT="${UI_PORT:-3000}"
-PI_IP="${PI_IP:-}"
-RACE_TOPIC="${RACE_TOPIC:-/race/lap_event}"
-ROS_SETUP="${ROS_SETUP:-}"
-PRINT_SYSTEMD="${PRINT_SYSTEMD:-false}"
-DOCTOR_MODE="${DOCTOR_MODE:-false}"
-
-trap 'rc=$?; echo "[run_racemanager] ERROR line ${BASH_LINENO[0]}: ${BASH_COMMAND} (exit ${rc})" >&2' ERR
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  return 1
+}
 
 find_python_bin() {
   if command -v python3 >/dev/null 2>&1; then
@@ -59,39 +60,18 @@ find_ros2_bin() {
 
 usage() {
   cat <<USAGE
-Usage: $0 [--mode standalone|ros2] [--host 0.0.0.0] [--api-port 4000] [--ui-port 3000] [--pi-ip <LAN_IP>] [--topic /race/lap_event] [--ros-setup /path/to/install/setup.bash] [--print-systemd] [--doctor]
+Usage: $0 [--mode standalone|ros2] [--host 0.0.0.0] [--api-port 4000] [--ui-port 3000] [--pi-ip <LAN_IP>] [--topic /race/lap_event] [--ros-setup /path/to/install/setup.bash] [--print-systemd]
 
 Starts race manager backend + frontend and optional bridge.
 - standalone: bridge runs demo mode (no ROS 2 required)
 - ros2: bridge subscribes to ROS 2 topic (requires a source-built ROS 2 workspace)
 - print-systemd: print a ready-to-run systemd setup snippet and exit
-- doctor: run environment checks only (no services started)
 USAGE
 }
 
 print_systemd_snippet() {
   local service_user
-  local service_home
-  local service_ros_setup
-  local pi_ip_arg
   service_user="${SUDO_USER:-$(id -un)}"
-  service_home="$(eval echo "~${service_user}")"
-  service_ros_setup="${ROS_SETUP:-}"
-
-  if [[ -n "${PI_IP:-}" ]]; then
-    pi_ip_arg=" --pi-ip ${PI_IP}"
-  else
-    pi_ip_arg=""
-  fi
-
-  if [[ "$MODE" == "ros2" && -z "$service_ros_setup" ]]; then
-    if [[ -f "$service_home/j5/ros_ws/install/setup.bash" ]]; then
-      service_ros_setup="$service_home/j5/ros_ws/install/setup.bash"
-    elif [[ -f "$REPO_ROOT/ros_ws/install/setup.bash" ]]; then
-      service_ros_setup="$REPO_ROOT/ros_ws/install/setup.bash"
-    fi
-  fi
-
   cat <<SYSTEMD
 sudo tee /etc/systemd/system/racemanager.service >/dev/null <<'EOF'
 [Unit]
@@ -103,9 +83,7 @@ Wants=network-online.target
 Type=simple
 User=${service_user}
 WorkingDirectory=${REPO_ROOT}
-Environment=HOME=${service_home}
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=${REPO_ROOT}/scripts/run_racemanager.sh --mode ${MODE} --host ${HOST} --api-port ${API_PORT} --ui-port ${UI_PORT}${pi_ip_arg} --topic ${RACE_TOPIC}${service_ros_setup:+ --ros-setup ${service_ros_setup}}
+ExecStart=${REPO_ROOT}/scripts/run_racemanager.sh --mode ${MODE} --host ${HOST} --api-port ${API_PORT} --ui-port ${UI_PORT} --pi-ip ${PI_IP} --topic ${RACE_TOPIC}${ROS_SETUP:+ --ros-setup ${ROS_SETUP}}
 Restart=on-failure
 RestartSec=3
 
@@ -116,9 +94,6 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now racemanager.service
 sudo systemctl status racemanager.service --no-pager
-sudo journalctl -u racemanager.service -n 200 --no-pager
-# If you change scripts/run_racemanager.sh later, restart service:
-# sudo systemctl restart racemanager.service
 SYSTEMD
 }
 
@@ -132,27 +107,25 @@ while [[ $# -gt 0 ]]; do
     --topic) RACE_TOPIC="$2"; shift 2 ;;
     --ros-setup) ROS_SETUP="$2"; shift 2 ;;
     --print-systemd) PRINT_SYSTEMD="true"; shift ;;
-    --doctor) DOCTOR_MODE="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
 done
 
-# Re-apply critical defaults after argument parsing to survive partial/merged edits.
-MODE="${MODE:-standalone}"
-HOST="${HOST:-0.0.0.0}"
-API_PORT="${API_PORT:-4000}"
-UI_PORT="${UI_PORT:-3000}"
-PI_IP="${PI_IP:-}"
-RACE_TOPIC="${RACE_TOPIC:-/race/lap_event}"
-ROS_SETUP="${ROS_SETUP:-}"
-PRINT_SYSTEMD="${PRINT_SYSTEMD:-false}"
-DOCTOR_MODE="${DOCTOR_MODE:-false}"
+for cmd in npm; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing dependency: '$cmd' is not on PATH."
+    echo "Install once on Ubuntu Server: sudo apt update && sudo apt install -y nodejs npm python3-venv"
+    exit 2
+  fi
+done
 
 if [[ "$MODE" != "standalone" && "$MODE" != "ros2" ]]; then
   echo "--mode must be standalone or ros2"
   exit 1
 fi
+
+apply_defaults
 
 if [[ "${PRINT_SYSTEMD:-false}" == "true" ]]; then
   print_systemd_snippet
@@ -170,16 +143,13 @@ if [[ "${DOCTOR_MODE:-false}" == "true" ]]; then
   exit 0
 fi
 
-for cmd in npm; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "Missing dependency: '$cmd' is not on PATH."
-    echo "Install once on Ubuntu Server: sudo apt update && sudo apt install -y nodejs npm python3-venv"
-    exit 2
-  fi
-done
-
 if [[ -z "$PI_IP" ]]; then
   PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+
+if [[ "$PRINT_SYSTEMD" == "true" ]]; then
+  print_systemd_snippet
+  exit 0
 fi
 if [[ -z "$PI_IP" ]]; then
   PI_IP="localhost"
@@ -197,11 +167,6 @@ fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
-fi
-
-if [[ ! -x "$VENV_PYTHON" ]]; then
-  echo "Virtualenv python not found at $VENV_PYTHON"
-  exit 2
 fi
 
 "$VENV_PYTHON" -m pip install -r apps/racemanager/service/requirements.txt >/dev/null
@@ -229,19 +194,12 @@ if [[ "$MODE" == "ros2" ]]; then
   unset CMAKE_PREFIX_PATH
   unset COLCON_CURRENT_PREFIX
 
-  set +u
-  # shellcheck disable=SC1090
-  source "$ROS_SETUP"
-  set -u
+  source_setup_bash "$ROS_SETUP"
 
   if ! command -v ros2 >/dev/null 2>&1; then
-    if [[ -f "$ROS_UNDERLAY_SETUP" ]]; then
-      set +u
-      # shellcheck disable=SC1090
-      source "$ROS_UNDERLAY_SETUP"
-      # shellcheck disable=SC1090
-      source "$ROS_SETUP"
-      set -u
+    if [[ -f "$HOME/ros2_kilted/install/setup.bash" ]]; then
+      source_setup_bash "$HOME/ros2_kilted/install/setup.bash"
+      source_setup_bash "$ROS_SETUP"
     fi
   fi
 
@@ -286,30 +244,9 @@ API_PID=$!
 
 (
   cd apps/racemanager/ui
-  LOCKFILE=""
-  if [[ -f package-lock.json ]]; then
-    LOCKFILE="package-lock.json"
-  elif [[ -f npm-shrinkwrap.json ]]; then
-    LOCKFILE="npm-shrinkwrap.json"
-  fi
-
-  DEPS_HASH_SOURCE="package.json"
-  if [[ -n "$LOCKFILE" ]]; then
-    DEPS_HASH_SOURCE="package.json $LOCKFILE"
-  fi
-
-  CURRENT_DEPS_HASH="$(sha256sum $DEPS_HASH_SOURCE | awk '{print $1}' | sha256sum | awk '{print $1}')"
-  STORED_DEPS_HASH=""
-  if [[ -f node_modules/.deps-hash ]]; then
-    STORED_DEPS_HASH="$(cat node_modules/.deps-hash)"
-  fi
-
-  if [[ ! -d node_modules || "$CURRENT_DEPS_HASH" != "$STORED_DEPS_HASH" ]]; then
+  if [[ ! -d node_modules ]]; then
     npm install >/dev/null
-    mkdir -p node_modules
-    printf '%s\n' "$CURRENT_DEPS_HASH" > node_modules/.deps-hash
   fi
-
   npm run dev -- --hostname "$HOST" --port "$UI_PORT"
 ) &
 UI_PID=$!

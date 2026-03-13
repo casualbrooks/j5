@@ -9,12 +9,11 @@ import shutil
 import socket
 import subprocess
 import sys
-import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 @dataclass
@@ -115,6 +114,149 @@ def prompt(text: str, default: str = "") -> str:
     return value or default
 
 
+def http_json(
+    method: str, url: str, payload: dict | None = None, timeout: float = 8.0
+) -> dict:
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = Request(url=url, method=method.upper(), data=data, headers=headers)
+
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="ignore")
+            return json.loads(body) if body else {}
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"{method} {url} failed: HTTP {exc.code} {body}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc}") from exc
+
+
+def build_seed_payload(
+    wizard_summary: dict, *, race_name: str, camera_source: str
+) -> dict:
+    created_at = wizard_summary.get("created_at", datetime.utcnow().isoformat() + "Z")
+    year = datetime.utcnow().year
+    season = {"name": f"{year} Season", "year": year, "status": "active"}
+    championship = {
+        "name": f"{wizard_summary['track']['name']} Championship",
+        "status": "active",
+    }
+    track = {
+        "name": wizard_summary["track"]["name"],
+        "scale": wizard_summary["track"]["scale"],
+        "track_distance": wizard_summary["track"]["measured_segment_m"],
+        "layout_points": "[]",
+        "boundary_polygon": "[]",
+    }
+    camera = {
+        "name": f"{wizard_summary['track']['name']} Camera",
+        "source": camera_source,
+        "status": "connected",
+        "calibration": json.dumps(
+            {
+                "meters_per_pixel": wizard_summary["track"]["meters_per_pixel"],
+                "segment_px": wizard_summary["track"]["segment_px"],
+                "measured_segment_m": wizard_summary["track"]["measured_segment_m"],
+                "created_at": created_at,
+            }
+        ),
+    }
+    event = {
+        "name": f"{wizard_summary['track']['name']} Event",
+        "event_date": datetime.utcnow().date().isoformat(),
+        "round_number": 1,
+    }
+    race = {
+        "type": "main",
+        "total_laps": wizard_summary["race"]["laps"],
+    }
+    racers = [
+        {
+            "name": racer["name"],
+            "number": str(index + 1),
+            "vehicle_description": racer["car"],
+        }
+        for index, racer in enumerate(wizard_summary["race"]["racers"])
+    ]
+    return {
+        "season": season,
+        "championship": championship,
+        "track": track,
+        "camera": camera,
+        "event": event,
+        "race": race,
+        "racers": racers,
+        "race_name": race_name,
+    }
+
+
+def seed_backend(base_url: str, payload: dict) -> dict:
+    base = base_url.rstrip("/")
+
+    season = http_json("POST", f"{base}/api/seasons", payload["season"])
+    championship_payload = {
+        **payload["championship"],
+        "season_id": season["id"],
+    }
+    championship = http_json("POST", f"{base}/api/championships", championship_payload)
+
+    track = http_json("POST", f"{base}/api/tracks", payload["track"])
+
+    camera_payload = {
+        **payload["camera"],
+        "track_id": track["id"],
+    }
+    camera = http_json("POST", f"{base}/api/cameras", camera_payload)
+
+    event_payload = {
+        **payload["event"],
+        "championship_id": championship["id"],
+        "track_id": track["id"],
+    }
+    event = http_json("POST", f"{base}/api/events", event_payload)
+
+    race_payload = {
+        **payload["race"],
+        "event_id": event["id"],
+    }
+    race = http_json("POST", f"{base}/api/races", race_payload)
+
+    racers = []
+    results = []
+    for racer_payload in payload["racers"]:
+        racer = http_json("POST", f"{base}/api/racers", racer_payload)
+        racers.append(racer)
+        result = http_json(
+            "POST",
+            f"{base}/api/results",
+            {
+                "race_id": race["id"],
+                "racer_profile_id": racer["id"],
+                "finish_position": 0,
+                "total_time": 0,
+                "laps_completed": 0,
+                "status": "racing",
+                "points_earned": 0,
+            },
+        )
+        results.append(result)
+
+    return {
+        "season": season,
+        "championship": championship,
+        "track": track,
+        "camera": camera,
+        "event": event,
+        "race": race,
+        "racers": racers,
+        "results": results,
+    }
+
+
 def run_wizard() -> dict:
     print("\n=== Race Setup Wizard ===")
     track_name = prompt("Track name", "Main Track")
@@ -166,11 +308,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Raspberry Pi race preflight checks")
     parser.add_argument("--backend-host", default="localhost")
     parser.add_argument("--backend-port", type=int, default=8080)
+    parser.add_argument("--backend-base-url", default="http://localhost:8080")
     parser.add_argument("--health-url", default="http://localhost:8080/health")
     parser.add_argument("--capture-file", default="track_snapshot.jpg")
     parser.add_argument("--skip-capture", action="store_true")
     parser.add_argument(
         "--wizard", action="store_true", help="Run interactive race setup wizard"
+    )
+    parser.add_argument(
+        "--apply-backend",
+        action="store_true",
+        help="Create season/championship/track/camera/event/race/racers in backend from wizard answers",
+    )
+    parser.add_argument(
+        "--camera-source",
+        default="0",
+        help="Camera source value to store in backend camera config",
+    )
+    parser.add_argument(
+        "--start-race",
+        action="store_true",
+        help="Start the seeded race immediately after creation",
     )
     parser.add_argument(
         "--out", default="preflight_summary.json", help="Output JSON summary file"
@@ -196,6 +354,37 @@ def main() -> int:
 
     if args.wizard:
         summary["wizard"] = run_wizard()
+
+    if args.apply_backend:
+        if "wizard" not in summary:
+            print("\n❌ --apply-backend requires --wizard so setup data is available.")
+            return 2
+        try:
+            seed_payload = build_seed_payload(
+                summary["wizard"],
+                race_name="Headless Race",
+                camera_source=args.camera_source,
+            )
+            seeded = seed_backend(args.backend_base_url, seed_payload)
+            summary["backend_seed"] = {
+                "base_url": args.backend_base_url,
+                "created": seeded,
+            }
+            if args.start_race:
+                race_id = seeded["race"]["id"]
+                started = http_json(
+                    "POST",
+                    f"{args.backend_base_url.rstrip('/')}/api/races/{race_id}/start",
+                )
+                summary["backend_seed"]["started_race"] = started
+
+            print("\n✅ Backend seeded successfully.")
+            print(f"   Race ID: {seeded['race']['id']}")
+            print(f"   Track ID: {seeded['track']['id']}")
+            print(f"   Camera ID: {seeded['camera']['id']}")
+        except RuntimeError as exc:
+            print(f"\n❌ Backend seed failed: {exc}")
+            summary["backend_seed_error"] = str(exc)
 
     Path(args.out).write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\nSaved summary to {args.out}")

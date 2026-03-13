@@ -5,10 +5,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
-
 MODE="standalone"
 HOST="0.0.0.0"
 API_PORT="4000"
@@ -18,6 +14,8 @@ RACE_TOPIC="/race/lap_event"
 ROS_SETUP=""
 VENV_DIR="apps/racemanager/service/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
+PRINT_SYSTEMD="false"
+DOCTOR_MODE="false"
 
 find_python_bin() {
   if command -v python3 >/dev/null 2>&1; then
@@ -31,16 +29,39 @@ find_python_bin() {
   return 1
 }
 
-find_python_bin() {
-  if command -v python3 >/dev/null 2>&1; then
-    command -v python3
-    return 0
+source_setup_bash() {
+  local setup_file="$1"
+  local had_nounset="false"
+  local source_rc=0
+  if [[ ! -f "$setup_file" ]]; then
+    echo "Missing setup script: $setup_file"
+    return 1
   fi
-  if command -v python >/dev/null 2>&1; then
-    command -v python
-    return 0
+
+  # Some generated ROS setup scripts reference optional vars (for example
+  # COLCON_TRACE) before assignment. Temporarily disable nounset while sourcing.
+  if [[ $- == *u* ]]; then
+    had_nounset="true"
+    set +u
   fi
-  return 1
+
+  # shellcheck disable=SC1090
+  source "$setup_file" || source_rc=$?
+
+  if [[ "$had_nounset" == "true" ]]; then
+    set -u
+  fi
+
+  return "$source_rc"
+}
+
+apply_defaults() {
+  if [[ -z "$PI_IP" ]]; then
+    PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  if [[ -z "$PI_IP" ]]; then
+    PI_IP="localhost"
+  fi
 }
 
 find_ros2_bin() {
@@ -66,6 +87,7 @@ Starts race manager backend + frontend and optional bridge.
 - standalone: bridge runs demo mode (no ROS 2 required)
 - ros2: bridge subscribes to ROS 2 topic (requires a source-built ROS 2 workspace)
 - print-systemd: print a ready-to-run systemd setup snippet and exit
+- doctor: only run dependency/path checks and print diagnostics
 USAGE
 }
 
@@ -107,6 +129,7 @@ while [[ $# -gt 0 ]]; do
     --topic) RACE_TOPIC="$2"; shift 2 ;;
     --ros-setup) ROS_SETUP="$2"; shift 2 ;;
     --print-systemd) PRINT_SYSTEMD="true"; shift ;;
+    --doctor) DOCTOR_MODE="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -141,18 +164,6 @@ if [[ "${DOCTOR_MODE:-false}" == "true" ]]; then
     echo "[run_racemanager] doctor: ros_setup=${ROS_SETUP:-auto}"
   fi
   exit 0
-fi
-
-if [[ -z "$PI_IP" ]]; then
-  PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-fi
-
-if [[ "$PRINT_SYSTEMD" == "true" ]]; then
-  print_systemd_snippet
-  exit 0
-fi
-if [[ -z "$PI_IP" ]]; then
-  PI_IP="localhost"
 fi
 
 if [[ ! -f "apps/racemanager/service/.env" && -f "apps/racemanager/service/.env.example" ]]; then

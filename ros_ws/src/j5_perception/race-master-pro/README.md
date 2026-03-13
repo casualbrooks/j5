@@ -275,6 +275,20 @@ Run the preflight checker from your SSH session before each track setup:
 python3 scripts/pi_preflight.py --backend-host <api-host> --backend-port 8080 --health-url http://<api-host>:8080/health --wizard
 ```
 
+To also auto-create baseline backend records (track, camera config, racers, race,
+and race results placeholders) from the wizard answers, use:
+
+```bash
+python3 scripts/pi_preflight.py \
+  --backend-host <api-host> \
+  --backend-port 8080 \
+  --backend-base-url http://<api-host>:8080 \
+  --wizard --apply-backend --start-race
+```
+
+This helps the frontend Settings/Vision/Race views show data immediately on
+first boot in headless Pi workflows.
+
 This verifies:
 - ROS2 CLI availability
 - Backend TCP/HTTP connectivity

@@ -31,28 +31,12 @@ find_python_bin() {
 
 source_setup_bash() {
   local setup_file="$1"
-  local had_nounset="false"
-  local source_rc=0
   if [[ ! -f "$setup_file" ]]; then
     echo "Missing setup script: $setup_file"
     return 1
   fi
-
-  # Some generated ROS setup scripts reference optional vars (for example
-  # COLCON_TRACE) before assignment. Temporarily disable nounset while sourcing.
-  if [[ $- == *u* ]]; then
-    had_nounset="true"
-    set +u
-  fi
-
   # shellcheck disable=SC1090
-  source "$setup_file" || source_rc=$?
-
-  if [[ "$had_nounset" == "true" ]]; then
-    set -u
-  fi
-
-  return "$source_rc"
+  source "$setup_file"
 }
 
 apply_defaults() {

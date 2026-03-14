@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -138,6 +139,19 @@ def camera_source_to_cv2_index(camera_source: str):
     return camera_source
 
 
+def write_frame_to_file(frame, output_file: Path) -> tuple[bool, str]:
+    try:
+        import cv2
+    except ImportError:
+        return False, "OpenCV (cv2) not installed; cannot write preview snapshot."
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    wrote = cv2.imwrite(str(output_file), frame)
+    if not wrote:
+        return False, f"Failed to write snapshot to {output_file}"
+    return True, f"Saved {output_file}"
+
+
 def capture_frame_opencv(camera_source: str, output_file: Path) -> tuple[bool, str]:
     try:
         import cv2
@@ -152,11 +166,7 @@ def capture_frame_opencv(camera_source: str, output_file: Path) -> tuple[bool, s
     cap.release()
     if not ok or frame is None:
         return False, "Failed to read frame from camera"
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    wrote = cv2.imwrite(str(output_file), frame)
-    if not wrote:
-        return False, f"Failed to write snapshot to {output_file}"
-    return True, f"Saved {output_file}"
+    return write_frame_to_file(frame, output_file)
 
 
 def run_preview_server(
@@ -175,6 +185,8 @@ def run_preview_server(
         return 2
 
     boundary = "frame"
+    frame_lock = threading.Lock()
+    stream_state = {"latest_frame": None, "active_streams": 0}
 
     class PreviewHandler(BaseHTTPRequestHandler):
         server_version = "pi-preflight-preview/1.0"
@@ -233,12 +245,16 @@ def run_preview_server(
                 cap = cv2.VideoCapture(source)
                 if not cap.isOpened():
                     return
+                with frame_lock:
+                    stream_state["active_streams"] += 1
                 try:
                     while True:
                         ok, frame = cap.read()
                         if not ok or frame is None:
                             time.sleep(0.1)
                             continue
+                        with frame_lock:
+                            stream_state["latest_frame"] = frame.copy()
                         ok, encoded = cv2.imencode(".jpg", frame)
                         if not ok:
                             continue
@@ -254,6 +270,8 @@ def run_preview_server(
                 except (BrokenPipeError, ConnectionResetError):
                     pass
                 finally:
+                    with frame_lock:
+                        stream_state["active_streams"] -= 1
                     cap.release()
                 return
 
@@ -269,7 +287,21 @@ def run_preview_server(
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
                 return
 
-            ok, message = capture_frame_opencv(camera_source, capture_file)
+            with frame_lock:
+                latest_frame = stream_state["latest_frame"]
+                frame = None if latest_frame is None else latest_frame.copy()
+
+            if frame is not None:
+                ok, message = write_frame_to_file(frame, capture_file)
+            else:
+                with frame_lock:
+                    active_streams = stream_state["active_streams"]
+                if active_streams > 0:
+                    ok = False
+                    message = "No frame available yet from active stream; wait for preview video to load and retry."
+                else:
+                    ok, message = capture_frame_opencv(camera_source, capture_file)
+
             body = json.dumps({"ok": ok, "message": message}).encode("utf-8")
             self.send_response(
                 HTTPStatus.OK if ok else HTTPStatus.INTERNAL_SERVER_ERROR

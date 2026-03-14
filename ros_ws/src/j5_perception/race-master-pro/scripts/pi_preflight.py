@@ -9,8 +9,11 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -21,6 +24,10 @@ class CheckResult:
     name: str
     ok: bool
     details: str
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def run_cmd(cmd: list[str], timeout: int = 5) -> tuple[int, str, str]:
@@ -87,7 +94,15 @@ def list_cameras() -> CheckResult:
     return CheckResult("Camera discovery", False, "No /dev/video* nodes found")
 
 
-def maybe_capture_frame(output_file: Path) -> CheckResult:
+def camera_source_to_ffmpeg_device(camera_source: str) -> str:
+    if camera_source.isdigit():
+        return f"/dev/video{camera_source}"
+    return camera_source
+
+
+def maybe_capture_frame(
+    output_file: Path, camera_source: str = "/dev/video0"
+) -> CheckResult:
     if shutil.which("ffmpeg"):
         rc, _, err = run_cmd(
             [
@@ -96,7 +111,7 @@ def maybe_capture_frame(output_file: Path) -> CheckResult:
                 "-f",
                 "video4linux2",
                 "-i",
-                "/dev/video0",
+                camera_source_to_ffmpeg_device(camera_source),
                 "-vframes",
                 "1",
                 str(output_file),
@@ -106,7 +121,184 @@ def maybe_capture_frame(output_file: Path) -> CheckResult:
         if rc == 0 and output_file.exists():
             return CheckResult("Track snapshot", True, f"Saved {output_file}")
         return CheckResult("Track snapshot", False, err or "ffmpeg failed")
-    return CheckResult("Track snapshot", False, "ffmpeg not installed; skipped capture")
+    return CheckResult(
+        "Track snapshot",
+        False,
+        "ffmpeg not installed; skipped capture. Install with: sudo apt update && sudo apt install -y ffmpeg",
+    )
+
+
+def camera_source_to_cv2_index(camera_source: str):
+    if camera_source.isdigit():
+        return int(camera_source)
+    if camera_source.startswith("/dev/video"):
+        suffix = camera_source.removeprefix("/dev/video")
+        if suffix.isdigit():
+            return int(suffix)
+    return camera_source
+
+
+def capture_frame_opencv(camera_source: str, output_file: Path) -> tuple[bool, str]:
+    try:
+        import cv2
+    except ImportError:
+        return False, "OpenCV (cv2) not installed; cannot capture from browser preview."
+
+    source = camera_source_to_cv2_index(camera_source)
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        return False, f"Unable to open camera source {camera_source}"
+    ok, frame = cap.read()
+    cap.release()
+    if not ok or frame is None:
+        return False, "Failed to read frame from camera"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    wrote = cv2.imwrite(str(output_file), frame)
+    if not wrote:
+        return False, f"Failed to write snapshot to {output_file}"
+    return True, f"Saved {output_file}"
+
+
+def run_preview_server(
+    *,
+    host: str,
+    port: int,
+    camera_source: str,
+    capture_file: Path,
+) -> int:
+    try:
+        import cv2
+    except ImportError:
+        print(
+            "\n❌ Browser preview requires OpenCV. Install with: pip install opencv-python"
+        )
+        return 2
+
+    boundary = "frame"
+
+    class PreviewHandler(BaseHTTPRequestHandler):
+        server_version = "pi-preflight-preview/1.0"
+
+        def _set_cors_headers(self) -> None:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+        def _send_html(self) -> None:
+            html = f"""<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8' />
+    <title>Track Camera Preview</title>
+    <style>
+      body {{ font-family: sans-serif; margin: 1rem auto; max-width: 960px; }}
+      img {{ width: 100%; border: 1px solid #888; border-radius: 8px; }}
+      button {{ padding: 0.6rem 1rem; font-size: 1rem; margin-top: 0.8rem; }}
+      code {{ background: #f5f5f5; padding: 0.1rem 0.3rem; border-radius: 4px; }}
+    </style>
+  </head>
+  <body>
+    <h1>Track Camera Preview</h1>
+    <p>Live stream from <code>{camera_source}</code></p>
+    <img src='/stream.mjpg' alt='Camera stream' />
+    <form method='post' action='/capture'>
+      <button type='submit'>Capture Track Photo</button>
+    </form>
+    <p>Snapshot path: <code>{capture_file}</code></p>
+  </body>
+</html>
+"""
+            payload = html.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self._set_cors_headers()
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path in ("/", "/index.html"):
+                self._send_html()
+                return
+            if self.path == "/stream.mjpg":
+                self.send_response(HTTPStatus.OK)
+                self._set_cors_headers()
+                self.send_header(
+                    "Content-Type", f"multipart/x-mixed-replace; boundary={boundary}"
+                )
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+
+                source = camera_source_to_cv2_index(camera_source)
+                cap = cv2.VideoCapture(source)
+                if not cap.isOpened():
+                    return
+                try:
+                    while True:
+                        ok, frame = cap.read()
+                        if not ok or frame is None:
+                            time.sleep(0.1)
+                            continue
+                        ok, encoded = cv2.imencode(".jpg", frame)
+                        if not ok:
+                            continue
+                        data = encoded.tobytes()
+                        self.wfile.write(f"--{boundary}\r\n".encode("ascii"))
+                        self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                        self.wfile.write(
+                            f"Content-Length: {len(data)}\r\n\r\n".encode("ascii")
+                        )
+                        self.wfile.write(data)
+                        self.wfile.write(b"\r\n")
+                        time.sleep(0.05)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    cap.release()
+                return
+
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self._set_cors_headers()
+            self.end_headers()
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path != "/capture":
+                self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                return
+
+            ok, message = capture_frame_opencv(camera_source, capture_file)
+            body = json.dumps({"ok": ok, "message": message}).encode("utf-8")
+            self.send_response(
+                HTTPStatus.OK if ok else HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+            self._set_cors_headers()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A003
+            return
+
+    server = ThreadingHTTPServer((host, port), PreviewHandler)
+    server.daemon_threads = True
+
+    print("\n=== Camera Browser Preview ===")
+    print(f"Open from another device: http://{host}:{port}/")
+    print("Press Ctrl+C to stop preview server.")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping preview server...")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    return 0
 
 
 def prompt(text: str, default: str = "") -> str:
@@ -138,8 +330,8 @@ def http_json(
 def build_seed_payload(
     wizard_summary: dict, *, race_name: str, camera_source: str
 ) -> dict:
-    created_at = wizard_summary.get("created_at", datetime.utcnow().isoformat() + "Z")
-    year = datetime.utcnow().year
+    created_at = wizard_summary.get("created_at", utc_now_iso())
+    year = datetime.now(timezone.utc).year
     season = {"name": f"{year} Season", "year": year, "status": "active"}
     championship = {
         "name": f"{wizard_summary['track']['name']} Championship",
@@ -167,7 +359,7 @@ def build_seed_payload(
     }
     event = {
         "name": f"{wizard_summary['track']['name']} Event",
-        "event_date": datetime.utcnow().date().isoformat(),
+        "event_date": datetime.now(timezone.utc).date().isoformat(),
         "round_number": 1,
     }
     race = {
@@ -280,7 +472,7 @@ def run_wizard() -> dict:
     }
 
     summary = {
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": utc_now_iso(),
         "track": {
             "name": track_name,
             "scale": scale,
@@ -302,6 +494,39 @@ def print_results(results: list[CheckResult]) -> None:
     for result in results:
         icon = "✅" if result.ok else "❌"
         print(f"{icon} {result.name}: {result.details}")
+
+
+def print_next_steps(summary: dict) -> None:
+    print("\n=== What to do next ===")
+    print("1. Review the saved wizard/check output in preflight_summary.json.")
+    print(
+        "2. Use summary['wizard']['track']['meters_per_pixel'] as your baseline camera calibration value."
+    )
+
+    backend_seed = summary.get("backend_seed", {})
+    created = backend_seed.get("created", {})
+    race = created.get("race")
+    track = created.get("track")
+    camera = created.get("camera")
+
+    if race and track and camera:
+        print(
+            "3. Keep these IDs for API/UI checks: "
+            f"race={race['id']} track={track['id']} camera={camera['id']}."
+        )
+        print(
+            "4. Open the Race Manager UI and confirm racers/laps match the wizard values before starting heats."
+        )
+    else:
+        print(
+            "3. Re-run with --apply-backend when ready to create track/camera/race records from wizard answers."
+        )
+    print(
+        "5. If track capture was skipped, install ffmpeg: sudo apt update && sudo apt install -y ffmpeg"
+    )
+    print(
+        "6. Optional browser preview: run with --serve-preview and open the printed URL from another device."
+    )
 
 
 def main() -> int:
@@ -333,6 +558,22 @@ def main() -> int:
     parser.add_argument(
         "--out", default="preflight_summary.json", help="Output JSON summary file"
     )
+    parser.add_argument(
+        "--serve-preview",
+        action="store_true",
+        help="Start browser camera preview server for remote viewing and snapshot trigger",
+    )
+    parser.add_argument(
+        "--preview-host",
+        default="0.0.0.0",
+        help="Host bind for preview server (use 0.0.0.0 for LAN access)",
+    )
+    parser.add_argument(
+        "--preview-port",
+        type=int,
+        default=8091,
+        help="Port for preview server",
+    )
     args = parser.parse_args()
 
     checks = [
@@ -343,12 +584,12 @@ def main() -> int:
     ]
 
     if not args.skip_capture:
-        checks.append(maybe_capture_frame(Path(args.capture_file)))
+        checks.append(maybe_capture_frame(Path(args.capture_file), args.camera_source))
 
     print_results(checks)
 
     summary: dict = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": utc_now_iso(),
         "checks": [asdict(c) for c in checks],
     }
 
@@ -388,6 +629,17 @@ def main() -> int:
 
     Path(args.out).write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\nSaved summary to {args.out}")
+    print_next_steps(summary)
+
+    if args.serve_preview:
+        preview_rc = run_preview_server(
+            host=args.preview_host,
+            port=args.preview_port,
+            camera_source=args.camera_source,
+            capture_file=Path(args.capture_file),
+        )
+        if preview_rc != 0:
+            return preview_rc
 
     return 0 if all(c.ok for c in checks[:4]) else 1
 

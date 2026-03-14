@@ -272,7 +272,13 @@ Edit `config/default.yaml` for:
 Run the preflight checker from your SSH session before each track setup:
 
 ```bash
-python3 scripts/pi_preflight.py --backend-host <api-host> --backend-port 8080 --health-url http://<api-host>:8080/health --wizard
+python3 scripts/pi_preflight.py \
+  --backend-host <api-host> \
+  --backend-port 8080 \
+  --health-url http://<api-host>:8080/health \
+  --camera-source /dev/video0 \
+  --capture-file track_snapshot.jpg \
+  --serve-preview --preview-host 0.0.0.0 --preview-port 8091
 ```
 
 To also auto-create baseline backend records (track, camera config, racers, race,
@@ -288,6 +294,42 @@ python3 scripts/pi_preflight.py \
 
 This helps the frontend Settings/Vision/Race views show data immediately on
 first boot in headless Pi workflows.
+
+After the wizard finishes:
+- Open `preflight_summary.json` and use `wizard.track.meters_per_pixel` as your baseline calibration value.
+- If you used `--apply-backend`, keep the printed Race/Track/Camera IDs for API debugging and race operations.
+- Verify racers and lap count in the UI match the wizard values before live heats.
+
+If snapshot capture says `ffmpeg not installed`, install it on Raspberry Pi:
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+```
+
+Then rerun preflight without `--skip-capture`.
+
+To view the camera feed from another device on your network and manually trigger
+snapshot capture from a browser, start preview mode:
+
+```bash
+python3 scripts/pi_preflight.py \
+  --backend-host <api-host> \
+  --backend-port 8080 \
+  --health-url http://<api-host>:8080/health \
+  --camera-source /dev/video0 \
+  --capture-file track_snapshot.jpg \
+  --serve-preview --preview-host 0.0.0.0 --preview-port 8091
+```
+
+Then open `http://<pi-ip>:8091/` from another device. Use **Capture Track Photo**
+to write the snapshot to `track_snapshot.jpg` on the Pi.
+
+You can also use Race Manager Pro UI from another machine at
+`http://<pi-ip>:5173` -> **Computer Vision** tab:
+- set **Preview server URL** to `http://<pi-ip>:8091`
+- verify live feed appears
+- click **Capture Track Photo** to trigger remote snapshot save on Pi
 
 This verifies:
 - ROS2 CLI availability

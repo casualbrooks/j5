@@ -27,10 +27,10 @@ interface WizardStatus {
 }
 
 const defaultConfig = {
-    pi_host: 'raspberrypi.local',
-    pi_user: 'pi',
-    backend_url: 'http://localhost:8080',
-    preview_url: 'http://localhost:8091',
+    pi_host: 'pi-host-or-ip.local',
+    pi_user: 'pi-user',
+    backend_url: 'http://<pi-ip:8080',
+    preview_url: 'http://pi-ip:8091',
     race_name: 'Main Event',
     event_name: 'Weekend Session',
     total_laps: 20,

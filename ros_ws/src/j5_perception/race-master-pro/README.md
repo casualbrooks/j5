@@ -351,3 +351,47 @@ See `docs/PI_DEPLOYMENT_GAP_ANALYSIS.md` for architecture status and priority ro
 ## License
 
 MIT
+
+
+## Web Setup Wizard (Settings + Vision tabs)
+
+Race setup can now be driven from the web UI in ordered steps under **Settings**:
+
+1. Verify ROS2 CLI availability (`ros2`, `launch`)
+2. Verify Raspberry Pi reachability
+3. Verify backend health endpoint
+4. Verify camera preview service
+5. Initialize race state (event/race/racers)
+
+The Settings wizard shows for each step:
+
+- verification status (connected/not connected)
+- exact command needed to continue
+- one-click buttons to verify, connect/reconnect, and stop
+- the next-step command so operators can progress linearly
+
+Backend endpoints added for this workflow:
+
+- `GET /api/setup/wizard`
+- `PUT /api/setup/wizard/config`
+- `POST /api/setup/wizard/steps/{step_id}/verify|connect|stop`
+- `POST /api/setup/wizard/initialize`
+- `POST /api/setup/wizard/reset`
+
+### Vision flow updates
+
+After setup is connected:
+
+- use **Vision** tab to capture the track image
+- start/stop tracking from the same panel
+- inspect live lap/tracking logs streamed from backend state
+
+### Pause / Resume with state restore
+
+Race state persistence now supports snapshot and resume:
+
+- `POST /api/races/{race_id}/snapshot` to persist race + laps + results + setup context
+- `POST /api/races/{race_id}/resume` to restore snapshot context and continue race
+- `GET /api/races/{race_id}/state` for current runtime state
+
+This enables preserving laps counted, track image workflow state, racer metadata, and log context when pausing/resuming operations through the web interface.

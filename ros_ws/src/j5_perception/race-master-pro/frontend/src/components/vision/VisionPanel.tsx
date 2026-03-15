@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { apiFetch } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
@@ -12,9 +13,25 @@ export default function VisionPanel() {
     const [statusMessage, setStatusMessage] = useState('')
     const [statusError, setStatusError] = useState(false)
     const [capturing, setCapturing] = useState(false)
+    const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
 
     const normalizedBaseUrl = useMemo(() => previewBaseUrl.trim().replace(/\/$/, ''), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+
+    const refreshWizardContext = async () => {
+        try {
+            const response = await apiFetch('/api/setup/wizard')
+            if (!response.ok) return
+            const payload = await response.json()
+            setRaceContext(payload.race_context || {})
+        } catch {
+            // ignore for panel resilience
+        }
+    }
+
+    useEffect(() => {
+        refreshWizardContext()
+    }, [])
 
     const onCapture = async (event: FormEvent) => {
         event.preventDefault()
@@ -33,12 +50,40 @@ export default function VisionPanel() {
             }
 
             setStatusMessage(payload.message || 'Snapshot captured successfully.')
+            const raceId = String(raceContext.race_id || '')
+            if (raceId) {
+                await apiFetch(`/api/races/${raceId}/logs`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entry: `${new Date().toISOString()} Track image captured from Vision panel` }),
+                })
+            }
+            await refreshWizardContext()
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to capture snapshot.'
             setStatusMessage(message)
             setStatusError(true)
         } finally {
             setCapturing(false)
+        }
+    }
+
+    const trackingEnabled = Boolean(raceContext.tracking_enabled)
+    const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
+
+    const toggleTracking = async (start: boolean) => {
+        const raceId = String(raceContext.race_id || '')
+        if (!raceId) {
+            setStatusMessage('Initialize race in Settings before starting object tracking.')
+            setStatusError(true)
+            return
+        }
+        const endpoint = start ? `/api/races/${raceId}/tracking/start` : `/api/races/${raceId}/tracking/stop`
+        const response = await apiFetch(endpoint, { method: 'POST' })
+        if (response.ok) {
+            await refreshWizardContext()
+            setStatusMessage(start ? 'Object tracking started.' : 'Object tracking stopped.')
+            setStatusError(false)
         }
     }
 
@@ -57,8 +102,8 @@ export default function VisionPanel() {
                     />
                 </label>
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                    Run preflight with <code>--serve-preview --preview-host 0.0.0.0 --preview-port 8091</code> on the Pi,
-                    then use this Vision tab to view the live camera and trigger the track photo.
+                    Capture the track image here after the setup wizard in Settings marks connectivity as connected. Once
+                    captured, return here to start object tracking and monitor lap-count logs.
                 </p>
             </div>
 
@@ -69,7 +114,7 @@ export default function VisionPanel() {
                     className="w-full rounded border border-slate-700 bg-black"
                 />
 
-                <form onSubmit={onCapture}>
+                <form onSubmit={onCapture} className="flex flex-wrap items-center gap-2">
                     <button
                         type="submit"
                         disabled={capturing}
@@ -77,11 +122,39 @@ export default function VisionPanel() {
                     >
                         {capturing ? 'Capturing…' : 'Capture Track Photo'}
                     </button>
+                    <button
+                        type="button"
+                        className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                        onClick={() => toggleTracking(true)}
+                    >
+                        Start Tracking
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600"
+                        onClick={() => toggleTracking(false)}
+                    >
+                        Stop Tracking
+                    </button>
                 </form>
+
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                    Tracking status: <span className={trackingEnabled ? 'text-emerald-400' : 'text-amber-300'}>{trackingEnabled ? 'Enabled' : 'Disabled'}</span>
+                </p>
 
                 {statusMessage ? (
                     <p className={`text-sm ${statusError ? 'text-red-400' : 'text-emerald-400'}`}>{statusMessage}</p>
                 ) : null}
+            </div>
+
+            <div className="race-card p-4 space-y-2">
+                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Lap / Tracking Logs</h3>
+                {logs.length === 0 ? <p className="text-xs text-[var(--color-text-secondary)]">No logs yet. Start tracking to populate this feed.</p> : null}
+                <div className="max-h-56 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200">
+                    {logs.map((line, index) => (
+                        <p key={`${line}-${index}`}>{String(line)}</p>
+                    ))}
+                </div>
             </div>
         </div>
     )

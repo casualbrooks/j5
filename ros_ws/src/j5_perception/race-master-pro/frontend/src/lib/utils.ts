@@ -71,3 +71,19 @@ export function stringToColor(str: string): string {
 export function generateId(): string {
     return crypto.randomUUID()
 }
+
+function backendBaseUrl(): string {
+    if (typeof window === 'undefined') {
+        return 'http://localhost:8080'
+    }
+    return `http://${window.location.hostname}:8080`
+}
+
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    const response = await fetch(normalizedPath, init)
+    if (response.status !== 404) {
+        return response
+    }
+    return fetch(`${backendBaseUrl()}${normalizedPath}`, init)
+}

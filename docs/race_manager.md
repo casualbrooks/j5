@@ -78,3 +78,20 @@ bridge and ROS workspace can reference it predictably:
 
 Keeping `racetrack-master-pro` inside `apps/racemanager` preserves a single interface point to the ROS/perception side and
 avoids duplicating bridge logic elsewhere in the workspace.
+
+
+## Race setup wizard in `race-master-pro`
+
+The `ros_ws/src/j5_perception/race-master-pro` app now includes an operator-first setup wizard in the **Settings** tab, paired with **Computer Vision** tab actions. The wizard enforces ordered checks and surfaces: the current blocking step, the exact shell command to run next, connect/stop buttons, and verification status for each stage.
+
+Flow covered end-to-end:
+
+1. ROS2 prerequisites and package visibility
+2. Headless Raspberry Pi connectivity
+3. Backend API health
+4. Camera preview + track image capture
+5. Race initialization data (event/race/racers/laps)
+6. Tracking start + lap log monitoring
+7. Pause/snapshot/resume controls with state restoration
+
+State is persisted server-side so laps counted, racer metadata, and setup context can be restored after pause/resume.

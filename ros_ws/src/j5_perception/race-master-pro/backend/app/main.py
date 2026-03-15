@@ -5,6 +5,7 @@ Main application entry point with REST API + WebSocket endpoints.
 
 import asyncio
 import json
+import shlex
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -90,7 +91,7 @@ _SETUP_STEPS = [
         "connect_command": "cd backend && source .venv/bin/activate && python -m app.main",
         "stop_command": "pkill -f 'python -m app.main' || true",
         "manual_connect": True,
-        "stop_commands": ["pkill -f 'python -m app.main' || true"],
+        "stop_commands": ["pkill -f python -m app.main"],
     },
     {
         "id": "vision_preview",
@@ -174,8 +175,9 @@ def _validate_setup_config(config: dict) -> dict:
 
 
 async def _run_shell_command(command: str):
-    process = await asyncio.create_subprocess_shell(
-        command,
+    argv = command.split()
+    process = await asyncio.create_subprocess_exec(
+        *argv,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -195,15 +197,7 @@ def _render_command(template: str, config: dict):
 
 async def _build_setup_status():
     config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
-    setup_error = None
-    try:
-        config = _validate_setup_config(config)
-    except HTTPException as exc:
-        setup_error = (
-            f"Invalid setup config detected ({exc.detail}). Reset to defaults."
-        )
-        config = dict(_DEFAULT_SETUP_CONFIG)
-        await _set_state_json("setup_config", config)
+    config = _validate_setup_config(config)
     overrides = await _get_state_json("setup_step_overrides", {})
     race_context = await _get_state_json("race_context", {})
     steps = []
@@ -247,19 +241,7 @@ async def _build_setup_status():
             if idx + 1 < len(steps):
                 step["next_step_command"] = steps[idx + 1]["next_command"]
             break
-    return {
-        "config": config,
-        "steps": steps,
-        "race_context": race_context,
-        "setup_error": setup_error,
-    }
-
-
-async def _require_existing_race(race_id: str) -> dict:
-    race = await get_row("races", race_id)
-    if not race:
-        raise HTTPException(404, "Race not found")
-    return race
+    return {"config": config, "steps": steps, "race_context": race_context}
 
 
 # ── Health ──────────────────────────────────────────────────
@@ -925,15 +907,7 @@ async def resume_race_from_snapshot(race_id: str):
 
 @app.post("/api/races/{race_id}/tracking/start")
 async def start_tracking(race_id: str):
-    await _require_existing_race(race_id)
     context = await _get_state_json("race_context", {})
-    active_race_id = context.get("race_id")
-    if active_race_id and active_race_id != race_id:
-        raise HTTPException(
-            409,
-            f"Race context is currently bound to race '{active_race_id}', not '{race_id}'",
-        )
-    context["race_id"] = race_id
     context["tracking_enabled"] = True
     context.setdefault("log_stream", []).append(
         f"{datetime.now().isoformat()} Tracking started for race {race_id}"
@@ -944,15 +918,7 @@ async def start_tracking(race_id: str):
 
 @app.post("/api/races/{race_id}/tracking/stop")
 async def stop_tracking(race_id: str):
-    await _require_existing_race(race_id)
     context = await _get_state_json("race_context", {})
-    active_race_id = context.get("race_id")
-    if active_race_id and active_race_id != race_id:
-        raise HTTPException(
-            409,
-            f"Race context is currently bound to race '{active_race_id}', not '{race_id}'",
-        )
-    context["race_id"] = race_id
     context["tracking_enabled"] = False
     context.setdefault("log_stream", []).append(
         f"{datetime.now().isoformat()} Tracking stopped for race {race_id}"
@@ -963,15 +929,7 @@ async def stop_tracking(race_id: str):
 
 @app.post("/api/races/{race_id}/logs")
 async def append_race_log(race_id: str, payload: dict):
-    await _require_existing_race(race_id)
     context = await _get_state_json("race_context", {})
-    active_race_id = context.get("race_id")
-    if active_race_id and active_race_id != race_id:
-        raise HTTPException(
-            409,
-            f"Race context is currently bound to race '{active_race_id}', not '{race_id}'",
-        )
-    context["race_id"] = race_id
     entry = payload.get("entry", f"{datetime.now().isoformat()} log")
     context.setdefault("log_stream", []).append(entry)
     await _set_state_json("race_context", context)

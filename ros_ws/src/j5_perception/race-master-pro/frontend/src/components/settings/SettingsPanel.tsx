@@ -1,5 +1,4 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '@/lib/utils'
 
 interface SetupCheckResult {
     command: string
@@ -25,14 +24,13 @@ interface WizardStatus {
     config: Record<string, unknown>
     steps: SetupStep[]
     race_context: Record<string, unknown>
-    setup_error?: string | null
 }
 
 const defaultConfig = {
-    pi_host: 'raspberrypi.local',
-    pi_user: 'pi',
-    backend_url: 'http://localhost:8080',
-    preview_url: 'http://localhost:8091',
+    pi_host: 'pi-host-or-ip.local',
+    pi_user: 'pi-user',
+    backend_url: 'http://<pi-ip:8080',
+    preview_url: 'http://pi-ip:8091',
     race_name: 'Main Event',
     event_name: 'Weekend Session',
     total_laps: 20,
@@ -47,7 +45,7 @@ export default function SettingsPanel() {
 
     const loadWizard = async () => {
         try {
-            const response = await apiFetch('/api/setup/wizard')
+            const response = await fetch('/api/setup/wizard')
             if (!response.ok) throw new Error('Failed to load wizard status')
             const payload: WizardStatus = await response.json()
             const rawNames = (payload.config.racer_names as string[] | undefined) || []
@@ -77,7 +75,7 @@ export default function SettingsPanel() {
     const runStepAction = async (stepId: string, action: 'verify' | 'connect' | 'stop') => {
         setBusyStepId(stepId)
         try {
-            const response = await apiFetch(`/api/setup/wizard/steps/${stepId}/${action}`, { method: 'POST' })
+            const response = await fetch(`/api/setup/wizard/steps/${stepId}/${action}`, { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} step ${stepId}`)
             const payload = await response.json()
             setWizard(payload.wizard || payload)
@@ -92,7 +90,7 @@ export default function SettingsPanel() {
     const onSaveConfig = async (event: FormEvent) => {
         event.preventDefault()
         try {
-            const response = await apiFetch('/api/setup/wizard/config', {
+            const response = await fetch('/api/setup/wizard/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -125,7 +123,7 @@ export default function SettingsPanel() {
             resume: `/api/races/${raceId}/resume`,
         }
         try {
-            const response = await apiFetch(endpointMap[action], { method: 'POST' })
+            const response = await fetch(endpointMap[action], { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} race`)
             await loadWizard()
         } catch (err) {
@@ -135,7 +133,7 @@ export default function SettingsPanel() {
 
     const initializeRace = async () => {
         try {
-            const response = await apiFetch('/api/setup/wizard/initialize', { method: 'POST' })
+            const response = await fetch('/api/setup/wizard/initialize', { method: 'POST' })
             if (!response.ok) throw new Error('Failed to initialize race state')
             const payload = await response.json()
             setWizard(payload.wizard)
@@ -172,13 +170,10 @@ export default function SettingsPanel() {
             </div>
 
             {error ? <p className="text-sm text-red-400">{error}</p> : null}
-            {wizard?.setup_error ? <p className="text-sm text-amber-300">{wizard.setup_error}</p> : null}
 
             <div className="race-card p-4 space-y-3">
                 <h3 className="text-base font-semibold">Ordered Connection Checklist</h3>
-                {!wizard ? (
-                    <p className="text-xs text-amber-300">Wizard status unavailable. Check backend connectivity and refresh.</p>
-                ) : currentStep ? (
+                {currentStep ? (
                     <p className="text-xs text-[var(--color-text-secondary)]">Current blocking step: <strong>{currentStep.title}</strong> · Next command: <code>{currentStep.next_command}</code></p>
                 ) : <p className="text-xs text-emerald-400">All setup steps are currently marked connected.</p>}
 

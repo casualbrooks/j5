@@ -5,11 +5,14 @@ Main application entry point with REST API + WebSocket endpoints.
 
 import asyncio
 import json
-import shlex
+import socket
 import uuid
+from shutil import which
 from datetime import datetime
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
+
+import httpx
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -76,11 +79,10 @@ _SETUP_STEPS = [
     {
         "id": "pi_connectivity",
         "title": "Headless Raspberry Pi Reachability",
-        "description": "Verify the configured Pi host responds before starting services.",
-        "check_commands": ["ping -c 1 {pi_host}"],
-        "connect_command": "ssh {pi_user}@{pi_host} 'echo pi-online'",
+        "description": "Verify the configured Pi host resolves and API ports are reachable.",
+        "check_commands": [],
+        "connect_command": "Verify host + API reachability (no interactive shell needed)",
         "stop_command": "echo 'No persistent process to stop for connectivity check'",
-        "connect_commands": ["ssh {pi_user}@{pi_host} echo pi-online"],
         "stop_commands": ["echo No persistent process to stop for connectivity check"],
     },
     {
@@ -191,6 +193,87 @@ async def _run_shell_command(command: str):
     }
 
 
+async def _run_exec_command(argv: list[str], label: str):
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    return {
+        "command": label,
+        "return_code": process.returncode,
+        "stdout": stdout.decode().strip(),
+        "stderr": stderr.decode().strip(),
+        "ok": process.returncode == 0,
+    }
+
+
+async def _check_host_resolution(host: str):
+    loop = asyncio.get_running_loop()
+    try:
+        resolved = await asyncio.wait_for(loop.getaddrinfo(host, None), timeout=2.0)
+        addresses = sorted({item[4][0] for item in resolved if item[4]})
+        return {
+            "command": f"resolve {host}",
+            "ok": bool(addresses),
+            "stdout": ", ".join(addresses),
+            "stderr": "",
+        }
+    except (socket.gaierror, TimeoutError, asyncio.TimeoutError) as exc:
+        return {
+            "command": f"resolve {host}",
+            "ok": False,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+
+async def _check_tcp_port(host: str, port: int):
+    try:
+        connection = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=2.0
+        )
+        _, writer = connection
+        writer.close()
+        await writer.wait_closed()
+        return {
+            "command": f"tcp://{host}:{port}",
+            "ok": True,
+            "stdout": "reachable",
+            "stderr": "",
+        }
+    except Exception as exc:
+        return {
+            "command": f"tcp://{host}:{port}",
+            "ok": False,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+
+async def _check_http_health(url: str):
+    health_url = f"{url.rstrip('/')}/health"
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(health_url)
+        return {
+            "command": f"GET {health_url}",
+            "ok": response.status_code == 200,
+            "stdout": response.text.strip(),
+            "stderr": (
+                "" if response.status_code == 200 else f"HTTP {response.status_code}"
+            ),
+        }
+    except Exception as exc:
+        return {
+            "command": f"GET {health_url}",
+            "ok": False,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+
 def _render_command(template: str, config: dict):
     return template.format(**config)
 
@@ -208,6 +291,48 @@ async def _build_setup_status():
         if step["id"] == "race_state":
             check_ok = bool(race_context.get("race_id"))
             checks = [{"command": "race context exists", "ok": check_ok}]
+        elif step["id"] == "ros2_cli":
+            ros2_path = which("ros2")
+            if not ros2_path:
+                checks = [
+                    {
+                        "command": "which ros2",
+                        "ok": False,
+                        "stdout": "",
+                        "stderr": "ros2 not found in PATH",
+                    }
+                ]
+                check_ok = False
+            else:
+                checks = await asyncio.gather(
+                    _run_exec_command(["ros2", "--help"], "ros2 --help"),
+                    _run_exec_command(
+                        ["ros2", "launch", "--help"], "ros2 launch --help"
+                    ),
+                )
+                check_ok = all(item["ok"] for item in checks)
+        elif step["id"] == "pi_connectivity":
+            pi_host = config["pi_host"]
+            parsed_backend = urlparse(config["backend_url"])
+            parsed_preview = urlparse(config["preview_url"])
+            ports = sorted(
+                {
+                    22,
+                    parsed_backend.port
+                    or (443 if parsed_backend.scheme == "https" else 80),
+                    parsed_preview.port
+                    or (443 if parsed_preview.scheme == "https" else 80),
+                }
+            )
+            checks = [await _check_host_resolution(pi_host)]
+            checks.extend([await _check_tcp_port(pi_host, port) for port in ports])
+            check_ok = all(item["ok"] for item in checks)
+        elif step["id"] == "backend_service":
+            checks = [await _check_http_health(config["backend_url"])]
+            check_ok = all(item["ok"] for item in checks)
+        elif step["id"] == "vision_preview":
+            checks = [await _check_http_health(config["preview_url"])]
+            check_ok = all(item["ok"] for item in checks)
         else:
             for cmd_template in step["check_commands"]:
                 command = _render_command(cmd_template, config)
@@ -700,6 +825,39 @@ async def connect_setup_step(step_id: str):
     if not step:
         raise HTTPException(404, "Setup step not found")
     command = _render_command(step["connect_command"], config)
+    if step_id == "pi_connectivity":
+        wizard = await _build_setup_status()
+        current_step = next(
+            (item for item in wizard["steps"] if item["id"] == step_id), None
+        )
+        result = {
+            "ok": bool(current_step and current_step["connected"]),
+            "stdout": "Connectivity checks completed via backend API.",
+            "stderr": "",
+            "return_code": 0 if current_step and current_step["connected"] else 1,
+        }
+        overrides = await _get_state_json("setup_step_overrides", {})
+        overrides[step_id] = {
+            "connected": result["ok"],
+            "last_action": {
+                "type": "connect",
+                "timestamp": datetime.now().isoformat(),
+                "command": command,
+                "result": result,
+            },
+            "last_error": (
+                None
+                if result["ok"]
+                else "Pi host/API ports are not reachable. Verify host/IP and services."
+            ),
+        }
+        await _set_state_json("setup_step_overrides", overrides)
+        return {
+            "step_id": step_id,
+            "command": command,
+            "result": result,
+            "wizard": wizard,
+        }
     result = {
         "ok": False,
         "stdout": "Run the command shown and then click Verify.",

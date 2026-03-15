@@ -5,6 +5,7 @@ Main application entry point with REST API + WebSocket endpoints.
 
 import asyncio
 import json
+import shlex
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager

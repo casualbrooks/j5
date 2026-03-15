@@ -8,6 +8,7 @@ import json
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -66,8 +67,9 @@ _SETUP_STEPS = [
         "id": "ros2_cli",
         "title": "ROS2 CLI on PATH",
         "description": "Ensure ros2 and launch verbs are available in the active shell.",
-        "check_commands": ["command -v ros2", "ros2 -h | rg -w launch"],
-        "connect_command": "source /opt/ros/iron/setup.bash && source ~/alive/j5/ros_ws/install/setup.bash",
+        "check_commands": ["ros2 --help"],
+        "check_contains": ["launch"],
+        "connect_command": ". /opt/ros/iron/setup.bash && . ~/alive/j5/ros_ws/install/setup.bash",
         "stop_command": "pkill -f ros2 || true",
     },
     {
@@ -77,6 +79,8 @@ _SETUP_STEPS = [
         "check_commands": ["ping -c 1 {pi_host}"],
         "connect_command": "ssh {pi_user}@{pi_host} 'echo pi-online'",
         "stop_command": "echo 'No persistent process to stop for connectivity check'",
+        "connect_commands": ["ssh {pi_user}@{pi_host} echo pi-online"],
+        "stop_commands": ["echo No persistent process to stop for connectivity check"],
     },
     {
         "id": "backend_service",
@@ -85,6 +89,8 @@ _SETUP_STEPS = [
         "check_commands": ["curl -sf {backend_url}/health"],
         "connect_command": "cd backend && source .venv/bin/activate && python -m app.main",
         "stop_command": "pkill -f 'python -m app.main' || true",
+        "manual_connect": True,
+        "stop_commands": ["pkill -f python -m app.main"],
     },
     {
         "id": "vision_preview",
@@ -93,6 +99,8 @@ _SETUP_STEPS = [
         "check_commands": ["curl -sf {preview_url}/health"],
         "connect_command": "python scripts/pi_preflight.py --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
         "stop_command": "pkill -f pi_preflight.py || true",
+        "manual_connect": True,
+        "stop_commands": ["pkill -f pi_preflight.py"],
     },
     {
         "id": "race_state",
@@ -101,6 +109,7 @@ _SETUP_STEPS = [
         "check_commands": [],
         "connect_command": "POST /api/setup/wizard/initialize",
         "stop_command": "POST /api/setup/wizard/reset",
+        "manual_connect": True,
     },
 ]
 
@@ -140,9 +149,34 @@ async def _set_state_json(key: str, value):
     await insert_row("system_state", payload)
 
 
+def _validate_setup_config(config: dict) -> dict:
+    merged = {**_DEFAULT_SETUP_CONFIG, **config}
+
+    def _safe_token(name: str, value: str):
+        if not value or any(
+            ch in value for ch in [";", "&", "|", "$", "`", "\n", "\r", "\t"]
+        ):
+            raise HTTPException(400, f"Invalid characters in {name}")
+
+    pi_host = str(merged.get("pi_host", "")).strip()
+    pi_user = str(merged.get("pi_user", "")).strip()
+    _safe_token("pi_host", pi_host)
+    _safe_token("pi_user", pi_user)
+
+    for field in ("backend_url", "preview_url"):
+        parsed = urlparse(str(merged.get(field, "")).strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise HTTPException(400, f"Invalid URL for {field}")
+
+    merged["pi_host"] = pi_host
+    merged["pi_user"] = pi_user
+    return merged
+
+
 async def _run_shell_command(command: str):
-    process = await asyncio.create_subprocess_shell(
-        command,
+    argv = command.split()
+    process = await asyncio.create_subprocess_exec(
+        *argv,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -162,6 +196,7 @@ def _render_command(template: str, config: dict):
 
 async def _build_setup_status():
     config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    config = _validate_setup_config(config)
     overrides = await _get_state_json("setup_step_overrides", {})
     race_context = await _get_state_json("race_context", {})
     steps = []
@@ -176,10 +211,17 @@ async def _build_setup_status():
             for cmd_template in step["check_commands"]:
                 command = _render_command(cmd_template, config)
                 result = await _run_shell_command(command)
+                expected_tokens = step.get("check_contains", [])
+                if expected_tokens and result["ok"]:
+                    result["ok"] = all(
+                        token in result["stdout"] for token in expected_tokens
+                    )
                 checks.append(result)
                 if not result["ok"]:
                     check_ok = False
-        connected = bool(state.get("connected", check_ok))
+        connected = bool(check_ok)
+        if state.get("connected") is False:
+            connected = False
         step_data = {
             "id": step["id"],
             "title": step["title"],
@@ -624,7 +666,7 @@ async def get_setup_wizard_status():
 
 @app.put("/api/setup/wizard/config")
 async def update_setup_wizard_config(config: dict):
-    merged = {**_DEFAULT_SETUP_CONFIG, **config}
+    merged = _validate_setup_config(config)
     await _set_state_json("setup_config", merged)
     return await _build_setup_status()
 
@@ -652,21 +694,30 @@ async def verify_setup_step(step_id: str):
 @app.post("/api/setup/wizard/steps/{step_id}/connect")
 async def connect_setup_step(step_id: str):
     config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    config = _validate_setup_config(config)
     step = next((item for item in _SETUP_STEPS if item["id"] == step_id), None)
     if not step:
         raise HTTPException(404, "Setup step not found")
     command = _render_command(step["connect_command"], config)
     result = {
-        "ok": True,
-        "stdout": "Use this command in a dedicated terminal for long-running services.",
+        "ok": False,
+        "stdout": "Run the command shown and then click Verify.",
         "stderr": "",
-        "return_code": 0,
+        "return_code": 1,
     }
-    if step_id in {"ros2_cli", "pi_connectivity"}:
-        result = await _run_shell_command(command)
+    connect_commands = step.get("connect_commands", [])
+    if connect_commands:
+        rendered = [_render_command(cmd, config) for cmd in connect_commands]
+        last_result = None
+        for cmd in rendered:
+            last_result = await _run_shell_command(cmd)
+            if not last_result["ok"]:
+                break
+        if last_result:
+            result = last_result
     overrides = await _get_state_json("setup_step_overrides", {})
     overrides[step_id] = {
-        "connected": result["ok"],
+        "connected": bool(result["ok"]),
         "last_action": {
             "type": "connect",
             "timestamp": datetime.now().isoformat(),
@@ -691,11 +742,18 @@ async def connect_setup_step(step_id: str):
 @app.post("/api/setup/wizard/steps/{step_id}/stop")
 async def stop_setup_step(step_id: str):
     config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    config = _validate_setup_config(config)
     step = next((item for item in _SETUP_STEPS if item["id"] == step_id), None)
     if not step:
         raise HTTPException(404, "Setup step not found")
     command = _render_command(step["stop_command"], config)
-    result = await _run_shell_command(command)
+    stop_commands = step.get("stop_commands", [command])
+    result = {"ok": True, "stdout": "", "stderr": "", "return_code": 0}
+    for raw_cmd in stop_commands:
+        rendered = _render_command(raw_cmd, config)
+        result = await _run_shell_command(rendered)
+        if not result["ok"]:
+            break
     overrides = await _get_state_json("setup_step_overrides", {})
     overrides[step_id] = {
         "connected": False,

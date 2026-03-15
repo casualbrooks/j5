@@ -182,6 +182,8 @@ export type WSMessageType =
     | 'raceStart'
     | 'racePause'
     | 'raceFinish'
+    | 'raceResume'
+    | 'lapLog'
     | 'racerAdded'
     | 'visionDetection'
     | 'connectionCount'

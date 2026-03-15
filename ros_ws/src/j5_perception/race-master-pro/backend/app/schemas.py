@@ -167,4 +167,11 @@ CREATE INDEX IF NOT EXISTS idx_lap_records_racer ON lap_records(racer_profile_id
 CREATE INDEX IF NOT EXISTS idx_lap_records_race_racer ON lap_records(race_id, racer_profile_id);
 CREATE INDEX IF NOT EXISTS idx_detections_race ON detections(race_id);
 CREATE INDEX IF NOT EXISTS idx_detections_timestamp ON detections(recorded_at);
+
+-- Generic key/value system state store for setup wizard + runtime snapshots
+CREATE TABLE IF NOT EXISTS system_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """

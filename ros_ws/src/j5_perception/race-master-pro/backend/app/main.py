@@ -3,10 +3,12 @@ Race Master Pro — FastAPI Backend
 Main application entry point with REST API + WebSocket endpoints.
 """
 
+import asyncio
 import json
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,6 +61,186 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_SETUP_STEPS = [
+    {
+        "id": "ros2_cli",
+        "title": "ROS2 CLI on PATH",
+        "description": "Ensure ros2 and launch verbs are available in the active shell.",
+        "check_commands": ["ros2 --help"],
+        "check_contains": ["launch"],
+        "connect_command": ". /opt/ros/iron/setup.bash && . ~/alive/j5/ros_ws/install/setup.bash",
+        "stop_command": "pkill -f ros2 || true",
+    },
+    {
+        "id": "pi_connectivity",
+        "title": "Headless Raspberry Pi Reachability",
+        "description": "Verify the configured Pi host responds before starting services.",
+        "check_commands": ["ping -c 1 {pi_host}"],
+        "connect_command": "ssh {pi_user}@{pi_host} 'echo pi-online'",
+        "stop_command": "echo 'No persistent process to stop for connectivity check'",
+        "connect_commands": ["ssh {pi_user}@{pi_host} echo pi-online"],
+        "stop_commands": ["echo No persistent process to stop for connectivity check"],
+    },
+    {
+        "id": "backend_service",
+        "title": "Race Master backend API",
+        "description": "Backend must be reachable to drive setup + live controls.",
+        "check_commands": ["curl -sf {backend_url}/health"],
+        "connect_command": "cd backend && source .venv/bin/activate && python -m app.main",
+        "stop_command": "pkill -f 'python -m app.main' || true",
+        "manual_connect": True,
+        "stop_commands": ["pkill -f python -m app.main"],
+    },
+    {
+        "id": "vision_preview",
+        "title": "Camera preview stream",
+        "description": "Preview and track-image capture endpoint from the Pi.",
+        "check_commands": ["curl -sf {preview_url}/health"],
+        "connect_command": "python scripts/pi_preflight.py --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
+        "stop_command": "pkill -f pi_preflight.py || true",
+        "manual_connect": True,
+        "stop_commands": ["pkill -f pi_preflight.py"],
+    },
+    {
+        "id": "race_state",
+        "title": "Race configured",
+        "description": "Race metadata + racers + lap target saved and ready to initialize.",
+        "check_commands": [],
+        "connect_command": "POST /api/setup/wizard/initialize",
+        "stop_command": "POST /api/setup/wizard/reset",
+        "manual_connect": True,
+    },
+]
+
+_DEFAULT_SETUP_CONFIG = {
+    "pi_host": "raspberrypi.local",
+    "pi_user": "pi",
+    "backend_url": "http://localhost:8080",
+    "preview_url": "http://localhost:8091",
+    "race_name": "Main Event",
+    "event_name": "Weekend Session",
+    "total_laps": 20,
+    "racer_names": ["Racer 1", "Racer 2"],
+}
+
+
+async def _get_state_json(key: str, default: dict | list | None = None):
+    row = await get_row("system_state", key, id_column="key")
+    if not row:
+        return default
+    try:
+        return json.loads(row["value"])
+    except json.JSONDecodeError:
+        return default
+
+
+async def _set_state_json(key: str, value):
+    payload = {"key": key, "value": json.dumps(value)}
+    existing = await get_row("system_state", key, id_column="key")
+    if existing:
+        await update_row(
+            "system_state",
+            key,
+            {"value": payload["value"], "updated_at": datetime.now().isoformat()},
+            id_column="key",
+        )
+        return
+    await insert_row("system_state", payload)
+
+
+def _validate_setup_config(config: dict) -> dict:
+    merged = {**_DEFAULT_SETUP_CONFIG, **config}
+
+    def _safe_token(name: str, value: str):
+        if not value or any(
+            ch in value for ch in [";", "&", "|", "$", "`", "\n", "\r", "\t"]
+        ):
+            raise HTTPException(400, f"Invalid characters in {name}")
+
+    pi_host = str(merged.get("pi_host", "")).strip()
+    pi_user = str(merged.get("pi_user", "")).strip()
+    _safe_token("pi_host", pi_host)
+    _safe_token("pi_user", pi_user)
+
+    for field in ("backend_url", "preview_url"):
+        parsed = urlparse(str(merged.get(field, "")).strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise HTTPException(400, f"Invalid URL for {field}")
+
+    merged["pi_host"] = pi_host
+    merged["pi_user"] = pi_user
+    return merged
+
+
+async def _run_shell_command(command: str):
+    argv = command.split()
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    return {
+        "command": command,
+        "return_code": process.returncode,
+        "stdout": stdout.decode().strip(),
+        "stderr": stderr.decode().strip(),
+        "ok": process.returncode == 0,
+    }
+
+
+def _render_command(template: str, config: dict):
+    return template.format(**config)
+
+
+async def _build_setup_status():
+    config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    config = _validate_setup_config(config)
+    overrides = await _get_state_json("setup_step_overrides", {})
+    race_context = await _get_state_json("race_context", {})
+    steps = []
+    for step in _SETUP_STEPS:
+        state = overrides.get(step["id"], {})
+        checks = []
+        check_ok = True
+        if step["id"] == "race_state":
+            check_ok = bool(race_context.get("race_id"))
+            checks = [{"command": "race context exists", "ok": check_ok}]
+        else:
+            for cmd_template in step["check_commands"]:
+                command = _render_command(cmd_template, config)
+                result = await _run_shell_command(command)
+                expected_tokens = step.get("check_contains", [])
+                if expected_tokens and result["ok"]:
+                    result["ok"] = all(
+                        token in result["stdout"] for token in expected_tokens
+                    )
+                checks.append(result)
+                if not result["ok"]:
+                    check_ok = False
+        connected = bool(check_ok)
+        if state.get("connected") is False:
+            connected = False
+        step_data = {
+            "id": step["id"],
+            "title": step["title"],
+            "description": step["description"],
+            "connected": connected,
+            "checks": checks,
+            "next_command": _render_command(step["connect_command"], config),
+            "stop_command": _render_command(step["stop_command"], config),
+            "last_action": state.get("last_action"),
+            "last_error": state.get("last_error"),
+        }
+        steps.append(step_data)
+    for idx, step in enumerate(steps):
+        if not step["connected"]:
+            step["is_current"] = True
+            if idx + 1 < len(steps):
+                step["next_step_command"] = steps[idx + 1]["next_command"]
+            break
+    return {"config": config, "steps": steps, "race_context": race_context}
 
 
 # ── Health ──────────────────────────────────────────────────
@@ -474,6 +656,292 @@ async def championship_standings(champ_id: str):
     )
 
 
+# ── Setup Wizard + Runtime State ──────────────────────────
+
+
+@app.get("/api/setup/wizard")
+async def get_setup_wizard_status():
+    return await _build_setup_status()
+
+
+@app.put("/api/setup/wizard/config")
+async def update_setup_wizard_config(config: dict):
+    merged = _validate_setup_config(config)
+    await _set_state_json("setup_config", merged)
+    return await _build_setup_status()
+
+
+@app.post("/api/setup/wizard/steps/{step_id}/verify")
+async def verify_setup_step(step_id: str):
+    status = await _build_setup_status()
+    step = next((item for item in status["steps"] if item["id"] == step_id), None)
+    if not step:
+        raise HTTPException(404, "Setup step not found")
+    overrides = await _get_state_json("setup_step_overrides", {})
+    overrides[step_id] = {
+        "connected": step["connected"],
+        "last_action": {
+            "type": "verify",
+            "timestamp": datetime.now().isoformat(),
+            "result": step["checks"],
+        },
+        "last_error": None if step["connected"] else "Verification failed",
+    }
+    await _set_state_json("setup_step_overrides", overrides)
+    return await _build_setup_status()
+
+
+@app.post("/api/setup/wizard/steps/{step_id}/connect")
+async def connect_setup_step(step_id: str):
+    config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    config = _validate_setup_config(config)
+    step = next((item for item in _SETUP_STEPS if item["id"] == step_id), None)
+    if not step:
+        raise HTTPException(404, "Setup step not found")
+    command = _render_command(step["connect_command"], config)
+    result = {
+        "ok": False,
+        "stdout": "Run the command shown and then click Verify.",
+        "stderr": "",
+        "return_code": 1,
+    }
+    connect_commands = step.get("connect_commands", [])
+    if connect_commands:
+        rendered = [_render_command(cmd, config) for cmd in connect_commands]
+        last_result = None
+        for cmd in rendered:
+            last_result = await _run_shell_command(cmd)
+            if not last_result["ok"]:
+                break
+        if last_result:
+            result = last_result
+    overrides = await _get_state_json("setup_step_overrides", {})
+    overrides[step_id] = {
+        "connected": bool(result["ok"]),
+        "last_action": {
+            "type": "connect",
+            "timestamp": datetime.now().isoformat(),
+            "command": command,
+            "result": result,
+        },
+        "last_error": (
+            None
+            if result["ok"]
+            else result.get("stderr") or result.get("stdout") or "Connect failed"
+        ),
+    }
+    await _set_state_json("setup_step_overrides", overrides)
+    return {
+        "step_id": step_id,
+        "command": command,
+        "result": result,
+        "wizard": await _build_setup_status(),
+    }
+
+
+@app.post("/api/setup/wizard/steps/{step_id}/stop")
+async def stop_setup_step(step_id: str):
+    config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    config = _validate_setup_config(config)
+    step = next((item for item in _SETUP_STEPS if item["id"] == step_id), None)
+    if not step:
+        raise HTTPException(404, "Setup step not found")
+    command = _render_command(step["stop_command"], config)
+    stop_commands = step.get("stop_commands", [command])
+    result = {"ok": True, "stdout": "", "stderr": "", "return_code": 0}
+    for raw_cmd in stop_commands:
+        rendered = _render_command(raw_cmd, config)
+        result = await _run_shell_command(rendered)
+        if not result["ok"]:
+            break
+    overrides = await _get_state_json("setup_step_overrides", {})
+    overrides[step_id] = {
+        "connected": False,
+        "last_action": {
+            "type": "stop",
+            "timestamp": datetime.now().isoformat(),
+            "command": command,
+            "result": result,
+        },
+        "last_error": (
+            None
+            if result["ok"]
+            else result.get("stderr") or result.get("stdout") or "Stop failed"
+        ),
+    }
+    await _set_state_json("setup_step_overrides", overrides)
+    return {
+        "step_id": step_id,
+        "command": command,
+        "result": result,
+        "wizard": await _build_setup_status(),
+    }
+
+
+@app.post("/api/setup/wizard/initialize")
+async def initialize_race_from_wizard():
+    config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
+    event = await insert_row(
+        "race_events",
+        {
+            "id": str(uuid.uuid4()),
+            "name": config.get("event_name", "Setup Wizard Event"),
+            "championship_id": None,
+            "track_id": None,
+            "event_date": datetime.now().date().isoformat(),
+            "round_number": 1,
+        },
+    )
+    race = await insert_row(
+        "races",
+        {
+            "id": str(uuid.uuid4()),
+            "event_id": event["id"],
+            "type": "main",
+            "status": "setup",
+            "total_laps": int(config.get("total_laps", 20)),
+            "start_time": None,
+            "end_time": None,
+        },
+    )
+    racers = []
+    for idx, name in enumerate(config.get("racer_names", []), start=1):
+        racer = await insert_row(
+            "racer_profiles",
+            {
+                "id": str(uuid.uuid4()),
+                "name": name,
+                "number": str(idx),
+                "profile_pic": None,
+                "vehicle_description": None,
+            },
+        )
+        racers.append(racer)
+    context = {
+        "race_id": race["id"],
+        "event_id": event["id"],
+        "race_name": config.get("race_name", "Main Event"),
+        "track_image_captured": False,
+        "tracking_enabled": False,
+        "racers": racers,
+        "log_stream": [],
+    }
+    await _set_state_json("race_context", context)
+    overrides = await _get_state_json("setup_step_overrides", {})
+    overrides["race_state"] = {
+        "connected": True,
+        "last_action": {"type": "initialize", "timestamp": datetime.now().isoformat()},
+        "last_error": None,
+    }
+    await _set_state_json("setup_step_overrides", overrides)
+    return {
+        "race": race,
+        "event": event,
+        "racers": racers,
+        "wizard": await _build_setup_status(),
+    }
+
+
+@app.post("/api/setup/wizard/reset")
+async def reset_wizard_race_context():
+    await _set_state_json("race_context", {})
+    overrides = await _get_state_json("setup_step_overrides", {})
+    overrides["race_state"] = {
+        "connected": False,
+        "last_action": {"type": "reset", "timestamp": datetime.now().isoformat()},
+        "last_error": None,
+    }
+    await _set_state_json("setup_step_overrides", overrides)
+    return await _build_setup_status()
+
+
+@app.get("/api/races/{race_id}/state")
+async def get_race_runtime_state(race_id: str):
+    race = await get_row("races", race_id)
+    if not race:
+        raise HTTPException(404, "Race not found")
+    context = await _get_state_json("race_context", {})
+    snapshots = await _get_state_json("race_snapshots", {})
+    return {"race": race, "context": context, "snapshot": snapshots.get(race_id)}
+
+
+@app.post("/api/races/{race_id}/snapshot")
+async def snapshot_race_state(race_id: str):
+    race = await get_row("races", race_id)
+    if not race:
+        raise HTTPException(404, "Race not found")
+    laps = await get_all_rows("lap_records", where={"race_id": race_id})
+    results = await get_all_rows("race_results", where={"race_id": race_id})
+    context = await _get_state_json("race_context", {})
+    snapshot = {
+        "race": race,
+        "laps": laps,
+        "results": results,
+        "context": context,
+        "saved_at": datetime.now().isoformat(),
+    }
+    snapshots = await _get_state_json("race_snapshots", {})
+    snapshots[race_id] = snapshot
+    await _set_state_json("race_snapshots", snapshots)
+    return snapshot
+
+
+@app.post("/api/races/{race_id}/resume")
+async def resume_race_from_snapshot(race_id: str):
+    snapshots = await _get_state_json("race_snapshots", {})
+    snapshot = snapshots.get(race_id)
+    if not snapshot:
+        raise HTTPException(404, "No snapshot found for race")
+    await update_row("races", race_id, {"status": "active"})
+    await _set_state_json("race_context", snapshot.get("context", {}))
+    await manager.broadcast_all(
+        {
+            "type": "raceResume",
+            "data": {"race_id": race_id, "snapshot_time": snapshot.get("saved_at")},
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    return {"resumed": True, "snapshot": snapshot}
+
+
+@app.post("/api/races/{race_id}/tracking/start")
+async def start_tracking(race_id: str):
+    context = await _get_state_json("race_context", {})
+    context["tracking_enabled"] = True
+    context.setdefault("log_stream", []).append(
+        f"{datetime.now().isoformat()} Tracking started for race {race_id}"
+    )
+    await _set_state_json("race_context", context)
+    return context
+
+
+@app.post("/api/races/{race_id}/tracking/stop")
+async def stop_tracking(race_id: str):
+    context = await _get_state_json("race_context", {})
+    context["tracking_enabled"] = False
+    context.setdefault("log_stream", []).append(
+        f"{datetime.now().isoformat()} Tracking stopped for race {race_id}"
+    )
+    await _set_state_json("race_context", context)
+    return context
+
+
+@app.post("/api/races/{race_id}/logs")
+async def append_race_log(race_id: str, payload: dict):
+    context = await _get_state_json("race_context", {})
+    entry = payload.get("entry", f"{datetime.now().isoformat()} log")
+    context.setdefault("log_stream", []).append(entry)
+    await _set_state_json("race_context", context)
+    await manager.broadcast_all(
+        {
+            "type": "lapLog",
+            "data": {"race_id": race_id, "entry": entry},
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    return {"ok": True, "entry": entry}
+
+
 # ── WebSocket ───────────────────────────────────────────────
 
 
@@ -505,6 +973,8 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "spectator
                 "raceStart",
                 "racePause",
                 "raceFinish",
+                "raceResume",
+                "lapLog",
             ):
                 # Relay race events to all clients
                 message["timestamp"] = datetime.now().isoformat()

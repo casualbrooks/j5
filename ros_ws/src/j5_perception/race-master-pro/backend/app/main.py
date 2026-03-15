@@ -175,7 +175,7 @@ def _validate_setup_config(config: dict) -> dict:
 
 
 async def _run_shell_command(command: str):
-    argv = shlex.split(command)
+    argv = command.split()
     process = await asyncio.create_subprocess_exec(
         *argv,
         stdout=asyncio.subprocess.PIPE,
@@ -197,15 +197,7 @@ def _render_command(template: str, config: dict):
 
 async def _build_setup_status():
     config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
-    setup_error = None
-    try:
-        config = _validate_setup_config(config)
-    except HTTPException as exc:
-        setup_error = (
-            f"Invalid setup config detected ({exc.detail}). Reset to defaults."
-        )
-        config = dict(_DEFAULT_SETUP_CONFIG)
-        await _set_state_json("setup_config", config)
+    config = _validate_setup_config(config)
     overrides = await _get_state_json("setup_step_overrides", {})
     race_context = await _get_state_json("race_context", {})
     steps = []
@@ -249,12 +241,7 @@ async def _build_setup_status():
             if idx + 1 < len(steps):
                 step["next_step_command"] = steps[idx + 1]["next_command"]
             break
-    return {
-        "config": config,
-        "steps": steps,
-        "race_context": race_context,
-        "setup_error": setup_error,
-    }
+    return {"config": config, "steps": steps, "race_context": race_context}
 
 
 # ── Health ──────────────────────────────────────────────────

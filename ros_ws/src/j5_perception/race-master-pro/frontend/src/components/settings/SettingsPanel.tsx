@@ -18,6 +18,7 @@ interface SetupStep {
     next_step_command?: string
     is_current?: boolean
     last_error?: string | null
+    help?: string
 }
 
 interface WizardStatus {
@@ -134,9 +135,13 @@ export default function SettingsPanel() {
     const initializeRace = async () => {
         try {
             const response = await fetch('/api/setup/wizard/initialize', { method: 'POST' })
-            if (!response.ok) throw new Error('Failed to initialize race state')
             const payload = await response.json()
+            if (!response.ok) {
+                const detail = payload?.detail ? String(payload.detail) : 'Failed to initialize race state'
+                throw new Error(detail)
+            }
             setWizard(payload.wizard)
+            setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to initialize race.')
         }
@@ -209,6 +214,7 @@ export default function SettingsPanel() {
                                 </ul>
                             ) : null}
 
+                            {step.help ? <p className="mt-2 text-xs text-slate-300">How to unblock: {step.help}</p> : null}
                             {step.last_error ? <p className="mt-2 text-xs text-rose-300">Last error: {step.last_error}</p> : null}
                         </div>
                     ))}

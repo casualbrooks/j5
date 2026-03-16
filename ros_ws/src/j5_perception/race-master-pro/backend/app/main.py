@@ -970,12 +970,7 @@ async def stop_setup_step(step_id: str):
 async def initialize_race_from_wizard():
     status = await _build_setup_status()
     blocking_step = next(
-        (
-            item
-            for item in status["steps"]
-            if item["id"] != "race_state" and not item["connected"]
-        ),
-        None,
+        (item for item in status["steps"] if not item["connected"]), None
     )
     if blocking_step:
         raise HTTPException(

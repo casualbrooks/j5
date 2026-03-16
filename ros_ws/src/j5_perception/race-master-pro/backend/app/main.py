@@ -75,6 +75,7 @@ _SETUP_STEPS = [
         "check_contains": ["launch"],
         "connect_command": ". /opt/ros/iron/setup.bash && . ~/alive/j5/ros_ws/install/setup.bash",
         "stop_command": "pkill -f ros2 || true",
+        "help": "The API process cannot mutate your terminal PATH. Run the source command in the shell where you launch ROS nodes, then click Verify.",
     },
     {
         "id": "pi_connectivity",
@@ -84,6 +85,7 @@ _SETUP_STEPS = [
         "connect_command": "Verify host + API reachability (no interactive shell needed)",
         "stop_command": "echo 'No persistent process to stop for connectivity check'",
         "stop_commands": ["echo No persistent process to stop for connectivity check"],
+        "help": "Set pi_host to an address that resolves from this machine and ensure SSH/API ports are reachable.",
     },
     {
         "id": "backend_service",
@@ -94,6 +96,7 @@ _SETUP_STEPS = [
         "stop_command": "pkill -f 'python -m app.main' || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f python -m app.main"],
+        "help": "If this fails, start the backend on the configured host/port and confirm GET /health returns 200.",
     },
     {
         "id": "vision_preview",
@@ -104,6 +107,17 @@ _SETUP_STEPS = [
         "stop_command": "pkill -f pi_preflight.py || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f pi_preflight.py"],
+        "help": "Start the preview service and verify {preview_url}/health is reachable.",
+    },
+    {
+        "id": "websocket_endpoint",
+        "title": "WebSocket endpoint",
+        "description": "Realtime events require a reachable WS endpoint based on backend_url.",
+        "check_commands": [],
+        "connect_command": "Use ws://<backend-host>:<backend-port>/ws in the frontend environment and restart the UI",
+        "stop_command": "echo 'No persistent process to stop for websocket endpoint'",
+        "stop_commands": ["echo No persistent process to stop for websocket endpoint"],
+        "help": "For Next.js UI set NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_BASE to your FastAPI service.",
     },
     {
         "id": "race_state",
@@ -274,6 +288,13 @@ async def _check_http_health(url: str):
         }
 
 
+async def _check_ws_port(url: str):
+    parsed = urlparse(url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return await _check_tcp_port(host, port)
+
+
 def _render_command(template: str, config: dict):
     return template.format(**config)
 
@@ -333,6 +354,13 @@ async def _build_setup_status():
         elif step["id"] == "vision_preview":
             checks = [await _check_http_health(config["preview_url"])]
             check_ok = all(item["ok"] for item in checks)
+        elif step["id"] == "websocket_endpoint":
+            ws_result = await _check_ws_port(config["backend_url"])
+            ws_result["command"] = (
+                f"ws tcp://{urlparse(config['backend_url']).hostname}:{urlparse(config['backend_url']).port or 80}"
+            )
+            checks = [ws_result]
+            check_ok = all(item["ok"] for item in checks)
         else:
             for cmd_template in step["check_commands"]:
                 command = _render_command(cmd_template, config)
@@ -358,6 +386,7 @@ async def _build_setup_status():
             "stop_command": _render_command(step["stop_command"], config),
             "last_action": state.get("last_action"),
             "last_error": state.get("last_error"),
+            "help": _render_command(step.get("help", ""), config),
         }
         steps.append(step_data)
     for idx, step in enumerate(steps):
@@ -939,6 +968,21 @@ async def stop_setup_step(step_id: str):
 
 @app.post("/api/setup/wizard/initialize")
 async def initialize_race_from_wizard():
+    status = await _build_setup_status()
+    blocking_step = next(
+        (
+            item
+            for item in status["steps"]
+            if item["id"] != "race_state" and not item["connected"]
+        ),
+        None,
+    )
+    if blocking_step:
+        raise HTTPException(
+            400,
+            f"Setup blocked by '{blocking_step['title']}'. Run: {blocking_step['next_command']} and verify this step before initializing race state.",
+        )
+
     config = await _get_state_json("setup_config", _DEFAULT_SETUP_CONFIG)
     event = await insert_row(
         "race_events",

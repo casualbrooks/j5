@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch, backendBaseUrl, backendWsUrl } from '@/lib/utils'
+import { apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl } from '@/lib/utils'
 
 interface SetupCheckResult {
     command: string
@@ -72,7 +72,7 @@ export default function SettingsPanel() {
         loadWizard()
     }, [])
 
-    const frontendApiUrl = backendBaseUrl()
+    const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
     const frontendWsUrl = backendWsUrl('organizer')
 
     const currentStep = useMemo(() => wizard?.steps.find(step => step.is_current), [wizard])
@@ -167,7 +167,7 @@ export default function SettingsPanel() {
                     <p><strong>Frontend API target:</strong> <code>{frontendApiUrl}</code></p>
                     <p><strong>Frontend organizer websocket:</strong> <code>{frontendWsUrl}</code></p>
                     <p className="mt-2 text-[var(--color-text-secondary)]">
-                        This Vite app uses <code>VITE_API_BASE_URL</code> and <code>VITE_WS_URL</code> when set. Without them it talks directly to <code>http://&lt;current-host&gt;:8080</code> and <code>ws://&lt;current-host&gt;:8080/ws</code>.
+                        This Vite app uses <code>VITE_API_BASE_URL</code> and <code>VITE_WS_URL</code> when set. Without them, API calls try same-origin <code>/api</code> first and fall back to <code>http://&lt;current-host&gt;:8080</code>; websocket calls stay on same-origin <code>/ws</code> for HTTPS/proxied deployments and fall back to <code>ws://&lt;current-host&gt;:8080/ws</code> for local Vite dev.
                     </p>
                 </div>
                 <form className="grid gap-3 md:grid-cols-2" onSubmit={onSaveConfig}>

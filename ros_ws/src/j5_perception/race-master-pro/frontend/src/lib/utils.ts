@@ -72,7 +72,7 @@ export function generateId(): string {
     return crypto.randomUUID()
 }
 
-function configuredApiBaseUrl(): string | null {
+export function configuredApiBaseUrl(): string | null {
     const configured = import.meta.env.VITE_API_BASE_URL?.trim()
     return configured ? configured.replace(/\/$/, '') : null
 }
@@ -88,11 +88,26 @@ export function backendBaseUrl(): string {
     return `http://${window.location.hostname}:8080`
 }
 
+
+function sameOriginWsBaseUrl(): string {
+    return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+}
+
+function directBackendWsBaseUrl(): string {
+    return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8080/ws`
+}
+
+function shouldUseSameOriginWsProxy(): boolean {
+    return window.location.protocol === 'https:' || !['5173', '4173'].includes(window.location.port)
+}
+
 export function backendWsUrl(clientType = 'organizer'): string {
     const configured = import.meta.env.VITE_WS_URL?.trim()
     const baseUrl = configured
         ? configured.replace(/\/$/, '')
-        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8080/ws`
+        : shouldUseSameOriginWsProxy()
+            ? sameOriginWsBaseUrl()
+            : directBackendWsBaseUrl()
     const separator = baseUrl.includes('?') ? '&' : '?'
     return `${baseUrl}${separator}client_type=${encodeURIComponent(clientType)}`
 }

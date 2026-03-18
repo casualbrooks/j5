@@ -29,6 +29,32 @@ find_python_bin() {
   return 1
 }
 
+is_port_in_use() {
+  local host="$1"
+  local port="$2"
+  local python_bin="${PYTHON_BIN:-$(find_python_bin || true)}"
+  if [[ -z "$python_bin" ]]; then
+    echo "Python is required to inspect port availability."
+    return 2
+  fi
+  "$python_bin" - "$host" "$port" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
 source_setup_bash() {
   local setup_file="$1"
   local restore_nounset="false"
@@ -239,6 +265,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+ensure_port_available "API" "$HOST" "$API_PORT"
+ensure_port_available "UI" "$HOST" "$UI_PORT"
+
 export HTTP_HOST="$HOST"
 export HTTP_PORT="$API_PORT"
 export NEXT_PUBLIC_API_BASE="http://$PI_IP:$API_PORT"
@@ -257,6 +286,9 @@ API_PID=$!
 UI_PID=$!
 
 sleep 2
+
+ensure_process_running "$API_PID" "Backend"
+ensure_process_running "$UI_PID" "Frontend"
 
 if [[ "$MODE" == "ros2" ]]; then
   "$VENV_PYTHON" apps/racemanager/bridge/bridge.py --mode ros2 --service-url "http://localhost:$API_PORT" --topic "$RACE_TOPIC" &

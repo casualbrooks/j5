@@ -207,12 +207,6 @@ By default the Race Manager UI runs on port `3000`, because the frontend uses
 Next.js (`npm run dev` → `next dev`) rather than Vite. If you try `5173`, the
 page will not respond unless you explicitly override `--ui-port 5173`.
 
-The launcher now installs the shared runtime Python dependencies needed by both
-the FastAPI service and the bridge into `apps/racemanager/service/.venv` before
-starting processes, and it exits early if either `--api-port` or `--ui-port` is
-already occupied so you do not get a false "started" message after an
-`EADDRINUSE` failure.
-
 If ROS 2 is not installed system-wide, that is OK for this workflow. Build ROS 2 + dependencies from source, source your workspace `install/setup.bash`, then retry `--mode ros2`.
 
 

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { backendBaseUrl, backendWsUrl } from '@/lib/utils'
+import { apiFetch, backendBaseUrl, backendWsUrl } from '@/lib/utils'
 
 interface SetupCheckResult {
     command: string
@@ -47,7 +47,7 @@ export default function SettingsPanel() {
 
     const loadWizard = async () => {
         try {
-            const response = await fetch('/api/setup/wizard')
+            const response = await apiFetch('/api/setup/wizard')
             if (!response.ok) throw new Error('Failed to load wizard status')
             const payload: WizardStatus = await response.json()
             const rawNames = (payload.config.racer_names as string[] | undefined) || []
@@ -80,7 +80,7 @@ export default function SettingsPanel() {
     const runStepAction = async (stepId: string, action: 'verify' | 'connect' | 'stop') => {
         setBusyStepId(stepId)
         try {
-            const response = await fetch(`/api/setup/wizard/steps/${stepId}/${action}`, { method: 'POST' })
+            const response = await apiFetch(`/api/setup/wizard/steps/${stepId}/${action}`, { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} step ${stepId}`)
             const payload = await response.json()
             setWizard(payload.wizard || payload)
@@ -95,7 +95,7 @@ export default function SettingsPanel() {
     const onSaveConfig = async (event: FormEvent) => {
         event.preventDefault()
         try {
-            const response = await fetch('/api/setup/wizard/config', {
+            const response = await apiFetch('/api/setup/wizard/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -128,7 +128,7 @@ export default function SettingsPanel() {
             resume: `/api/races/${raceId}/resume`,
         }
         try {
-            const response = await fetch(endpointMap[action], { method: 'POST' })
+            const response = await apiFetch(endpointMap[action], { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} race`)
             await loadWizard()
         } catch (err) {
@@ -138,7 +138,7 @@ export default function SettingsPanel() {
 
     const initializeRace = async () => {
         try {
-            const response = await fetch('/api/setup/wizard/initialize', { method: 'POST' })
+            const response = await apiFetch('/api/setup/wizard/initialize', { method: 'POST' })
             const payload = await response.json()
             if (!response.ok) {
                 const detail = payload?.detail ? String(payload.detail) : 'Failed to initialize race state'

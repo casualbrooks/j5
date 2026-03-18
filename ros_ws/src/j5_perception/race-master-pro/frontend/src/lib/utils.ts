@@ -99,6 +99,12 @@ export function backendWsUrl(clientType = 'organizer'): string {
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    const configuredBaseUrl = configuredApiBaseUrl()
+
+    if (configuredBaseUrl) {
+        return fetch(`${configuredBaseUrl}${normalizedPath}`, init)
+    }
+
     const response = await fetch(normalizedPath, init)
     if (response.status !== 404) {
         return response

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { apiFetch } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
@@ -19,7 +20,7 @@ export default function VisionPanel() {
 
     const refreshWizardContext = async () => {
         try {
-            const response = await fetch('/api/setup/wizard')
+            const response = await apiFetch('/api/setup/wizard')
             if (!response.ok) return
             const payload = await response.json()
             setRaceContext(payload.race_context || {})
@@ -51,7 +52,7 @@ export default function VisionPanel() {
             setStatusMessage(payload.message || 'Snapshot captured successfully.')
             const raceId = String(raceContext.race_id || '')
             if (raceId) {
-                await fetch(`/api/races/${raceId}/logs`, {
+                await apiFetch(`/api/races/${raceId}/logs`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ entry: `${new Date().toISOString()} Track image captured from Vision panel` }),
@@ -78,7 +79,7 @@ export default function VisionPanel() {
             return
         }
         const endpoint = start ? `/api/races/${raceId}/tracking/start` : `/api/races/${raceId}/tracking/stop`
-        const response = await fetch(endpoint, { method: 'POST' })
+        const response = await apiFetch(endpoint, { method: 'POST' })
         if (response.ok) {
             await refreshWizardContext()
             setStatusMessage(start ? 'Object tracking started.' : 'Object tracking stopped.')

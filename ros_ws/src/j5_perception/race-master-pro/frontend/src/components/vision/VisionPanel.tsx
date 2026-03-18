@@ -105,6 +105,19 @@ export default function VisionPanel() {
                     Capture the track image here after the setup wizard in Settings marks connectivity as connected. Once
                     captured, return here to start object tracking and monitor lap-count logs.
                 </p>
+                <div className="rounded border border-slate-700 bg-slate-950 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Start camera feed only</p>
+                    <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+                        You can bring the camera preview back without re-initializing the race by running this on the Pi:
+                    </p>
+                    <code className="mt-2 block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091
+                    </code>
+                    <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
+                        Then open the preview URL above, or load the stream again in this tab. Replace <code>/dev/video0</code> if your
+                        camera uses a different device.
+                    </p>
+                </div>
             </div>
 
             <div className="race-card p-4 space-y-3">

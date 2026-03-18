@@ -4,11 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-try:
-    from typing import Annotated
-except ImportError:  # pragma: no cover
-    from typing_extensions import Annotated
-
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
@@ -46,9 +41,7 @@ class RepoProvider:
     def __init__(self) -> None:
         self._repo: RaceRepository | None = None
 
-    def __call__(
-        self, settings: Annotated[Settings, Depends(get_settings)]
-    ) -> RaceRepository:
+    def __call__(self, settings: Settings = Depends(get_settings)) -> RaceRepository:
         if self._repo is None:
             self._repo = get_repository(
                 settings.db_backend,
@@ -71,7 +64,7 @@ ws_manager = ConnectionManager()
 
 
 @app.get("/health")
-def health(settings: Annotated[Settings, Depends(get_settings)]) -> JSONResponse:
+def health(settings: Settings = Depends(get_settings)) -> JSONResponse:
     return JSONResponse(
         {"status": "ok", "config": settings.dict(include_sensitive=False)}
     )
@@ -80,7 +73,7 @@ def health(settings: Annotated[Settings, Depends(get_settings)]) -> JSONResponse
 @app.post("/ingest/lap", response_model=LapResponse)
 async def ingest_lap(
     payload: LapIngest,
-    repository: Annotated[RaceRepository, Depends(repo_provider)],
+    repository: RaceRepository = Depends(repo_provider),
 ) -> LapResponse:
     speed = calculate_speed_kph(payload.trackDistanceM, payload.lapTimeMs)
     try:
@@ -116,7 +109,7 @@ async def ingest_lap(
 @app.get("/races/{race_id}/leaderboard", response_model=LeaderboardResponse)
 def race_leaderboard(
     race_id: str,
-    repository: Annotated[RaceRepository, Depends(repo_provider)],
+    repository: RaceRepository = Depends(repo_provider),
 ) -> LeaderboardResponse:
     try:
         return repository.leaderboard(race_id)

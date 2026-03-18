@@ -29,14 +29,70 @@ find_python_bin() {
   return 1
 }
 
+is_port_in_use() {
+  local host="$1"
+  local port="$2"
+  local python_bin="${PYTHON_BIN:-$(find_python_bin || true)}"
+  if [[ -z "$python_bin" ]]; then
+    echo "Python is required to inspect port availability."
+    return 2
+  fi
+  "$python_bin" - "$host" "$port" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
 source_setup_bash() {
   local setup_file="$1"
+  local restore_nounset="false"
   if [[ ! -f "$setup_file" ]]; then
     echo "Missing setup script: $setup_file"
     return 1
   fi
+  if [[ $- == *u* ]]; then
+    restore_nounset="true"
+    set +u
+  fi
   # shellcheck disable=SC1090
   source "$setup_file"
+  local source_status=$?
+  if [[ "$restore_nounset" == "true" ]]; then
+    set -u
+  fi
+  return "$source_status"
+}
+
+ensure_port_available() {
+  local name="$1"
+  local host="$2"
+  local port="$3"
+  if is_port_in_use "$host" "$port"; then
+    echo "$name port $port is already in use on $host."
+    echo "Stop the existing process or choose a different port with --api-port/--ui-port."
+    return 1
+  fi
+}
+
+ensure_process_running() {
+  local pid="$1"
+  local name="$2"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "$name failed to stay running. Review the logs above and retry."
+    return 1
+  fi
 }
 
 apply_defaults() {
@@ -229,6 +285,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+ensure_port_available "API" "$HOST" "$API_PORT"
+ensure_port_available "UI" "$HOST" "$UI_PORT"
+
 export HTTP_HOST="$HOST"
 export HTTP_PORT="$API_PORT"
 export NEXT_PUBLIC_API_BASE="http://$PI_IP:$API_PORT"
@@ -247,6 +306,9 @@ API_PID=$!
 UI_PID=$!
 
 sleep 2
+
+ensure_process_running "$API_PID" "Backend"
+ensure_process_running "$UI_PID" "Frontend"
 
 if [[ "$MODE" == "ros2" ]]; then
   "$VENV_PYTHON" apps/racemanager/bridge/bridge.py --mode ros2 --service-url "http://localhost:$API_PORT" --topic "$RACE_TOPIC" &

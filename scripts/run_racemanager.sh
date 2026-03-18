@@ -31,12 +31,22 @@ find_python_bin() {
 
 source_setup_bash() {
   local setup_file="$1"
+  local restore_nounset="false"
   if [[ ! -f "$setup_file" ]]; then
     echo "Missing setup script: $setup_file"
     return 1
   fi
+  if [[ $- == *u* ]]; then
+    restore_nounset="true"
+    set +u
+  fi
   # shellcheck disable=SC1090
   source "$setup_file"
+  local source_status=$?
+  if [[ "$restore_nounset" == "true" ]]; then
+    set -u
+  fi
+  return "$source_status"
 }
 
 apply_defaults() {

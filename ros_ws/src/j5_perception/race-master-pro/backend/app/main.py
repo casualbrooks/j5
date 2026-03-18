@@ -114,10 +114,10 @@ _SETUP_STEPS = [
         "title": "WebSocket endpoint",
         "description": "Realtime events require a reachable WS endpoint based on backend_url.",
         "check_commands": [],
-        "connect_command": "Use ws://<backend-host>:<backend-port>/ws in the frontend environment and restart the UI",
+        "connect_command": "Set VITE_WS_URL=ws://<backend-host>:<backend-port>/ws (or NEXT_PUBLIC_WS_URL for Next.js), restart the UI, then verify",
         "stop_command": "echo 'No persistent process to stop for websocket endpoint'",
         "stop_commands": ["echo No persistent process to stop for websocket endpoint"],
-        "help": "For Next.js UI set NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_BASE to your FastAPI service.",
+        "help": "For the Vite frontend set VITE_WS_URL and VITE_API_BASE_URL; for the Next.js demo use NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_BASE. Both must point at the FastAPI service.",
     },
     {
         "id": "race_state",

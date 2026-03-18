@@ -72,15 +72,54 @@ export function generateId(): string {
     return crypto.randomUUID()
 }
 
-function backendBaseUrl(): string {
+export function configuredApiBaseUrl(): string | null {
+    const configured = import.meta.env.VITE_API_BASE_URL?.trim()
+    return configured ? configured.replace(/\/$/, '') : null
+}
+
+export function backendBaseUrl(): string {
+    const configured = configuredApiBaseUrl()
+    if (configured) {
+        return configured
+    }
     if (typeof window === 'undefined') {
         return 'http://localhost:8080'
     }
     return `http://${window.location.hostname}:8080`
 }
 
+
+function sameOriginWsBaseUrl(): string {
+    return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+}
+
+function directBackendWsBaseUrl(): string {
+    return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8080/ws`
+}
+
+function shouldUseSameOriginWsProxy(): boolean {
+    return window.location.protocol === 'https:' || !['5173', '4173'].includes(window.location.port)
+}
+
+export function backendWsUrl(clientType = 'organizer'): string {
+    const configured = import.meta.env.VITE_WS_URL?.trim()
+    const baseUrl = configured
+        ? configured.replace(/\/$/, '')
+        : shouldUseSameOriginWsProxy()
+            ? sameOriginWsBaseUrl()
+            : directBackendWsBaseUrl()
+    const separator = baseUrl.includes('?') ? '&' : '?'
+    return `${baseUrl}${separator}client_type=${encodeURIComponent(clientType)}`
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    const configuredBaseUrl = configuredApiBaseUrl()
+
+    if (configuredBaseUrl) {
+        return fetch(`${configuredBaseUrl}${normalizedPath}`, init)
+    }
+
     const response = await fetch(normalizedPath, init)
     if (response.status !== 404) {
         return response

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl } from '@/lib/utils'
 
 interface SetupCheckResult {
     command: string
@@ -30,7 +31,7 @@ interface WizardStatus {
 const defaultConfig = {
     pi_host: 'pi-host-or-ip.local',
     pi_user: 'pi-user',
-    backend_url: 'http://<pi-ip:8080',
+    backend_url: 'http://<pi-ip>:8080',
     preview_url: 'http://pi-ip:8091',
     race_name: 'Main Event',
     event_name: 'Weekend Session',
@@ -46,7 +47,7 @@ export default function SettingsPanel() {
 
     const loadWizard = async () => {
         try {
-            const response = await fetch('/api/setup/wizard')
+            const response = await apiFetch('/api/setup/wizard')
             if (!response.ok) throw new Error('Failed to load wizard status')
             const payload: WizardStatus = await response.json()
             const rawNames = (payload.config.racer_names as string[] | undefined) || []
@@ -71,12 +72,15 @@ export default function SettingsPanel() {
         loadWizard()
     }, [])
 
+    const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
+    const frontendWsUrl = backendWsUrl('organizer')
+
     const currentStep = useMemo(() => wizard?.steps.find(step => step.is_current), [wizard])
 
     const runStepAction = async (stepId: string, action: 'verify' | 'connect' | 'stop') => {
         setBusyStepId(stepId)
         try {
-            const response = await fetch(`/api/setup/wizard/steps/${stepId}/${action}`, { method: 'POST' })
+            const response = await apiFetch(`/api/setup/wizard/steps/${stepId}/${action}`, { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} step ${stepId}`)
             const payload = await response.json()
             setWizard(payload.wizard || payload)
@@ -91,7 +95,7 @@ export default function SettingsPanel() {
     const onSaveConfig = async (event: FormEvent) => {
         event.preventDefault()
         try {
-            const response = await fetch('/api/setup/wizard/config', {
+            const response = await apiFetch('/api/setup/wizard/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -124,7 +128,7 @@ export default function SettingsPanel() {
             resume: `/api/races/${raceId}/resume`,
         }
         try {
-            const response = await fetch(endpointMap[action], { method: 'POST' })
+            const response = await apiFetch(endpointMap[action], { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} race`)
             await loadWizard()
         } catch (err) {
@@ -134,7 +138,7 @@ export default function SettingsPanel() {
 
     const initializeRace = async () => {
         try {
-            const response = await fetch('/api/setup/wizard/initialize', { method: 'POST' })
+            const response = await apiFetch('/api/setup/wizard/initialize', { method: 'POST' })
             const payload = await response.json()
             if (!response.ok) {
                 const detail = payload?.detail ? String(payload.detail) : 'Failed to initialize race state'
@@ -151,8 +155,21 @@ export default function SettingsPanel() {
         <div className="fade-in space-y-4">
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Settings · Race Setup Wizard</h2>
 
-            <div className="race-card p-4">
-                <h3 className="mb-2 text-base font-semibold">Configuration</h3>
+            <div className="race-card p-4 space-y-3">
+                <div>
+                    <h3 className="mb-2 text-base font-semibold">Configuration</h3>
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                        Save the FastAPI base URL first, then verify the backend, websocket, and preview steps below before clicking <strong>Initialize Race State</strong>.
+                    </p>
+                </div>
+
+                <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200">
+                    <p><strong>Frontend API target:</strong> <code>{frontendApiUrl}</code></p>
+                    <p><strong>Frontend organizer websocket:</strong> <code>{frontendWsUrl}</code></p>
+                    <p className="mt-2 text-[var(--color-text-secondary)]">
+                        This Vite app uses <code>VITE_API_BASE_URL</code> and <code>VITE_WS_URL</code> when set. Without them, API calls try same-origin <code>/api</code> first and fall back to <code>http://&lt;current-host&gt;:8080</code>; websocket calls stay on same-origin <code>/ws</code> for HTTPS/proxied deployments and fall back to <code>ws://&lt;current-host&gt;:8080/ws</code> for local Vite dev.
+                    </p>
+                </div>
                 <form className="grid gap-3 md:grid-cols-2" onSubmit={onSaveConfig}>
                     <input className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm" value={config.pi_host} onChange={e => setConfig(prev => ({ ...prev, pi_host: e.target.value }))} placeholder="Pi host" />
                     <input className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm" value={config.pi_user} onChange={e => setConfig(prev => ({ ...prev, pi_user: e.target.value }))} placeholder="Pi user" />
@@ -179,7 +196,10 @@ export default function SettingsPanel() {
             <div className="race-card p-4 space-y-3">
                 <h3 className="text-base font-semibold">Ordered Connection Checklist</h3>
                 {currentStep ? (
-                    <p className="text-xs text-[var(--color-text-secondary)]">Current blocking step: <strong>{currentStep.title}</strong> · Next command: <code>{currentStep.next_command}</code></p>
+                    <div className="space-y-1 text-xs text-[var(--color-text-secondary)]">
+                        <p>Current blocking step: <strong>{currentStep.title}</strong> · Next command: <code>{currentStep.next_command}</code></p>
+                        <p>Recommended order: 1) save config, 2) verify backend + preview + websocket, 3) initialize race state, 4) use Race Start / Pause / Resume controls.</p>
+                    </div>
                 ) : <p className="text-xs text-emerald-400">All setup steps are currently marked connected.</p>}
 
                 <div className="space-y-3">

@@ -70,6 +70,14 @@ Frontend starts at `http://localhost:5173`.
 For remote browser access, open `http://<pi-ip>:5173` and run Vite with host binding
 (for example `npm run dev -- --host 0.0.0.0`) if needed.
 
+By default the Vite UI tries same-origin `/api` first and falls back to
+`http://<current-host>:8080`. Websocket traffic stays on same-origin `/ws` for
+HTTPS/reverse-proxy deployments and falls back to
+`ws://<current-host>:8080/ws?client_type=organizer` during local Vite dev. Override
+those targets with `VITE_API_BASE_URL=http://<api-host>:8080` and
+`VITE_WS_URL=ws://<api-host>:8080/ws` before starting `npm run dev` when the
+FastAPI service lives on a different host or port.
+
 ### 3. Run the Perception System
 
 ```bash

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import type { LiveRaceState, LiveRacer, RaceStatus } from '@/types'
+import type { LiveRaceState, LiveRacer } from '@/types'
+import { backendWsUrl } from '@/lib/utils'
 
 // ── Connection Status ──────────────────────────────────────
 
@@ -60,8 +61,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
 
     // Auto-connect WebSocket on mount
     useEffect(() => {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsUrl = `${protocol}//${window.location.host}/ws?client_type=organizer`
+        const wsUrl = backendWsUrl('organizer')
 
         let reconnectTimer: ReturnType<typeof setTimeout>
         let ws: WebSocket
@@ -87,7 +87,6 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             ws.onclose = () => {
                 setConnectionStatus('disconnected')
                 wsRef.current = null
-                // Reconnect after 3 seconds
                 reconnectTimer = setTimeout(connect, 3000)
             }
 

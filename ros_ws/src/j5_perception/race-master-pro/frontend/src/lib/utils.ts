@@ -72,11 +72,29 @@ export function generateId(): string {
     return crypto.randomUUID()
 }
 
-function backendBaseUrl(): string {
+function configuredApiBaseUrl(): string | null {
+    const configured = import.meta.env.VITE_API_BASE_URL?.trim()
+    return configured ? configured.replace(/\/$/, '') : null
+}
+
+export function backendBaseUrl(): string {
+    const configured = configuredApiBaseUrl()
+    if (configured) {
+        return configured
+    }
     if (typeof window === 'undefined') {
         return 'http://localhost:8080'
     }
     return `http://${window.location.hostname}:8080`
+}
+
+export function backendWsUrl(clientType = 'organizer'): string {
+    const configured = import.meta.env.VITE_WS_URL?.trim()
+    const baseUrl = configured
+        ? configured.replace(/\/$/, '')
+        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8080/ws`
+    const separator = baseUrl.includes('?') ? '&' : '?'
+    return `${baseUrl}${separator}client_type=${encodeURIComponent(clientType)}`
 }
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {

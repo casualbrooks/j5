@@ -129,6 +129,16 @@ def maybe_capture_frame(
     )
 
 
+def is_required_check(check: CheckResult, *, preview_only: bool) -> bool:
+    if (
+        preview_only
+        and check.name == "Track snapshot"
+        and "skipped capture" in check.details.lower()
+    ):
+        return False
+    return True
+
+
 def camera_source_to_cv2_index(camera_source: str):
     if camera_source.isdigit():
         return int(camera_source)

@@ -167,7 +167,7 @@ export default function SettingsPanel() {
                 <div>
                     <h3 className="mb-2 text-base font-semibold">Configuration</h3>
                     <p className="text-xs text-[var(--color-text-secondary)]">
-                        Save the FastAPI base URL first, then verify the backend, websocket, and preview steps below before clicking <strong>Initialize Race State</strong>.
+                        Save the FastAPI base URL first, then verify Pi reachability plus backend health before clicking <strong>Initialize Race State</strong>. Preview and websocket checks can be completed afterward before live tracking.
                     </p>
                 </div>
 
@@ -207,7 +207,7 @@ export default function SettingsPanel() {
                 {currentStep ? (
                     <div className="space-y-1 text-xs text-[var(--color-text-secondary)]">
                         <p>Current blocking step: <strong>{currentStep.title}</strong> · Next command: <code>{currentStep.next_command}</code></p>
-                        <p>Recommended order: 1) save config, 2) verify backend + preview + websocket, 3) initialize race state, 4) use Race Start / Pause / Resume controls.</p>
+                        <p>Recommended order: 1) save config, 2) verify Pi + backend, 3) initialize race state, 4) bring up preview/websocket before live tracking, 5) use Race Start / Pause / Resume / Finish controls.</p>
                     </div>
                 ) : <p className="text-xs text-emerald-400">All setup steps are currently marked connected.</p>}
 

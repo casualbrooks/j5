@@ -75,6 +75,26 @@ source_setup_bash() {
   return "$source_status"
 }
 
+ensure_port_available() {
+  local name="$1"
+  local host="$2"
+  local port="$3"
+  if is_port_in_use "$host" "$port"; then
+    echo "$name port $port is already in use on $host."
+    echo "Stop the existing process or choose a different port with --api-port/--ui-port."
+    return 1
+  fi
+}
+
+ensure_process_running() {
+  local pid="$1"
+  local name="$2"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "$name failed to stay running. Review the logs above and retry."
+    return 1
+  fi
+}
+
 apply_defaults() {
   if [[ -z "$PI_IP" ]]; then
     PI_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

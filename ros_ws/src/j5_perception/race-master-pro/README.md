@@ -345,16 +345,13 @@ on the Pi:
 
 ```bash
 python3 scripts/pi_preflight.py \
-  --preview-only \
   --camera-source /dev/video0 \
   --capture-file track_snapshot.jpg \
   --serve-preview --preview-host 0.0.0.0 --preview-port 8091
 ```
 
 That command is safe to use independently of the race setup flow. Replace
-`/dev/video0` if your camera is exposed at a different device path. The
-`--preview-only` flag skips backend TCP/HTTP checks, so the preview can come up
-even when you are not initializing a race.
+`/dev/video0` if your camera is exposed at a different device path.
 
 This verifies:
 - ROS2 CLI availability

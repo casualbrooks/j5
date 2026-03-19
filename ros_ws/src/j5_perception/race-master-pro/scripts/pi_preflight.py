@@ -691,10 +691,7 @@ def main() -> int:
         if preview_rc != 0:
             return preview_rc
 
-    required_checks = [
-        c for c in checks if is_required_check(c, preview_only=args.preview_only)
-    ]
-    return 0 if all(c.ok for c in required_checks) else 1
+    return 0 if all(c.ok for c in checks) else 1
 
 
 if __name__ == "__main__":

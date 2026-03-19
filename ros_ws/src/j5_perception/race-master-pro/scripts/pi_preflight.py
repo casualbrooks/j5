@@ -76,7 +76,7 @@ def check_http(url: str, timeout: float = 4.0) -> CheckResult:
             return CheckResult(
                 f"HTTP {url}", 200 <= status < 300, f"status={status} body={payload}"
             )
-    except URLError as exc:
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
         return CheckResult(f"HTTP {url}", False, str(exc))
 
 
@@ -127,6 +127,16 @@ def maybe_capture_frame(
         False,
         "ffmpeg not installed; skipped capture. Install with: sudo apt update && sudo apt install -y ffmpeg",
     )
+
+
+def is_required_check(check: CheckResult, *, preview_only: bool) -> bool:
+    if (
+        preview_only
+        and check.name == "Track snapshot"
+        and "skipped capture" in check.details.lower()
+    ):
+        return False
+    return True
 
 
 def camera_source_to_cv2_index(camera_source: str):
@@ -596,6 +606,11 @@ def main() -> int:
         help="Start browser camera preview server for remote viewing and snapshot trigger",
     )
     parser.add_argument(
+        "--preview-only",
+        action="store_true",
+        help="Skip backend connectivity checks and just run local camera preview diagnostics",
+    )
+    parser.add_argument(
         "--preview-host",
         default="0.0.0.0",
         help="Host bind for preview server (use 0.0.0.0 for LAN access)",
@@ -608,12 +623,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    checks = [
-        check_ros2_on_path(),
-        check_tcp(args.backend_host, args.backend_port),
-        check_http(args.health_url),
-        list_cameras(),
-    ]
+    checks = [list_cameras()]
+
+    if not args.preview_only:
+        checks = [
+            check_ros2_on_path(),
+            check_tcp(args.backend_host, args.backend_port),
+            check_http(args.health_url),
+            *checks,
+        ]
 
     if not args.skip_capture:
         checks.append(maybe_capture_frame(Path(args.capture_file), args.camera_source))
@@ -673,7 +691,10 @@ def main() -> int:
         if preview_rc != 0:
             return preview_rc
 
-    return 0 if all(c.ok for c in checks[:4]) else 1
+    required_checks = [
+        c for c in checks if is_required_check(c, preview_only=args.preview_only)
+    ]
+    return 0 if all(c.ok for c in required_checks) else 1
 
 
 if __name__ == "__main__":

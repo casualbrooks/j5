@@ -1,7 +1,5 @@
 """FastAPI race manager service for standalone and ROS-fed deployments."""
 
-from __future__ import annotations
-
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect

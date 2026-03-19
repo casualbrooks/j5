@@ -2,7 +2,7 @@ import { Play, Pause, Flag } from 'lucide-react'
 import type { LiveRaceState } from '@/types'
 import type { ConnectionStatus } from '@/stores/raceStore'
 import { useRaceContext } from '@/stores/raceStore'
-import { formatRaceTime } from '@/lib/utils'
+import { formatRaceTime, apiFetch } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 
 interface BottomBarProps {
@@ -11,10 +11,9 @@ interface BottomBarProps {
 }
 
 export default function BottomBar({ liveRace, connectionStatus }: BottomBarProps) {
-    const { sendWsMessage } = useRaceContext()
+    const { refreshRaceState } = useRaceContext()
     const [elapsed, setElapsed] = useState(0)
 
-    // Tick the elapsed timer when race is active
     useEffect(() => {
         if (liveRace?.status !== 'active') {
             setElapsed(liveRace?.elapsed_time ?? 0)
@@ -26,16 +25,18 @@ export default function BottomBar({ liveRace, connectionStatus }: BottomBarProps
         return () => clearInterval(interval)
     }, [liveRace?.status, liveRace?.elapsed_time])
 
-    const handleStart = () => {
-        sendWsMessage({ type: 'raceStart', data: { race_id: liveRace?.race_id } })
-    }
-
-    const handlePause = () => {
-        sendWsMessage({ type: 'racePause', data: { race_id: liveRace?.race_id } })
-    }
-
-    const handleFinish = () => {
-        sendWsMessage({ type: 'raceFinish', data: { race_id: liveRace?.race_id } })
+    const controlRace = async (action: 'start' | 'pause' | 'finish' | 'resume') => {
+        if (!liveRace?.race_id) return
+        const endpointMap = {
+            start: `/api/races/${liveRace.race_id}/start`,
+            pause: `/api/races/${liveRace.race_id}/pause`,
+            finish: `/api/races/${liveRace.race_id}/finish`,
+            resume: `/api/races/${liveRace.race_id}/resume`,
+        }
+        const response = await apiFetch(endpointMap[action], { method: 'POST' })
+        if (response.ok) {
+            await refreshRaceState(liveRace.race_id)
+        }
     }
 
     const maxLap = liveRace
@@ -44,18 +45,17 @@ export default function BottomBar({ liveRace, connectionStatus }: BottomBarProps
 
     return (
         <footer className="app-bottombar">
-            {/* Race Controls */}
             <div className="flex items-center gap-2">
                 {liveRace?.status === 'active' ? (
                     <>
                         <button
-                            onClick={handlePause}
+                            onClick={() => controlRace('pause')}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-accent-orange)] text-black hover:opacity-90 transition-opacity"
                         >
                             <Pause size={12} /> Pause
                         </button>
                         <button
-                            onClick={handleFinish}
+                            onClick={() => controlRace('finish')}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-accent-green)] text-black hover:opacity-90 transition-opacity"
                         >
                             <Flag size={12} /> Finish
@@ -63,7 +63,7 @@ export default function BottomBar({ liveRace, connectionStatus }: BottomBarProps
                     </>
                 ) : liveRace?.status === 'setup' || liveRace?.status === 'paused' ? (
                     <button
-                        onClick={handleStart}
+                        onClick={() => controlRace(liveRace.status === 'paused' ? 'resume' : 'start')}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--color-accent-red)] text-white hover:opacity-90 transition-opacity"
                     >
                         <Play size={12} /> {liveRace.status === 'paused' ? 'Resume' : 'Start Race'}
@@ -73,10 +73,8 @@ export default function BottomBar({ liveRace, connectionStatus }: BottomBarProps
                 )}
             </div>
 
-            {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Race Timer */}
             {liveRace && (
                 <div className="flex items-center gap-4 text-xs">
                     <div className="font-timing text-[var(--color-text-primary)] text-sm">
@@ -88,10 +86,8 @@ export default function BottomBar({ liveRace, connectionStatus }: BottomBarProps
                 </div>
             )}
 
-            {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Status Indicators */}
             <div className="flex items-center gap-3 text-xs text-[var(--color-text-muted)]">
                 <span>
                     WS: {connectionStatus === 'connected' ? '🟢' : connectionStatus === 'connecting' ? '🟡' : '🔴'}

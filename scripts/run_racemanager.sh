@@ -128,6 +128,7 @@ Starts race manager backend + frontend and optional bridge.
 - ros2: bridge subscribes to ROS 2 topic (requires a source-built ROS 2 workspace)
 - print-systemd: print a ready-to-run systemd setup snippet and exit
 - doctor: only run dependency/path checks and print diagnostics
+- default UI port is 3000 (Next.js). Use --ui-port 5173 only if you want legacy Vite-style port numbering.
 USAGE
 }
 
@@ -323,6 +324,10 @@ echo "- Mode: $MODE"
 echo "- Backend: http://localhost:$API_PORT"
 echo "- Frontend (local): http://localhost:$UI_PORT"
 echo "- Frontend (LAN):   http://$PI_IP:$UI_PORT"
+if [[ "$UI_PORT" != "5173" ]]; then
+  echo "- Legacy note:      port 5173 belongs to the older race-master-pro Vite app, not this Next.js UI"
+  echo "- To use 5173:      rerun with --ui-port 5173"
+fi
 echo "- API (LAN):        http://$PI_IP:$API_PORT"
 echo "- WS (LAN):         ws://$PI_IP:$API_PORT/ws"
 if [[ "$MODE" == "ros2" ]]; then

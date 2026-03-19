@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl } from '@/lib/utils'
+import { useRaceContext } from '@/stores/raceStore'
 
 interface SetupCheckResult {
     command: string
@@ -40,6 +41,7 @@ const defaultConfig = {
 }
 
 export default function SettingsPanel() {
+    const { refreshRaceState } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
     const [busyStepId, setBusyStepId] = useState<string | null>(null)
     const [error, setError] = useState('')
@@ -63,6 +65,7 @@ export default function SettingsPanel() {
                 racer_names: rawNames.join(', '),
             })
             setError('')
+            await refreshRaceState(String(payload.race_context?.race_id || ''))
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to load setup wizard.')
         }
@@ -85,6 +88,7 @@ export default function SettingsPanel() {
             const payload = await response.json()
             setWizard(payload.wizard || payload)
             setError('')
+            await refreshRaceState(String(payload?.wizard?.race_context?.race_id || payload?.race_context?.race_id || ''))
         } catch (err) {
             setError(err instanceof Error ? err.message : `Unable to ${action} step.`)
         } finally {
@@ -110,27 +114,30 @@ export default function SettingsPanel() {
             const payload = await response.json()
             setWizard(payload)
             setError('')
+            await refreshRaceState(String(payload?.race_context?.race_id || ''))
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to save setup configuration.')
         }
     }
 
-    const controlRace = async (action: 'start' | 'pause' | 'snapshot' | 'resume') => {
+    const controlRace = async (action: 'start' | 'pause' | 'snapshot' | 'resume' | 'finish') => {
         const raceId = String(wizard?.race_context?.race_id || '')
         if (!raceId) {
             setError('Initialize race state first before using race controls.')
             return
         }
-        const endpointMap: Record<'start' | 'pause' | 'snapshot' | 'resume', string> = {
+        const endpointMap: Record<'start' | 'pause' | 'snapshot' | 'resume' | 'finish', string> = {
             start: `/api/races/${raceId}/start`,
             pause: `/api/races/${raceId}/pause`,
             snapshot: `/api/races/${raceId}/snapshot`,
             resume: `/api/races/${raceId}/resume`,
+            finish: `/api/races/${raceId}/finish`,
         }
         try {
             const response = await apiFetch(endpointMap[action], { method: 'POST' })
             if (!response.ok) throw new Error(`Failed to ${action} race`)
             await loadWizard()
+            await refreshRaceState(raceId)
         } catch (err) {
             setError(err instanceof Error ? err.message : `Unable to ${action} race.`)
         }
@@ -146,6 +153,7 @@ export default function SettingsPanel() {
             }
             setWizard(payload.wizard)
             setError('')
+            await refreshRaceState(String(payload?.wizard?.race_context?.race_id || ''))
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to initialize race.')
         }
@@ -187,6 +195,7 @@ export default function SettingsPanel() {
                         <button className="rounded bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500" type="button" onClick={() => controlRace('pause')}>Race Pause</button>
                         <button className="rounded bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500" type="button" onClick={() => controlRace('snapshot')}>Save Snapshot</button>
                         <button className="rounded bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500" type="button" onClick={() => controlRace('resume')}>Race Resume</button>
+                        <button className="rounded bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600" type="button" onClick={() => controlRace('finish')}>Race Finish</button>
                     </div>
                 </form>
             </div>

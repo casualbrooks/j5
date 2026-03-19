@@ -39,6 +39,19 @@ If `ros2` or `launch` is missing, fix underlay/overlay first (do not continue to
 
 ## Quick Start (source-build workflow)
 
+### One-command launcher
+
+From the repo root you can now start the Race Master Pro backend plus the Vite
+walkthrough UI with:
+
+```bash
+./scripts/run_race_master_pro.sh --mode ros2 --host 0.0.0.0 --pi-ip <pi-lan-ip>
+```
+
+That launcher keeps the Settings/Computer Vision/Dashboard workflow on the
+legacy Vite port (`5173`) while pointing the UI at the FastAPI backend on
+`8080`.
+
 ### 1. Start the Backend (Python deps in venv)
 
 ```bash
@@ -382,8 +395,9 @@ Race setup can now be driven from the web UI in ordered steps under **Settings**
 1. Verify ROS2 CLI availability (`ros2`, `launch`)
 2. Verify Raspberry Pi reachability
 3. Verify backend health endpoint
-4. Verify camera preview service
-5. Initialize race state (event/race/racers)
+4. Initialize race state (event/race/racers + championship context)
+5. Verify camera preview service before live tracking
+6. Verify websocket/event flow before live race operations
 
 The Settings wizard shows for each step:
 
@@ -391,6 +405,10 @@ The Settings wizard shows for each step:
 - exact command needed to continue
 - one-click buttons to verify, connect/reconnect, and stop
 - the next-step command so operators can progress linearly
+
+Only **Pi reachability** and **backend health** block `Initialize Race State`. The
+preview + websocket checks remain visible in the wizard, but they are intended
+to be completed after race metadata is created and before live tracking begins.
 
 Backend endpoints added for this workflow:
 

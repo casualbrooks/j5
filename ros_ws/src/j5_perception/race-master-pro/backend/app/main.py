@@ -80,12 +80,12 @@ _SETUP_STEPS = [
     {
         "id": "pi_connectivity",
         "title": "Headless Raspberry Pi Reachability",
-        "description": "Verify the configured Pi host resolves and API ports are reachable.",
+        "description": "Verify the configured Pi host resolves and SSH reachability is available.",
         "check_commands": [],
         "connect_command": "Verify host + API reachability (no interactive shell needed)",
         "stop_command": "echo 'No persistent process to stop for connectivity check'",
         "stop_commands": ["echo No persistent process to stop for connectivity check"],
-        "help": "Set pi_host to an address that resolves from this machine and ensure SSH/API ports are reachable.",
+        "help": "Set pi_host to an address that resolves from this machine and ensure the Pi is reachable over SSH. Backend, websocket, and preview are checked in their own steps.",
     },
     {
         "id": "backend_service",
@@ -129,6 +129,11 @@ _SETUP_STEPS = [
         "manual_connect": True,
     },
 ]
+
+_INITIALIZE_REQUIRED_STEP_IDS = {
+    "pi_connectivity",
+    "backend_service",
+}
 
 _DEFAULT_SETUP_CONFIG = {
     "pi_host": "raspberrypi.local",
@@ -334,19 +339,8 @@ async def _build_setup_status():
                 check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "pi_connectivity":
             pi_host = config["pi_host"]
-            parsed_backend = urlparse(config["backend_url"])
-            parsed_preview = urlparse(config["preview_url"])
-            ports = sorted(
-                {
-                    22,
-                    parsed_backend.port
-                    or (443 if parsed_backend.scheme == "https" else 80),
-                    parsed_preview.port
-                    or (443 if parsed_preview.scheme == "https" else 80),
-                }
-            )
             checks = [await _check_host_resolution(pi_host)]
-            checks.extend([await _check_tcp_port(pi_host, port) for port in ports])
+            checks.append(await _check_tcp_port(pi_host, 22))
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "backend_service":
             checks = [await _check_http_health(config["backend_url"])]
@@ -970,7 +964,12 @@ async def stop_setup_step(step_id: str):
 async def initialize_race_from_wizard():
     status = await _build_setup_status()
     blocking_step = next(
-        (item for item in status["steps"] if not item["connected"]), None
+        (
+            item
+            for item in status["steps"]
+            if item["id"] in _INITIALIZE_REQUIRED_STEP_IDS and not item["connected"]
+        ),
+        None,
     )
     if blocking_step:
         raise HTTPException(

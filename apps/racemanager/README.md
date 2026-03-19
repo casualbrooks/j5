@@ -207,6 +207,11 @@ By default the Race Manager UI runs on port `3000`, because the frontend uses
 Next.js (`npm run dev` → `next dev`) rather than Vite. If you try `5173`, the
 page will not respond unless you explicitly override `--ui-port 5173`.
 
+Typical healthy startup logs include `✓ Ready`, `✓ Compiled /`, and `GET / 200`
+from Next.js. Those lines mean the UI did build and is serving traffic; if the
+browser is blank, double-check that you are opening port `3000` (or your
+explicit `--ui-port` override) rather than the legacy Vite port `5173`.
+
 If ROS 2 is not installed system-wide, that is OK for this workflow. Build ROS 2 + dependencies from source, source your workspace `install/setup.bash`, then retry `--mode ros2`.
 
 

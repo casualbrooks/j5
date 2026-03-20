@@ -1,4 +1,4 @@
-"""Repository helpers for laps and standings.
+"""Repository helpers for laps, CRUD resources, events, and dashboard backing data.
 
 Supports either MongoDB (`backend="mongo"`) or SQLite (`backend="sqlite"`).
 SQLite is the default for local standalone deployments.
@@ -6,13 +6,14 @@ SQLite is the default for local standalone deployments.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
-from .schemas import LapIngest, LeaderboardEntry, LeaderboardResponse
+from .schemas import LeaderboardEntry, LeaderboardResponse, LapIngest, RaceEventIngest
 
 
 class RaceRepository(ABC):
@@ -22,6 +23,36 @@ class RaceRepository(ABC):
 
     @abstractmethod
     def leaderboard(self, race_id: str) -> LeaderboardResponse:
+        raise NotImplementedError
+
+    @abstractmethod
+    def create_entity(self, kind: str, record: dict) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_entities(
+        self, kind: str, filters: Optional[dict] = None, *, limit: Optional[int] = None
+    ) -> list[dict]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_entity(self, kind: str, entity_id: str) -> dict | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def update_entity(self, kind: str, entity_id: str, record: dict) -> dict | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete_entity(self, kind: str, entity_id: str) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    def insert_event(self, race_id: str, event: RaceEventIngest) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_events(self, race_id: str, *, limit: int = 20) -> list[dict]:
         raise NotImplementedError
 
 
@@ -56,6 +87,33 @@ class SQLiteRaceRepository(RaceRepository):
         )
         self.conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS entities (
+                kind TEXT NOT NULL,
+                id TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(kind, id)
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS race_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                car_id TEXT,
+                racer_id TEXT,
+                checkpoint_id TEXT,
+                lap_number INTEGER,
+                payload_json TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_laps_race_car
             ON laps_live (race_id, car_id)
             """
@@ -64,6 +122,18 @@ class SQLiteRaceRepository(RaceRepository):
             """
             CREATE INDEX IF NOT EXISTS idx_laps_race_timestamp
             ON laps_live (race_id, timestamp)
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_entities_kind
+            ON entities (kind, updated_at DESC)
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_events_race_timestamp
+            ON race_events (race_id, timestamp DESC)
             """
         )
         self.conn.commit()
@@ -108,7 +178,7 @@ class SQLiteRaceRepository(RaceRepository):
                     AVG(speed_kph) as avgSpeedKph,
                     SUM(lap_time_ms) as totalTimeMs
                 FROM laps_live
-                WHERE race_id = ?
+                WHERE race_id = ? AND is_valid = 1
                 GROUP BY car_id
                 ORDER BY totalTimeMs ASC
                 """,
@@ -118,6 +188,130 @@ class SQLiteRaceRepository(RaceRepository):
         leaderboard = self._attach_gaps(rows)
         entries = [LeaderboardEntry(**entry) for entry in leaderboard]
         return LeaderboardResponse(raceId=race_id, leaderboard=entries, asOf=now)
+
+    def create_entity(self, kind: str, record: dict) -> dict:
+        now = datetime.utcnow().isoformat()
+        payload = {
+            **record,
+            "createdAt": record.get("createdAt", now),
+            "updatedAt": now,
+        }
+        self.conn.execute(
+            """
+            INSERT INTO entities (kind, id, data_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                kind,
+                payload["id"],
+                json.dumps(payload),
+                payload["createdAt"],
+                payload["updatedAt"],
+            ),
+        )
+        self.conn.commit()
+        return payload
+
+    def list_entities(
+        self, kind: str, filters: Optional[dict] = None, *, limit: Optional[int] = None
+    ) -> list[dict]:
+        sql = "SELECT data_json FROM entities WHERE kind = ? ORDER BY updated_at DESC"
+        params: list[object] = [kind]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = [json.loads(row[0]) for row in self.conn.execute(sql, params)]
+        if not filters:
+            return rows
+        return [
+            row
+            for row in rows
+            if all(row.get(key) == value for key, value in filters.items())
+        ]
+
+    def get_entity(self, kind: str, entity_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT data_json FROM entities WHERE kind = ? AND id = ?",
+            (kind, entity_id),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def update_entity(self, kind: str, entity_id: str, record: dict) -> dict | None:
+        existing = self.get_entity(kind, entity_id)
+        if not existing:
+            return None
+        updated = {
+            **existing,
+            **record,
+            "id": entity_id,
+            "createdAt": existing.get("createdAt", datetime.utcnow().isoformat()),
+            "updatedAt": datetime.utcnow().isoformat(),
+        }
+        self.conn.execute(
+            """
+            UPDATE entities
+            SET data_json = ?, updated_at = ?
+            WHERE kind = ? AND id = ?
+            """,
+            (json.dumps(updated), updated["updatedAt"], kind, entity_id),
+        )
+        self.conn.commit()
+        return updated
+
+    def delete_entity(self, kind: str, entity_id: str) -> bool:
+        cursor = self.conn.execute(
+            "DELETE FROM entities WHERE kind = ? AND id = ?",
+            (kind, entity_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def insert_event(self, race_id: str, event: RaceEventIngest) -> str:
+        cursor = self.conn.execute(
+            """
+            INSERT INTO race_events (
+                race_id, event_type, car_id, racer_id, checkpoint_id, lap_number, payload_json, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                race_id,
+                event.type,
+                event.carId,
+                event.racerId,
+                event.checkpointId,
+                event.lapNumber,
+                json.dumps(event.payload),
+                event.timestamp.isoformat(),
+            ),
+        )
+        self.conn.commit()
+        return str(cursor.lastrowid)
+
+    def list_events(self, race_id: str, *, limit: int = 20) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT id, race_id, event_type, car_id, racer_id, checkpoint_id, lap_number, payload_json, timestamp
+            FROM race_events
+            WHERE race_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (race_id, limit),
+        )
+        return [
+            {
+                "id": str(row["id"]),
+                "raceId": row["race_id"],
+                "type": row["event_type"],
+                "carId": row["car_id"],
+                "racerId": row["racer_id"],
+                "checkpointId": row["checkpoint_id"],
+                "lapNumber": row["lap_number"],
+                "payload": json.loads(row["payload_json"]),
+                "timestamp": row["timestamp"],
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _attach_gaps(rows: Iterable[sqlite3.Row]) -> list[dict]:
@@ -138,13 +332,21 @@ class MongoRaceRepository(RaceRepository):
         from pymongo import ASCENDING, MongoClient
 
         self._client = MongoClient(uri)
-        self._laps = self._client[db_name][laps_collection]
+        self._db = self._client[db_name]
+        self._laps = self._db[laps_collection]
+        self._events = self._db["race_events"]
         self._laps.create_index(
             [("raceId", ASCENDING), ("carId", ASCENDING)], background=True
         )
         self._laps.create_index(
             [("raceId", ASCENDING), ("timestamp", ASCENDING)], background=True
         )
+        self._events.create_index(
+            [("raceId", ASCENDING), ("timestamp", ASCENDING)], background=True
+        )
+
+    def _collection(self, kind: str):
+        return self._db[kind]
 
     def insert_lap(self, lap: LapIngest, speed_kph: float) -> str:
         payload = lap.dict()
@@ -155,7 +357,7 @@ class MongoRaceRepository(RaceRepository):
     def leaderboard(self, race_id: str) -> LeaderboardResponse:
         now = datetime.utcnow()
         pipeline: List[dict] = [
-            {"$match": {"raceId": race_id}},
+            {"$match": {"raceId": race_id, "isValid": True}},
             {
                 "$group": {
                     "_id": "$carId",
@@ -171,6 +373,60 @@ class MongoRaceRepository(RaceRepository):
         entries = self._attach_gaps(rows)
         models = [LeaderboardEntry(**entry) for entry in entries]
         return LeaderboardResponse(raceId=race_id, leaderboard=models, asOf=now)
+
+    def create_entity(self, kind: str, record: dict) -> dict:
+        now = datetime.utcnow().isoformat()
+        payload = {
+            **record,
+            "createdAt": record.get("createdAt", now),
+            "updatedAt": now,
+        }
+        self._collection(kind).insert_one(payload)
+        return payload
+
+    def list_entities(
+        self, kind: str, filters: Optional[dict] = None, *, limit: Optional[int] = None
+    ) -> list[dict]:
+        cursor = (
+            self._collection(kind).find(filters or {}, {"_id": 0}).sort("updatedAt", -1)
+        )
+        if limit is not None:
+            cursor = cursor.limit(limit)
+        return list(cursor)
+
+    def get_entity(self, kind: str, entity_id: str) -> dict | None:
+        return self._collection(kind).find_one({"id": entity_id}, {"_id": 0})
+
+    def update_entity(self, kind: str, entity_id: str, record: dict) -> dict | None:
+        existing = self.get_entity(kind, entity_id)
+        if not existing:
+            return None
+        updated = {
+            **existing,
+            **record,
+            "id": entity_id,
+            "createdAt": existing.get("createdAt", datetime.utcnow().isoformat()),
+            "updatedAt": datetime.utcnow().isoformat(),
+        }
+        self._collection(kind).replace_one({"id": entity_id}, updated, upsert=False)
+        return updated
+
+    def delete_entity(self, kind: str, entity_id: str) -> bool:
+        result = self._collection(kind).delete_one({"id": entity_id})
+        return result.deleted_count > 0
+
+    def insert_event(self, race_id: str, event: RaceEventIngest) -> str:
+        payload = event.dict()
+        payload.update({"raceId": race_id})
+        result = self._events.insert_one(payload)
+        return str(result.inserted_id)
+
+    def list_events(self, race_id: str, *, limit: int = 20) -> list[dict]:
+        return list(
+            self._events.find({"raceId": race_id}, {"_id": 0})
+            .sort("timestamp", -1)
+            .limit(limit)
+        )
 
     @staticmethod
     def _attach_gaps(rows: Iterable[dict]) -> list[dict]:

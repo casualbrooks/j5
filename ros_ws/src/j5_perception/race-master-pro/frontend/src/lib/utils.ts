@@ -1,5 +1,11 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { Track, TrackPoint } from '@/types'
+
+const TRACK_SELECTION_KEY = 'race-master-pro.selectedTrackId'
+const TRACK_PHOTO_KEY_PREFIX = 'race-master-pro.trackPhoto.'
+const LATEST_SNAPSHOT_KEY = 'race-master-pro.latestSnapshotUrl'
+export const TRACK_OVERLAY_EVENT = 'j5-track-overlay-updated'
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
@@ -88,7 +94,6 @@ export function backendBaseUrl(): string {
     return `http://${window.location.hostname}:8080`
 }
 
-
 function sameOriginWsBaseUrl(): string {
     return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 }
@@ -125,4 +130,76 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
         return response
     }
     return fetch(`${backendBaseUrl()}${normalizedPath}`, init)
+}
+
+export function parseTrackPointList(raw: unknown): TrackPoint[] {
+    if (Array.isArray(raw)) {
+        return raw
+            .map((point) => ({
+                x: Number((point as TrackPoint)?.x),
+                y: Number((point as TrackPoint)?.y),
+            }))
+            .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    }
+    if (typeof raw !== 'string') return []
+    try {
+        return parseTrackPointList(JSON.parse(raw))
+    } catch {
+        return []
+    }
+}
+
+export function parseTrackRecord(raw: Record<string, unknown>): Track {
+    return {
+        id: String(raw.id || ''),
+        name: String(raw.name || 'Track'),
+        scale: String(raw.scale || '1:24'),
+        track_distance: raw.track_distance == null ? null : Number(raw.track_distance),
+        layout_points: parseTrackPointList(raw.layout_points),
+        boundary_polygon: parseTrackPointList(raw.boundary_polygon),
+        created_at: raw.created_at ? String(raw.created_at) : undefined,
+    }
+}
+
+function getStorage(): Storage | null {
+    if (typeof window === 'undefined') return null
+    return window.localStorage
+}
+
+export function setSelectedTrackId(trackId: string): void {
+    const storage = getStorage()
+    if (!storage) return
+    storage.setItem(TRACK_SELECTION_KEY, trackId)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function getSelectedTrackId(): string {
+    const storage = getStorage()
+    return storage?.getItem(TRACK_SELECTION_KEY) || ''
+}
+
+export function setTrackPhotoUrl(trackId: string, url: string): void {
+    const storage = getStorage()
+    if (!storage || !trackId) return
+    storage.setItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`, url)
+    storage.setItem(LATEST_SNAPSHOT_KEY, url)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function getTrackPhotoUrl(trackId: string): string {
+    const storage = getStorage()
+    if (!storage || !trackId) return ''
+    return storage.getItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`) || ''
+}
+
+export function setLatestSnapshotUrl(url: string): void {
+    const storage = getStorage()
+    if (!storage) return
+    storage.setItem(LATEST_SNAPSHOT_KEY, url)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function getLatestSnapshotUrl(): string {
+    const storage = getStorage()
+    return storage?.getItem(LATEST_SNAPSHOT_KEY) || ''
 }

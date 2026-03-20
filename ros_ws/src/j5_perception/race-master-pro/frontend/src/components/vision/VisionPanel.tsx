@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '@/lib/utils'
+import { apiFetch, getSelectedTrackId, setLatestSnapshotUrl, setTrackPhotoUrl } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
@@ -50,6 +50,12 @@ export default function VisionPanel() {
             }
 
             setStatusMessage(payload.message || 'Snapshot captured successfully.')
+            const snapshotUrl = `${normalizedBaseUrl}/snapshot.jpg?t=${Date.now()}`
+            const selectedTrackId = getSelectedTrackId()
+            setLatestSnapshotUrl(snapshotUrl)
+            if (selectedTrackId) {
+                setTrackPhotoUrl(selectedTrackId, snapshotUrl)
+            }
             const raceId = String(raceContext.race_id || '')
             if (raceId) {
                 await apiFetch(`/api/races/${raceId}/logs`, {

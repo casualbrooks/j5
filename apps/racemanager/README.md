@@ -36,6 +36,73 @@ Quickstart for the service (from the repo root):
 The UI should point to the same HTTP/websocket endpoints (e.g.,
 `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_WS_URL`).
 
+## Local MongoDB on Raspberry Pi (instead of Atlas)
+If the Raspberry Pi already runs MongoDB, use that instance directly for race setup, live lap events, and dashboard reads.
+
+1. Start MongoDB on the Pi and confirm it answers a ping:
+   ```bash
+   sudo systemctl enable --now mongod
+   sudo systemctl status mongod --no-pager
+   mongosh --eval 'db.adminCommand({ ping: 1 })'
+   ```
+2. Create an application database/user if you have not done so yet:
+   ```bash
+   mongosh <<'EOF'
+   use j5_racing
+   db.createUser({
+     user: 'race_api',
+     pwd: 'change-me',
+     roles: [{ role: 'readWrite', db: 'j5_racing' }]
+   })
+   EOF
+   ```
+3. Point the service `.env` at the Pi database:
+   ```env
+   ATLAS_URI=mongodb://race_api:change-me@<pi-ip>:27017/j5_racing?authSource=j5_racing
+   RACE_DB_NAME=j5_racing
+   LAPS_COLLECTION=laps_live
+   WS_PUBLIC_URL=ws://<pi-ip>:4000/ws
+   HTTP_PORT=4000
+   ```
+4. Run the FastAPI service; it will use the Mongo repository when `ATLAS_URI` is set.
+
+## Race setup additions for camera-based object tracking
+Add these items to the operator checklist before live heats:
+
+1. Capture the current track photo from the overhead camera and save it with the track record.
+2. Mark the track mask, the start line, the finish line, and every required checkpoint/sector on the captured image.
+3. Create or update racers, then create physical car records with labels such as `carId`, number, paint color, and vision hints.
+4. Create the race entries that map each `carId` to exactly one racer for the current race.
+5. Start tracking only after the preview, database connection, and race-entry mapping all verify cleanly.
+6. Stream validated events (`checkpoint_crossing`, `lap_count`, `incident`, `finish_crossing`) into the API so the dashboard can repaint in real time.
+
+## Suggested Mongo collections for setup + live control
+- `tracks`: layout geometry, calibration, mask polygon, start/finish/checkpoints, snapshot metadata.
+- `cameras`: source, preview URL, calibration blobs, capture history.
+- `cars`: physical car metadata and appearance/model hints.
+- `racers`: racer profiles.
+- `races`: event metadata plus `entries` linking racers to cars.
+- `laps_live`: authoritative lap and checkpoint stream for the active race.
+- `telemetry_archive` / `incidents`: historical telemetry, off-track events, penalties, and replay diagnostics.
+
+## API resources for CRUD + dashboard visualization
+For the full setup workflow, expose or extend these resources:
+
+- `POST/GET/PUT/DELETE /api/tracks` for track image geometry and checkpoints.
+- `POST/GET/PUT/DELETE /api/cameras` for camera configuration and captured snapshots.
+- `POST/GET/PUT/DELETE /api/racers` for racer roster management.
+- `POST/GET/PUT/DELETE /api/cars` for physical car metadata and tracker hints.
+- `POST/GET/PUT/DELETE /api/races` for the race definition and `entries` mapping cars to racers.
+- `GET /api/races/{raceId}/dashboard` for the dashboard hydration payload.
+- `POST /api/races/{raceId}/events` for validated realtime events from the bridge/perception layer.
+- Websocket events: `lap`, `leaderboard`, `race_status`, `checkpoint`, `car_state`, `incident`.
+
+## Dashboard update pattern
+1. Perception/tracking publishes candidate car positions and crossing events.
+2. Bridge/API validates track order and lap rules, then persists the accepted result in MongoDB.
+3. API emits websocket deltas to the UI.
+4. Frontend updates the track canvas, leaderboard, racer cards, lap counter, and incident feed without a full page reload.
+
 ## Data flow (live + replay)
 1. **Lap counter node (ROS 2)** publishes validated laps: `{ carId, gateTime, lapTimeMs, headingOk, onTrack, minLapTimeOk }`.
 2. **Bridge** (`bridge/`) subscribes to the lap topic, attaches `raceId`/`seasonId`, and posts to `service/ingest` (HTTP or gRPC). Reject laps that fail anti-cheat flags. The bridge can also stream laps detected from prerecorded videos into the same endpoint with `source="replay"`.

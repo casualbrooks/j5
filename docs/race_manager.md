@@ -89,9 +89,104 @@ Flow covered end-to-end:
 1. ROS2 prerequisites and package visibility
 2. Headless Raspberry Pi connectivity
 3. Backend API health
-4. Camera preview + track image capture
-5. Race initialization data (event/race/racers/laps)
-6. Tracking start + lap log monitoring
-7. Pause/snapshot/resume controls with state restoration
+4. MongoDB reachability on the Pi or LAN host
+5. Camera preview + track image capture
+6. Track markup: start line, finish line, and checkpoints
+7. Car identity mapping: camera track IDs -> physical cars -> racers
+8. Race initialization data (event/race/racers/laps)
+9. Tracking start + lap log monitoring
+10. Pause/snapshot/resume controls with state restoration
 
-State is persisted server-side so laps counted, racer metadata, and setup context can be restored after pause/resume.
+State is persisted server-side so laps counted, racer metadata, setup context, checkpoint geometry, and car-to-racer assignments can be restored after pause/resume.
+
+### Expanded setup wizard checklist for camera-based race control
+Add the following operator tasks to the race setup flow before pressing **Start Tracking**:
+
+1. **Connect to MongoDB on the Pi**
+   - Confirm MongoDB is running locally on the Raspberry Pi (`mongodb://localhost:27017`) or on a reachable LAN host.
+   - Save the connection in the API service `.env` using `ATLAS_URI`/`MONGO_URI` style wiring, for example `mongodb://race:secret@<pi-ip>:27017/j5_racing?authSource=admin`.
+   - Verify connectivity with `mongosh` and then through the backend `/health` endpoint before creating race records.
+2. **Capture the track photo from the camera**
+   - Use the Computer Vision preview to capture and persist the latest overhead image for the current venue.
+   - Store the image path/URL and camera calibration values with the track record so future sessions can be reloaded without repeating calibration from scratch.
+3. **Mark the racing geometry on the captured image**
+   - Draw the outer/inner track boundary or mask.
+   - Mark the **start line** and **finish line** (or a single bidirectional gate if the implementation uses one crossing line with direction validation).
+   - Add **checkpoints / sector gates** around the lap so the tracker can verify that each car completed a full loop in order before a lap event is accepted.
+4. **Register cars and bind them to racers for this race**
+   - Create or reuse racer profiles.
+   - Create a per-race car roster with fields such as `carId`, `displayName`, `paintColor`, `numberTag`, and optional appearance embedding metadata from the camera model.
+   - Bind each detected tracker identity to a car, and each car to a racer entry in the current race. This mapping should be editable before the green flag and lock once the race starts unless an operator explicitly overrides it.
+5. **Start object tracking with validation rules enabled**
+   - Require ordered checkpoint traversal, on-track mask validation, forward direction at the finish gate, and minimum lap time checks before incrementing lap count.
+   - Emit lap, sector, off-track, re-identification, and finish events into the API so the dashboard stays synchronized.
+6. **Drive real-time dashboard updates**
+   - Subscribe the dashboard to websocket events (`lap`, `leaderboard`, `race_status`, `car_state`, `checkpoint`, `incident`).
+   - Refresh the track map, lap counter, racer cards, and leaderboard as soon as the API persists or validates a new event.
+
+### MongoDB on Raspberry Pi setup steps
+When MongoDB is installed on the Pi instead of Atlas, use the local deployment as the source of truth for race state:
+
+1. **Start and verify MongoDB**
+   ```bash
+   sudo systemctl enable --now mongod
+   sudo systemctl status mongod --no-pager
+   mongosh --eval 'db.adminCommand({ ping: 1 })'
+   ```
+2. **Create the race database and application user**
+   ```bash
+   mongosh <<'EOF'
+   use j5_racing
+   db.createUser({
+     user: 'race_api',
+     pwd: 'change-me',
+     roles: [{ role: 'readWrite', db: 'j5_racing' }]
+   })
+   EOF
+   ```
+3. **Point the race manager service at the Pi database**
+   ```env
+   ATLAS_URI=mongodb://race_api:change-me@<pi-ip>:27017/j5_racing?authSource=j5_racing
+   RACE_DB_NAME=j5_racing
+   LAPS_COLLECTION=laps_live
+   ```
+4. **Seed the core collections before first use**
+   - `tracks`: geometry, calibration, mask, start/finish/checkpoints, dashboard overlay metadata.
+   - `cars`: physical cars and vision-identification hints.
+   - `racers`: people entered in the event.
+   - `races`: the active race plus the per-race car/racer assignments.
+   - `laps_live`, `telemetry_archive`, and `incidents`: streaming race events.
+
+### Suggested API resources for visualization + CRUD
+The API should expose CRUD and visualization payloads that line up with the setup steps above:
+
+- `POST/GET/PUT/DELETE /api/tracks`
+  - Include `layout_points`, `mask_polygon`, `start_gate`, `finish_gate`, and `checkpoints`.
+- `POST/GET/PUT/DELETE /api/cameras`
+  - Store camera source, calibration, snapshot URL, and preview metadata.
+- `POST/GET/PUT/DELETE /api/racers`
+  - Manage racer profiles used across multiple races.
+- `POST/GET/PUT/DELETE /api/cars`
+  - Manage physical car metadata and appearance tags used by the tracker.
+- `POST/GET/PUT/DELETE /api/races`
+  - Persist the race definition, lap target, and `entries: [{ racerId, carId, gridSlot, trackerHint }]`.
+- `POST /api/races/{raceId}/tracking/start` and `POST /api/races/{raceId}/tracking/stop`
+  - Toggle the perception pipeline for the configured camera.
+- `POST /api/races/{raceId}/events`
+  - Accept realtime `lap_count`, `checkpoint_crossing`, `off_track`, `finish_crossing`, and `car_assignment_changed` events.
+- `GET /api/races/{raceId}/dashboard`
+  - Return the aggregated payload needed by the frontend: race clock, leaderboard, track positions, checkpoint status, and recent incidents.
+
+### How dashboard visuals should update
+Use the backend as the only writer of authoritative race state, then broadcast deltas to the UI:
+
+1. Perception emits detections and candidate crossings.
+2. API validates checkpoint order and lap rules, then writes the accepted state change into MongoDB.
+3. API publishes a websocket message with the updated `dashboard` and the incremental event.
+4. Frontend store updates:
+   - **Track canvas**: move each car marker, highlight crossed checkpoints, and paint the active start/finish gate.
+   - **Leaderboard**: update lap count, last lap, best lap, gap to leader, and race position.
+   - **Racer cards**: show car color/number, tracker confidence, penalties/incidents, and camera health.
+   - **Control state**: disable reconfiguration actions after the race starts unless the operator pauses the session.
+
+That setup gives you a clear race-day sequence: connect services -> capture track -> mark geometry -> assign cars/racers -> start tracking -> validate laps -> broadcast live dashboard updates.

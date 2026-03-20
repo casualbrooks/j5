@@ -227,6 +227,7 @@ def run_preview_server(
       <button type='submit'>Capture Track Photo</button>
     </form>
     <p>Snapshot path: <code>{capture_file}</code></p>
+    <p>Latest snapshot URL: <code>/snapshot.jpg</code></p>
   </body>
 </html>
 """
@@ -241,6 +242,19 @@ def run_preview_server(
         def do_GET(self) -> None:  # noqa: N802
             if self.path in ("/", "/index.html"):
                 self._send_html()
+                return
+            if self.path == "/snapshot.jpg":
+                if not capture_file.exists():
+                    self.send_error(HTTPStatus.NOT_FOUND, "Snapshot not found")
+                    return
+                payload = capture_file.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self._set_cors_headers()
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
                 return
             if self.path == "/stream.mjpg":
                 self.send_response(HTTPStatus.OK)

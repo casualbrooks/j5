@@ -320,6 +320,9 @@ After the wizard finishes:
 - Open `preflight_summary.json` and use `wizard.track.meters_per_pixel` as your baseline calibration value.
 - If you used `--apply-backend`, keep the printed Race/Track/Camera IDs for API debugging and race operations.
 - Verify racers and lap count in the UI match the wizard values before live heats.
+- Before pressing **Start Tracking**, capture the latest track photo, mark the start line / finish line / checkpoints, and confirm each detected car is mapped to the correct racer entry for this race.
+- If MongoDB is running on the Pi, verify `mongosh --eval 'db.adminCommand({ ping: 1 })'` succeeds and point the backend service at `mongodb://<pi-ip>:27017/j5_racing` (or your configured authenticated URI) so setup records and live events persist outside local SQLite.
+- Treat the dashboard as a consumer of validated backend state: the API should persist checkpoint/lap/incident events first, then fan them out over websocket so the track map, leaderboard, and racer cards stay in sync.
 
 If snapshot capture says `ffmpeg not installed`, install it on Raspberry Pi:
 

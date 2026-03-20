@@ -1,11 +1,96 @@
-"""Pydantic models for lap ingestion and responses."""
+"""Pydantic models for race manager CRUD, event ingestion, and dashboard responses."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, validator
+
+
+class Point(BaseModel):
+    x: float
+    y: float
+
+
+class LineGate(BaseModel):
+    a: Point
+    b: Point
+    label: Optional[str] = None
+
+
+class CheckpointSpec(BaseModel):
+    id: str
+    name: str
+    type: Literal["start", "finish", "checkpoint", "sector"] = "checkpoint"
+    position: Point
+    order: int = 0
+
+
+class TrackUpsert(BaseModel):
+    name: str
+    lengthM: Optional[float] = Field(default=None, gt=0)
+    imageUrl: Optional[str] = None
+    layoutPoints: list[Point] = Field(default_factory=list)
+    maskPolygon: list[Point] = Field(default_factory=list)
+    startGate: Optional[LineGate] = None
+    finishGate: Optional[LineGate] = None
+    checkpoints: list[CheckpointSpec] = Field(default_factory=list)
+    calibration: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrackRecord(TrackUpsert):
+    id: str
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class CarUpsert(BaseModel):
+    name: str
+    carNumber: str = ""
+    paintColor: str = "#4ade80"
+    trackerHint: Optional[str] = None
+    photoUrl: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CarRecord(CarUpsert):
+    id: str
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class RacerUpsert(BaseModel):
+    name: str
+    team: Optional[str] = None
+    badgeColor: Optional[str] = None
+
+
+class RacerRecord(RacerUpsert):
+    id: str
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class RaceEntry(BaseModel):
+    carId: str
+    racerId: str
+    gridSlot: Optional[int] = None
+    trackerId: Optional[str] = None
+
+
+class RaceUpsert(BaseModel):
+    name: str
+    trackId: Optional[str] = None
+    totalLaps: int = Field(default=10, ge=1)
+    status: Literal["setup", "active", "paused", "finished"] = "setup"
+    entries: list[RaceEntry] = Field(default_factory=list)
+
+
+class RaceRecord(RaceUpsert):
+    id: str
+    createdAt: datetime
+    updatedAt: datetime
 
 
 class Validity(BaseModel):
@@ -50,6 +135,23 @@ class LapIngest(BaseModel):
         return normalized
 
 
+class RaceEventIngest(BaseModel):
+    type: Literal[
+        "lap_count",
+        "checkpoint_crossing",
+        "off_track",
+        "finish_crossing",
+        "car_assignment_changed",
+        "incident",
+    ]
+    carId: Optional[str] = None
+    racerId: Optional[str] = None
+    checkpointId: Optional[str] = None
+    lapNumber: Optional[int] = Field(default=None, ge=0)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class LapResponse(BaseModel):
     insertedId: str
     speedKph: float
@@ -69,3 +171,26 @@ class LeaderboardResponse(BaseModel):
     raceId: str
     leaderboard: list[LeaderboardEntry]
     asOf: datetime
+
+
+class DashboardEntry(BaseModel):
+    carId: str
+    racerId: Optional[str] = None
+    carName: str
+    racerName: str
+    carNumber: str = ""
+    paintColor: str = "#4ade80"
+    trackerId: Optional[str] = None
+    currentLap: int = 0
+    bestLapMs: Optional[int] = None
+    avgSpeedKph: Optional[float] = None
+    gapToLeaderMs: int = 0
+    totalTimeMs: int = 0
+
+
+class RaceDashboardResponse(BaseModel):
+    race: RaceRecord
+    track: Optional[TrackRecord] = None
+    leaderboard: LeaderboardResponse
+    entries: list[DashboardEntry]
+    recentEvents: list[RaceEventIngest | dict[str, Any]]

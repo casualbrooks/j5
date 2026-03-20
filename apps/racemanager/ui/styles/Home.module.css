@@ -1,36 +1,323 @@
 .container {
   min-height: 100vh;
   padding: 2rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  background: #08111f;
+  color: #eef2ff;
 }
 
 .main {
+  max-width: 1400px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem;
+}
+
+.hero,
+.toolbar,
+.panel,
+.trackCard,
+.emptyState {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 20px;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
+}
+
+.hero,
+.toolbar {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  text-align: center;
+  padding: 1.25rem 1.5rem;
+  gap: 1rem;
 }
 
 .title {
   margin: 0;
-  line-height: 1.15;
-  font-size: 3rem;
+  line-height: 1.1;
+  font-size: 2.6rem;
 }
 
 .description {
-  margin: 0;
-  font-size: 1.1rem;
-  max-width: 40rem;
+  margin: 0.5rem 0 0;
+  color: #cbd5e1;
 }
 
-.inlineValue {
-  margin: 0 0.4rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.35rem;
-  background: #f4f4f4;
-  border: 1px solid #e2e2e2;
+.description code {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+}
+
+.connectionBadge {
+  text-transform: capitalize;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  font-weight: 700;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.connectionBadge[data-state='connected'] {
+  background: rgba(34, 197, 94, 0.14);
+  color: #86efac;
+}
+
+.connectionBadge[data-state='connecting'] {
+  background: rgba(250, 204, 21, 0.14);
+  color: #fde68a;
+}
+
+.connectionBadge[data-state='disconnected'] {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+}
+
+.selectorLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-weight: 600;
+}
+
+.selectorLabel select {
+  min-width: 320px;
+  background: #020617;
+  color: #eef2ff;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+}
+
+.toolbarText {
+  color: #cbd5e1;
+  max-width: 46rem;
+}
+
+.emptyState {
+  padding: 2rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 1.25rem;
+}
+
+.trackCard,
+.panel {
+  padding: 1.1rem;
+}
+
+.trackCard {
+  grid-row: span 2;
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panelHeader h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.panelHeader p {
+  margin: 0.35rem 0 0;
+  color: #94a3b8;
+}
+
+.panelHeader a {
+  color: #93c5fd;
+}
+
+.trackViewport {
+  position: relative;
+  min-height: 420px;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(8, 17, 31, 0.95)),
+    radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 45%);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.trackSvg {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+}
+
+.maskPolygon {
+  fill: rgba(59, 130, 246, 0.08);
+  stroke: rgba(125, 211, 252, 0.55);
+  stroke-width: 0.5;
+}
+
+.layoutPolyline {
+  fill: none;
+  stroke: rgba(226, 232, 240, 0.85);
+  stroke-width: 0.9;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.startGate,
+.finishGate {
+  stroke-width: 1.25;
+  stroke-linecap: round;
+}
+
+.startGate {
+  stroke: #22c55e;
+}
+
+.finishGate {
+  stroke: #f97316;
+}
+
+.checkpointDot {
+  fill: #facc15;
+}
+
+.checkpointLabel,
+.entryLabel {
+  fill: #e2e8f0;
+  font-size: 3.2px;
+}
+
+.entryDot {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.55;
+}
+
+.emptyTrack {
+  position: absolute;
+  inset: auto 1rem 1rem 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #cbd5e1;
+}
+
+.entryList,
+.eventList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.entryCard,
+.eventItem {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  background: rgba(2, 6, 23, 0.38);
+}
+
+.entryIdentity {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.entryIdentity p,
+.eventItem p {
+  margin: 0.2rem 0 0;
+  color: #94a3b8;
+}
+
+.colorSwatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
+}
+
+.entryStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+  margin: 0.85rem 0 0;
+}
+
+.entryStats div {
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+  padding-top: 0.55rem;
+}
+
+.entryStats dt {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.entryStats dd {
+  margin: 0.15rem 0 0;
+  font-weight: 700;
+}
+
+.tableWrapper {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.8rem 0.55rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.table th {
+  color: #94a3b8;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.eventItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.eventItem time {
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1080px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trackCard {
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .hero,
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .selectorLabel select {
+    min-width: 0;
+    width: 100%;
+  }
 }

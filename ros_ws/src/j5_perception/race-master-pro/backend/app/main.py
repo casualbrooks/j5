@@ -114,10 +114,10 @@ _SETUP_STEPS = [
         "title": "WebSocket endpoint",
         "description": "Realtime events require a reachable WS endpoint based on backend_url.",
         "check_commands": [],
-        "connect_command": "Set VITE_WS_URL=ws://<backend-host>:<backend-port>/ws (or NEXT_PUBLIC_WS_URL for Next.js), restart the UI, then verify",
+        "connect_command": "Optional: set VITE_API_BASE_URL=http://<backend-host>:<backend-port> and VITE_WS_URL=ws://<backend-host>:<backend-port>/ws before starting Vite; if omitted the UI auto-falls back to current-host:8080",
         "stop_command": "echo 'No persistent process to stop for websocket endpoint'",
         "stop_commands": ["echo No persistent process to stop for websocket endpoint"],
-        "help": "For the Vite frontend set VITE_WS_URL and VITE_API_BASE_URL; for the Next.js demo use NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_BASE. Both must point at the FastAPI service.",
+        "help": "These env vars are frontend startup config, not runtime shell commands. They should point to the FastAPI backend host/port (usually :8080), not the Vite dev server (:5173).",
     },
     {
         "id": "race_state",
@@ -272,25 +272,34 @@ async def _check_tcp_port(host: str, port: int):
 
 
 async def _check_http_health(url: str):
-    health_url = f"{url.rstrip('/')}/health"
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.get(health_url)
-        return {
-            "command": f"GET {health_url}",
-            "ok": response.status_code == 200,
-            "stdout": response.text.strip(),
-            "stderr": (
-                "" if response.status_code == 200 else f"HTTP {response.status_code}"
-            ),
-        }
-    except Exception as exc:
-        return {
-            "command": f"GET {health_url}",
-            "ok": False,
-            "stdout": "",
-            "stderr": str(exc),
-        }
+    return await _check_http_endpoints(url, ["/health"])
+
+
+async def _check_http_endpoints(url: str, paths: list[str]):
+    base = url.rstrip("/")
+    errors: list[str] = []
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        for path in paths:
+            endpoint = f"{base}{path}"
+            try:
+                response = await client.get(endpoint)
+                if response.status_code == 200:
+                    return {
+                        "command": f"GET {endpoint}",
+                        "ok": True,
+                        "stdout": response.text.strip(),
+                        "stderr": "",
+                    }
+                errors.append(f"{endpoint} -> HTTP {response.status_code}")
+            except Exception as exc:
+                errors.append(f"{endpoint} -> {exc}")
+    first_endpoint = f"{base}{paths[0]}"
+    return {
+        "command": f"GET {first_endpoint}",
+        "ok": False,
+        "stdout": "",
+        "stderr": "; ".join(errors),
+    }
 
 
 async def _check_ws_port(url: str):
@@ -343,10 +352,18 @@ async def _build_setup_status():
             checks.append(await _check_tcp_port(pi_host, 22))
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "backend_service":
-            checks = [await _check_http_health(config["backend_url"])]
+            checks = [
+                await _check_http_endpoints(
+                    config["backend_url"], ["/health", "/docs", "/openapi.json"]
+                )
+            ]
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "vision_preview":
-            checks = [await _check_http_health(config["preview_url"])]
+            checks = [
+                await _check_http_endpoints(
+                    config["preview_url"], ["/health", "/stream.mjpg", "/snapshot.jpg"]
+                )
+            ]
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "websocket_endpoint":
             ws_result = await _check_ws_port(config["backend_url"])

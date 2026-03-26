@@ -349,7 +349,13 @@ export default function SettingsPanel() {
                                 <ul className="mt-3 space-y-1 text-xs">
                                     {step.checks.map(check => (
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>
-                                            {check.ok ? '✓' : '✗'} {check.command}
+                                            <p>{check.ok ? '✓' : '✗'} {check.command}</p>
+                                            {!check.ok && check.stderr ? (
+                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{check.stderr}</p>
+                                            ) : null}
+                                            {check.ok && check.stdout ? (
+                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{check.stdout}</p>
+                                            ) : null}
                                         </li>
                                     ))}
                                 </ul>

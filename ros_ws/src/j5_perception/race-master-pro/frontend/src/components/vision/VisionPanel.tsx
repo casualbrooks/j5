@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch, getSelectedTrackId, setLatestSnapshotUrl, setTrackPhotoUrl } from '@/lib/utils'
+import { apiFetch, getSelectedTrackId, parseTrackRecord, setLatestSnapshotUrl, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
@@ -10,13 +10,56 @@ function defaultPreviewBaseUrl(): string {
 
 export default function VisionPanel() {
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
+    const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
     const [statusError, setStatusError] = useState(false)
     const [capturing, setCapturing] = useState(false)
     const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
+    const [activeTrackName, setActiveTrackName] = useState('')
 
     const normalizedBaseUrl = useMemo(() => previewBaseUrl.trim().replace(/\/$/, ''), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+
+    const ensureSelectedTrack = async () => {
+        const existingTrackId = getSelectedTrackId()
+        if (existingTrackId) {
+            return existingTrackId
+        }
+        try {
+            const response = await apiFetch('/api/tracks')
+            if (!response.ok) return ''
+            const payload = await response.json()
+            const tracks = Array.isArray(payload)
+                ? payload.map(item => parseTrackRecord(item as Record<string, unknown>))
+                : []
+            const firstTrack = tracks[0]
+            if (!firstTrack?.id) return ''
+            setSelectedTrackId(firstTrack.id)
+            return firstTrack.id
+        } catch {
+            return ''
+        }
+    }
+
+    const refreshTrackLabel = async () => {
+        const selectedTrackId = await ensureSelectedTrack()
+        if (!selectedTrackId) {
+            setActiveTrackName('')
+            return
+        }
+        try {
+            const response = await apiFetch('/api/tracks')
+            if (!response.ok) return
+            const payload = await response.json()
+            const tracks = Array.isArray(payload)
+                ? payload.map(item => parseTrackRecord(item as Record<string, unknown>))
+                : []
+            const selected = tracks.find(track => track.id === selectedTrackId)
+            setActiveTrackName(selected?.name || '')
+        } catch {
+            // ignore if lookup fails
+        }
+    }
 
     const refreshWizardContext = async () => {
         try {
@@ -30,7 +73,8 @@ export default function VisionPanel() {
     }
 
     useEffect(() => {
-        refreshWizardContext()
+        void refreshWizardContext()
+        void refreshTrackLabel()
     }, [])
 
     const onCapture = async (event: FormEvent) => {
@@ -51,10 +95,15 @@ export default function VisionPanel() {
 
             setStatusMessage(payload.message || 'Snapshot captured successfully.')
             const snapshotUrl = `${normalizedBaseUrl}/snapshot.jpg?t=${Date.now()}`
-            const selectedTrackId = getSelectedTrackId()
+            const selectedTrackId = await ensureSelectedTrack()
             setLatestSnapshotUrl(snapshotUrl)
             if (selectedTrackId) {
                 setTrackPhotoUrl(selectedTrackId, snapshotUrl)
+                setStatusMessage(payload.message || 'Snapshot captured and linked to selected track.')
+                setStatusError(false)
+            } else {
+                setStatusMessage('Snapshot captured, but no track is selected yet. Select/create a track in Settings and use "Use Latest Capture".')
+                setStatusError(true)
             }
             const raceId = String(raceContext.race_id || '')
             if (raceId) {
@@ -111,6 +160,9 @@ export default function VisionPanel() {
                     Capture the track image here after the setup wizard in Settings marks connectivity as connected. Once
                     captured, return here to start object tracking and monitor lap-count logs.
                 </p>
+                <p className="text-xs text-amber-300">
+                    Keep the camera stream open in only one viewer at a time. Viewing <code>/stream.mjpg</code> in multiple places can drop the camera connection.
+                </p>
                 <div className="rounded border border-slate-700 bg-slate-950 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Start camera feed only</p>
                     <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
@@ -124,14 +176,36 @@ export default function VisionPanel() {
                         camera uses a different device.
                     </p>
                 </div>
+                <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
+                    <p><strong>Race flow:</strong> 1) Initialize race in Settings, 2) capture track photo here, 3) map spline in Settings, 4) return to Dashboard for overlays, 5) start tracking here, 6) use Race Start/Pause/Resume/Finish in Settings.</p>
+                    <p>
+                        Active track for auto-linking captures: <strong>{activeTrackName || 'None selected'}</strong>
+                    </p>
+                </div>
             </div>
 
             <div className="race-card p-4 space-y-3">
-                <img
-                    src={streamUrl}
-                    alt="Live camera preview"
-                    className="w-full rounded border border-slate-700 bg-black"
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => setPreviewEnabled(prev => !prev)}
+                    >
+                        {previewEnabled ? 'Hide Live Preview' : 'Show Live Preview'}
+                    </button>
+                    <p className="text-xs text-[var(--color-text-secondary)]">Use this only while capturing the track image, then hide it before opening other camera consumers.</p>
+                </div>
+                {previewEnabled ? (
+                    <img
+                        src={streamUrl}
+                        alt="Live camera preview"
+                        className="w-full rounded border border-slate-700 bg-black"
+                    />
+                ) : (
+                    <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
+                        Live preview is paused to avoid multiple stream consumers.
+                    </div>
+                )}
 
                 <form onSubmit={onCapture} className="flex flex-wrap items-center gap-2">
                     <button

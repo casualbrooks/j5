@@ -278,22 +278,19 @@ async def _check_http_health(url: str):
 async def _check_http_endpoints(url: str, paths: list[str]):
     base = url.rstrip("/")
     errors: list[str] = []
-    timeout = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=2.0) as client:
         for path in paths:
             endpoint = f"{base}{path}"
             try:
-                async with client.stream("GET", endpoint) as response:
-                    if response.status_code == 200:
-                        content_type = response.headers.get("content-type", "").strip()
-                        summary = content_type or "HTTP 200"
-                        return {
-                            "command": f"GET {endpoint}",
-                            "ok": True,
-                            "stdout": summary,
-                            "stderr": "",
-                        }
-                    errors.append(f"{endpoint} -> HTTP {response.status_code}")
+                response = await client.get(endpoint)
+                if response.status_code == 200:
+                    return {
+                        "command": f"GET {endpoint}",
+                        "ok": True,
+                        "stdout": response.text.strip(),
+                        "stderr": "",
+                    }
+                errors.append(f"{endpoint} -> HTTP {response.status_code}")
             except Exception as exc:
                 errors.append(f"{endpoint} -> {exc}")
     first_endpoint = f"{base}{paths[0]}"

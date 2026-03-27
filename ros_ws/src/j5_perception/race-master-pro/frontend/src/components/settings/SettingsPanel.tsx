@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
+import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 import TrackCanvas from '@/components/track/TrackCanvas'
 import type { Track, TrackPoint } from '@/types'
@@ -122,6 +122,19 @@ export default function SettingsPanel() {
         void loadWizard()
         void loadTracks()
     }, [])
+
+    useEffect(() => {
+        const handleOverlayUpdate = () => {
+            const selectedId = getSelectedTrackId() || selectedTrackId
+            if (!selectedId) {
+                setTrackPhotoUrlState(getLatestSnapshotUrl())
+                return
+            }
+            setTrackPhotoUrlState(getTrackPhotoUrl(selectedId) || getLatestSnapshotUrl())
+        }
+        window.addEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
+        return () => window.removeEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
+    }, [selectedTrackId])
 
     const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
     const frontendWsUrl = backendWsUrl('organizer')

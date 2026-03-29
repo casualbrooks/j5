@@ -53,20 +53,6 @@ function normalizeBaseUrl(value: string): string {
     }
 }
 
-function summarizeCheckText(value: string | undefined): string {
-    if (!value) return ''
-    const maxLength = 260
-    const nonPrintableMatches = value.match(/[^\x09\x0A\x0D\x20-\x7E]/g) || []
-    const nonPrintableRatio = nonPrintableMatches.length / Math.max(value.length, 1)
-    if (nonPrintableRatio > 0.2) {
-        return '[binary output omitted]'
-    }
-    if (value.length <= maxLength) {
-        return value
-    }
-    return `${value.slice(0, maxLength)}…`
-}
-
 export default function SettingsPanel() {
     const { refreshRaceState } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
@@ -150,7 +136,7 @@ export default function SettingsPanel() {
 
     useEffect(() => {
         const handleOverlayUpdate = () => {
-            const selectedId = selectedTrackId || getSelectedTrackId()
+            const selectedId = getSelectedTrackId() || selectedTrackId
             if (!selectedId) {
                 setTrackPhotoUrlState(getLatestSnapshotUrl())
                 return
@@ -389,10 +375,10 @@ export default function SettingsPanel() {
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>
                                             <p>{check.ok ? '✓' : '✗'} {check.command}</p>
                                             {!check.ok && check.stderr ? (
-                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{summarizeCheckText(check.stderr)}</p>
+                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{check.stderr}</p>
                                             ) : null}
                                             {check.ok && check.stdout ? (
-                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{summarizeCheckText(check.stdout)}</p>
+                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{check.stdout}</p>
                                             ) : null}
                                         </li>
                                     ))}

@@ -142,10 +142,9 @@ def is_required_check(check: CheckResult, *, preview_only: bool) -> bool:
 def camera_source_to_cv2_index(camera_source: str):
     if camera_source.isdigit():
         return int(camera_source)
-    if camera_source.startswith("/dev/video"):
-        suffix = camera_source.removeprefix("/dev/video")
-        if suffix.isdigit():
-            return int(suffix)
+    # Keep explicit device paths (e.g. /dev/video0) as strings so OpenCV
+    # opens that exact node instead of remapping to a potentially different
+    # numeric camera index.
     return camera_source
 
 
@@ -242,6 +241,65 @@ def run_preview_server(
         def do_GET(self) -> None:  # noqa: N802
             if self.path in ("/", "/index.html"):
                 self._send_html()
+                return
+            if self.path == "/ready":
+
+                def probe_camera_once() -> tuple[bool, str]:
+                    source = camera_source_to_cv2_index(camera_source)
+                    cap = cv2.VideoCapture(source)
+                    if not cap.isOpened():
+                        return False, f"unable to open camera source {camera_source}"
+                    ok, frame = cap.read()
+                    cap.release()
+                    if not ok or frame is None:
+                        return False, "camera opened but no frame available"
+                    with frame_lock:
+                        stream_state["latest_frame"] = frame.copy()
+                    return True, "camera opened and frame acquired"
+
+                with frame_lock:
+                    latest_frame = stream_state["latest_frame"]
+                    active_streams = stream_state["active_streams"]
+
+                if latest_frame is not None and active_streams > 0:
+                    payload = json.dumps(
+                        {
+                            "ok": True,
+                            "message": "frame buffered from active preview stream",
+                        }
+                    ).encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                elif latest_frame is not None:
+                    ok, message = probe_camera_once()
+                    payload = json.dumps({"ok": ok, "message": message}).encode("utf-8")
+                    self.send_response(
+                        HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
+                    )
+                elif capture_file.exists():
+                    payload = json.dumps(
+                        {"ok": True, "message": f"snapshot available at {capture_file}"}
+                    ).encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                elif active_streams > 0:
+                    payload = json.dumps(
+                        {
+                            "ok": False,
+                            "message": "preview stream active but no frame buffered yet",
+                        }
+                    ).encode("utf-8")
+                    self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
+                else:
+                    ok, message = probe_camera_once()
+                    payload = json.dumps({"ok": ok, "message": message}).encode("utf-8")
+                    self.send_response(
+                        HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
+                    )
+
+                self._set_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
                 return
             if self.path == "/snapshot.jpg":
                 if not capture_file.exists():

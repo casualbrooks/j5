@@ -136,7 +136,7 @@ export default function SettingsPanel() {
 
     useEffect(() => {
         const handleOverlayUpdate = () => {
-            const selectedId = selectedTrackId || getSelectedTrackId()
+            const selectedId = getSelectedTrackId() || selectedTrackId
             if (!selectedId) {
                 setTrackPhotoUrlState(getLatestSnapshotUrl())
                 return

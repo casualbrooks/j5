@@ -142,10 +142,9 @@ def is_required_check(check: CheckResult, *, preview_only: bool) -> bool:
 def camera_source_to_cv2_index(camera_source: str):
     if camera_source.isdigit():
         return int(camera_source)
-    if camera_source.startswith("/dev/video"):
-        suffix = camera_source.removeprefix("/dev/video")
-        if suffix.isdigit():
-            return int(suffix)
+    # Keep explicit device paths (e.g. /dev/video0) as strings so OpenCV
+    # opens that exact node instead of remapping to a potentially different
+    # numeric camera index.
     return camera_source
 
 

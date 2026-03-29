@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
+import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 import TrackCanvas from '@/components/track/TrackCanvas'
 import type { Track, TrackPoint } from '@/types'
@@ -122,6 +122,19 @@ export default function SettingsPanel() {
         void loadWizard()
         void loadTracks()
     }, [])
+
+    useEffect(() => {
+        const handleOverlayUpdate = () => {
+            const selectedId = getSelectedTrackId() || selectedTrackId
+            if (!selectedId) {
+                setTrackPhotoUrlState(getLatestSnapshotUrl())
+                return
+            }
+            setTrackPhotoUrlState(getTrackPhotoUrl(selectedId) || getLatestSnapshotUrl())
+        }
+        window.addEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
+        return () => window.removeEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
+    }, [selectedTrackId])
 
     const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
     const frontendWsUrl = backendWsUrl('organizer')
@@ -349,7 +362,13 @@ export default function SettingsPanel() {
                                 <ul className="mt-3 space-y-1 text-xs">
                                     {step.checks.map(check => (
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>
-                                            {check.ok ? '✓' : '✗'} {check.command}
+                                            <p>{check.ok ? '✓' : '✗'} {check.command}</p>
+                                            {!check.ok && check.stderr ? (
+                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{check.stderr}</p>
+                                            ) : null}
+                                            {check.ok && check.stdout ? (
+                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{check.stdout}</p>
+                                            ) : null}
                                         </li>
                                     ))}
                                 </ul>

@@ -53,34 +53,6 @@ function normalizeBaseUrl(value: string): string {
     }
 }
 
-function summarizeCheckText(value: string | undefined): string {
-    if (!value) return ''
-    const maxLength = 260
-    const nonPrintableMatches = value.match(/[^\x09\x0A\x0D\x20-\x7E]/g) || []
-    const nonPrintableRatio = nonPrintableMatches.length / Math.max(value.length, 1)
-    if (nonPrintableRatio > 0.2) {
-        return '[binary output omitted]'
-    }
-    if (value.length <= maxLength) {
-        return value
-    }
-    return `${value.slice(0, maxLength)}…`
-}
-
-function formatCheckOutput(command: string, value: string | undefined): string {
-    if (!value) return ''
-    if (command.includes('/snapshot.jpg')) {
-        return '[image response omitted]'
-    }
-    return summarizeCheckText(value)
-}
-
-function withCacheBust(url: string): string {
-    if (!url) return ''
-    const separator = url.includes('?') ? '&' : '?'
-    return `${url}${separator}t=${Date.now()}`
-}
-
 export default function SettingsPanel() {
     const { refreshRaceState } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
@@ -164,7 +136,7 @@ export default function SettingsPanel() {
 
     useEffect(() => {
         const handleOverlayUpdate = () => {
-            const selectedId = selectedTrackId || getSelectedTrackId()
+            const selectedId = getSelectedTrackId() || selectedTrackId
             if (!selectedId) {
                 setTrackPhotoUrlState(getLatestSnapshotUrl())
                 return
@@ -313,7 +285,7 @@ export default function SettingsPanel() {
     }
 
     const useLatestCapture = () => {
-        const latest = withCacheBust(getLatestSnapshotUrl())
+        const latest = getLatestSnapshotUrl()
         const previewBase = normalizeBaseUrl(config.preview_url)
         const fallback = previewBase ? `${previewBase}/snapshot.jpg?t=${Date.now()}` : ''
         setTrackPhotoUrlState(latest || fallback)
@@ -403,10 +375,10 @@ export default function SettingsPanel() {
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>
                                             <p>{check.ok ? '✓' : '✗'} {check.command}</p>
                                             {!check.ok && check.stderr ? (
-                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{formatCheckOutput(check.command, check.stderr)}</p>
+                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{check.stderr}</p>
                                             ) : null}
                                             {check.ok && check.stdout ? (
-                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{formatCheckOutput(check.command, check.stdout)}</p>
+                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{check.stdout}</p>
                                             ) : null}
                                         </li>
                                     ))}

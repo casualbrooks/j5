@@ -102,12 +102,12 @@ _SETUP_STEPS = [
         "id": "vision_preview",
         "title": "Camera preview stream",
         "description": "Preview and track-image capture endpoint from the Pi.",
-        "check_commands": ["GET {preview_url}/ready or /snapshot.jpg or /health"],
+        "check_commands": ["GET {preview_url}/health or /stream.mjpg or /snapshot.jpg"],
         "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
         "stop_command": "pkill -f pi_preflight.py || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f pi_preflight.py"],
-        "help": "Start the preview service to restore the Computer Vision feed, then verify {preview_url}/ready or a captured {preview_url}/snapshot.jpg is reachable.",
+        "help": "Start the preview service to restore the Computer Vision feed, then verify at least one of {preview_url}/health, /stream.mjpg, or /snapshot.jpg is reachable.",
     },
     {
         "id": "websocket_endpoint",
@@ -279,22 +279,19 @@ async def _check_http_health(url: str):
 async def _check_http_endpoints(url: str, paths: list[str]):
     base = url.rstrip("/")
     errors: list[str] = []
-    timeout = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=2.0) as client:
         for path in paths:
             endpoint = f"{base}{path}"
             try:
-                async with client.stream("GET", endpoint) as response:
-                    if response.status_code == 200:
-                        content_type = response.headers.get("content-type", "").strip()
-                        summary = content_type or "HTTP 200"
-                        return {
-                            "command": f"GET {endpoint}",
-                            "ok": True,
-                            "stdout": summary,
-                            "stderr": "",
-                        }
-                    errors.append(f"{endpoint} -> HTTP {response.status_code}")
+                response = await client.get(endpoint)
+                if response.status_code == 200:
+                    return {
+                        "command": f"GET {endpoint}",
+                        "ok": True,
+                        "stdout": response.text.strip(),
+                        "stderr": "",
+                    }
+                errors.append(f"{endpoint} -> HTTP {response.status_code}")
             except Exception as exc:
                 errors.append(f"{endpoint} -> {exc}")
     first_endpoint = f"{base}{paths[0]}"
@@ -365,7 +362,7 @@ async def _build_setup_status():
         elif step["id"] == "vision_preview":
             checks = [
                 await _check_http_endpoints(
-                    config["preview_url"], ["/ready", "/snapshot.jpg", "/health"]
+                    config["preview_url"], ["/health", "/stream.mjpg", "/snapshot.jpg"]
                 )
             ]
             check_ok = all(item["ok"] for item in checks)

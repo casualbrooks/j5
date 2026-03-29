@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
+import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 import TrackCanvas from '@/components/track/TrackCanvas'
 import type { Track, TrackPoint } from '@/types'
@@ -40,6 +40,31 @@ const defaultConfig = {
     event_name: 'Weekend Session',
     total_laps: 20,
     racer_names: 'Racer 1, Racer 2',
+}
+
+function normalizeBaseUrl(value: string): string {
+    const raw = value.trim()
+    if (!raw) return ''
+    try {
+        const parsed = new URL(raw)
+        return `${parsed.protocol}//${parsed.host}`
+    } catch {
+        return raw.replace(/\/$/, '')
+    }
+}
+
+function summarizeCheckText(value: string | undefined): string {
+    if (!value) return ''
+    const maxLength = 260
+    const nonPrintableMatches = value.match(/[^\x09\x0A\x0D\x20-\x7E]/g) || []
+    const nonPrintableRatio = nonPrintableMatches.length / Math.max(value.length, 1)
+    if (nonPrintableRatio > 0.2) {
+        return '[binary output omitted]'
+    }
+    if (value.length <= maxLength) {
+        return value
+    }
+    return `${value.slice(0, maxLength)}…`
 }
 
 export default function SettingsPanel() {
@@ -122,6 +147,19 @@ export default function SettingsPanel() {
         void loadWizard()
         void loadTracks()
     }, [])
+
+    useEffect(() => {
+        const handleOverlayUpdate = () => {
+            const selectedId = selectedTrackId || getSelectedTrackId()
+            if (!selectedId) {
+                setTrackPhotoUrlState(getLatestSnapshotUrl())
+                return
+            }
+            setTrackPhotoUrlState(getTrackPhotoUrl(selectedId) || getLatestSnapshotUrl())
+        }
+        window.addEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
+        return () => window.removeEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
+    }, [selectedTrackId])
 
     const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
     const frontendWsUrl = backendWsUrl('organizer')
@@ -262,7 +300,7 @@ export default function SettingsPanel() {
 
     const useLatestCapture = () => {
         const latest = getLatestSnapshotUrl()
-        const previewBase = config.preview_url.trim().replace(/\/$/, '')
+        const previewBase = normalizeBaseUrl(config.preview_url)
         const fallback = previewBase ? `${previewBase}/snapshot.jpg?t=${Date.now()}` : ''
         setTrackPhotoUrlState(latest || fallback)
     }
@@ -349,7 +387,13 @@ export default function SettingsPanel() {
                                 <ul className="mt-3 space-y-1 text-xs">
                                     {step.checks.map(check => (
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>
-                                            {check.ok ? '✓' : '✗'} {check.command}
+                                            <p>{check.ok ? '✓' : '✗'} {check.command}</p>
+                                            {!check.ok && check.stderr ? (
+                                                <p className="ml-4 text-[11px] text-rose-200 break-words">{summarizeCheckText(check.stderr)}</p>
+                                            ) : null}
+                                            {check.ok && check.stdout ? (
+                                                <p className="ml-4 text-[11px] text-emerald-100 break-words">{summarizeCheckText(check.stdout)}</p>
+                                            ) : null}
                                         </li>
                                     ))}
                                 </ul>

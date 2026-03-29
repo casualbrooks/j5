@@ -386,8 +386,6 @@ async def _build_setup_status():
                 if not result["ok"]:
                     check_ok = False
         connected = bool(check_ok)
-        if state.get("connected") is False:
-            connected = False
         step_data = {
             "id": step["id"],
             "title": step["title"],

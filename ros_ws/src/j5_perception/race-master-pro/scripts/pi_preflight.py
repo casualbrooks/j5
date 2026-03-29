@@ -195,7 +195,7 @@ def run_preview_server(
 
     boundary = "frame"
     frame_lock = threading.Lock()
-    stream_state = {"latest_frame": None, "active_streams": 0}
+    stream_state = {"latest_frame": None, "latest_frame_ts": 0.0, "active_streams": 0}
 
     class PreviewHandler(BaseHTTPRequestHandler):
         server_version = "pi-preflight-preview/1.0"
@@ -343,6 +343,7 @@ def run_preview_server(
                             continue
                         with frame_lock:
                             stream_state["latest_frame"] = frame.copy()
+                            stream_state["latest_frame_ts"] = time.monotonic()
                         ok, encoded = cv2.imencode(".jpg", frame)
                         if not ok:
                             continue

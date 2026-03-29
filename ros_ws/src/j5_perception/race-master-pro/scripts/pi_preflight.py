@@ -243,61 +243,18 @@ def run_preview_server(
                 self._send_html()
                 return
             if self.path == "/ready":
-
-                def probe_camera_once() -> tuple[bool, str]:
-                    source = camera_source_to_cv2_index(camera_source)
-                    cap = cv2.VideoCapture(source)
-                    if not cap.isOpened():
-                        return False, f"unable to open camera source {camera_source}"
-                    ok, frame = cap.read()
-                    cap.release()
-                    if not ok or frame is None:
-                        return False, "camera opened but no frame available"
-                    with frame_lock:
-                        stream_state["latest_frame"] = frame.copy()
-                        stream_state["latest_frame_ts"] = time.monotonic()
-                    return True, "camera opened and frame acquired"
-
                 with frame_lock:
                     latest_frame = stream_state["latest_frame"]
-                    latest_frame_ts = float(stream_state.get("latest_frame_ts") or 0.0)
                     active_streams = stream_state["active_streams"]
-                frame_age_s = (
-                    time.monotonic() - latest_frame_ts if latest_frame_ts else None
-                )
 
-                if (
-                    latest_frame is not None
-                    and active_streams > 0
-                    and frame_age_s is not None
-                    and frame_age_s <= 2.0
-                ):
+                if latest_frame is not None:
                     payload = json.dumps(
                         {
                             "ok": True,
-                            "message": f"fresh frame buffered from active preview stream ({frame_age_s:.1f}s old)",
+                            "message": "frame buffered from active preview stream",
                         }
                     ).encode("utf-8")
                     self.send_response(HTTPStatus.OK)
-                elif latest_frame is not None and active_streams > 0:
-                    ok, message = probe_camera_once()
-                    payload = json.dumps(
-                        {
-                            "ok": ok,
-                            "message": (
-                                "active stream has stale frame buffer; " + message
-                            ),
-                        }
-                    ).encode("utf-8")
-                    self.send_response(
-                        HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
-                    )
-                elif latest_frame is not None:
-                    ok, message = probe_camera_once()
-                    payload = json.dumps({"ok": ok, "message": message}).encode("utf-8")
-                    self.send_response(
-                        HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
-                    )
                 elif capture_file.exists():
                     payload = json.dumps(
                         {"ok": True, "message": f"snapshot available at {capture_file}"}
@@ -312,11 +269,37 @@ def run_preview_server(
                     ).encode("utf-8")
                     self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
                 else:
-                    ok, message = probe_camera_once()
-                    payload = json.dumps({"ok": ok, "message": message}).encode("utf-8")
-                    self.send_response(
-                        HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
-                    )
+                    source = camera_source_to_cv2_index(camera_source)
+                    cap = cv2.VideoCapture(source)
+                    if not cap.isOpened():
+                        payload = json.dumps(
+                            {
+                                "ok": False,
+                                "message": f"unable to open camera source {camera_source}",
+                            }
+                        ).encode("utf-8")
+                        self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
+                    else:
+                        ok, frame = cap.read()
+                        cap.release()
+                        if ok and frame is not None:
+                            with frame_lock:
+                                stream_state["latest_frame"] = frame.copy()
+                            payload = json.dumps(
+                                {
+                                    "ok": True,
+                                    "message": "camera opened and frame acquired",
+                                }
+                            ).encode("utf-8")
+                            self.send_response(HTTPStatus.OK)
+                        else:
+                            payload = json.dumps(
+                                {
+                                    "ok": False,
+                                    "message": "camera opened but no frame available",
+                                }
+                            ).encode("utf-8")
+                            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
 
                 self._set_cors_headers()
                 self.send_header("Content-Type", "application/json")

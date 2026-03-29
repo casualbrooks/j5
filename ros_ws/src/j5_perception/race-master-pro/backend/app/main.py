@@ -189,6 +189,7 @@ def _validate_setup_config(config: dict) -> dict:
         parsed = urlparse(str(merged.get(field, "")).strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise HTTPException(400, f"Invalid URL for {field}")
+        merged[field] = f"{parsed.scheme}://{parsed.netloc}"
 
     merged["pi_host"] = pi_host
     merged["pi_user"] = pi_user

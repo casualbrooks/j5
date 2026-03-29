@@ -8,6 +8,17 @@ function defaultPreviewBaseUrl(): string {
     return `http://${window.location.hostname}:8091`
 }
 
+function normalizePreviewBaseUrl(value: string): string {
+    const raw = value.trim()
+    if (!raw) return ''
+    try {
+        const parsed = new URL(raw)
+        return `${parsed.protocol}//${parsed.host}`
+    } catch {
+        return raw.replace(/\/$/, '')
+    }
+}
+
 export default function VisionPanel() {
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
@@ -17,7 +28,7 @@ export default function VisionPanel() {
     const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
     const [activeTrackName, setActiveTrackName] = useState('')
 
-    const normalizedBaseUrl = useMemo(() => previewBaseUrl.trim().replace(/\/$/, ''), [previewBaseUrl])
+    const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
 
     const ensureSelectedTrack = async () => {

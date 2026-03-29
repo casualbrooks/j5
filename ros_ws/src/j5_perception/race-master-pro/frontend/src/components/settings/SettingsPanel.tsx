@@ -42,6 +42,17 @@ const defaultConfig = {
     racer_names: 'Racer 1, Racer 2',
 }
 
+function normalizeBaseUrl(value: string): string {
+    const raw = value.trim()
+    if (!raw) return ''
+    try {
+        const parsed = new URL(raw)
+        return `${parsed.protocol}//${parsed.host}`
+    } catch {
+        return raw.replace(/\/$/, '')
+    }
+}
+
 export default function SettingsPanel() {
     const { refreshRaceState } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
@@ -275,7 +286,7 @@ export default function SettingsPanel() {
 
     const useLatestCapture = () => {
         const latest = getLatestSnapshotUrl()
-        const previewBase = config.preview_url.trim().replace(/\/$/, '')
+        const previewBase = normalizeBaseUrl(config.preview_url)
         const fallback = previewBase ? `${previewBase}/snapshot.jpg?t=${Date.now()}` : ''
         setTrackPhotoUrlState(latest || fallback)
     }

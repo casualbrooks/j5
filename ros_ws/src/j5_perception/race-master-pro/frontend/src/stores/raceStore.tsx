@@ -111,6 +111,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
     const [showTrack, setShowTrack] = useState(true)
     const wsRef = useRef<WebSocket | null>(null)
+    const liveRaceRef = useRef<LiveRaceState | null>(null)
 
     const toggleTrack = useCallback(() => {
         setShowTrack(prev => !prev)
@@ -136,7 +137,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
 
     const refreshRaceState = useCallback(async (raceId?: string | null) => {
         try {
-            let activeRaceId = String(raceId || liveRace?.race_id || '')
+            let activeRaceId = String(raceId || liveRaceRef.current?.race_id || '')
 
             if (!activeRaceId) {
                 const wizardResponse = await apiFetch('/api/setup/wizard')
@@ -169,7 +170,11 @@ export function RaceProvider({ children }: { children: ReactNode }) {
         } catch {
             setLiveRace(null)
         }
-    }, [liveRace?.race_id])
+    }, [])
+
+    useEffect(() => {
+        liveRaceRef.current = liveRace
+    }, [liveRace])
 
     useEffect(() => {
         const wsUrl = backendWsUrl('organizer')
@@ -226,7 +231,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                 case 'raceResume':
                 case 'raceFinish':
                 case 'lapComplete':
-                    void refreshRaceState(String(msg.data?.race_id || liveRace?.race_id || ''))
+                    void refreshRaceState(String(msg.data?.race_id || liveRaceRef.current?.race_id || ''))
                     break
                 case 'pong':
                     break
@@ -247,7 +252,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             clearInterval(pingInterval)
             ws?.close()
         }
-    }, [liveRace?.race_id, refreshRaceState, updateRacerPosition])
+    }, [refreshRaceState, updateRacerPosition])
 
     return (
         <RaceContext.Provider value={{

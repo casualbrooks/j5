@@ -68,6 +68,17 @@ def check_tcp(host: str, port: int, timeout: float = 2.5) -> CheckResult:
     return CheckResult(f"TCP {host}:{port}", True, "Connection successful")
 
 
+def detect_lan_ip() -> str | None:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
 def check_http(url: str, timeout: float = 4.0) -> CheckResult:
     try:
         with urlopen(url, timeout=timeout) as resp:
@@ -413,7 +424,18 @@ def run_preview_server(
     server.daemon_threads = True
 
     print("\n=== Camera Browser Preview ===")
-    print(f"Open from another device: http://{host}:{port}/")
+    if host in {"0.0.0.0", "::"}:
+        lan_ip = detect_lan_ip()
+        print(f"Local preview URL: http://localhost:{port}/")
+        if lan_ip:
+            print(f"LAN preview URL:   http://{lan_ip}:{port}/")
+        else:
+            print("LAN preview URL:   (could not auto-detect local IP)")
+    else:
+        print(f"Preview URL:       http://{host}:{port}/")
+    print(
+        f"Readiness URL:     http://{host if host not in {'0.0.0.0', '::'} else 'localhost'}:{port}/ready"
+    )
     print("Press Ctrl+C to stop preview server.")
 
     try:

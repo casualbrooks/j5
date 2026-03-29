@@ -91,33 +91,33 @@ _SETUP_STEPS = [
         "id": "backend_service",
         "title": "Race Master backend API",
         "description": "Backend must be reachable to drive setup + live controls.",
-        "check_commands": ["curl -sf {backend_url}/health"],
+        "check_commands": ["GET {backend_url}/health or /docs or /openapi.json"],
         "connect_command": "cd backend && source .venv/bin/activate && python -m app.main",
         "stop_command": "pkill -f 'python -m app.main' || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f python -m app.main"],
-        "help": "If this fails, start the backend on the configured host/port and confirm GET /health returns 200.",
+        "help": "If this fails, start the backend on the configured host/port and confirm at least one of /health, /docs, or /openapi.json returns HTTP 200.",
     },
     {
         "id": "vision_preview",
         "title": "Camera preview stream",
         "description": "Preview and track-image capture endpoint from the Pi.",
-        "check_commands": ["curl -sf {preview_url}/health"],
+        "check_commands": ["GET {preview_url}/ready or /health or /snapshot.jpg"],
         "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
         "stop_command": "pkill -f pi_preflight.py || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f pi_preflight.py"],
-        "help": "Start the preview service to restore the Computer Vision feed without re-initializing the race, then verify {preview_url}/health is reachable.",
+        "help": "Start the preview service to restore the Computer Vision feed, then verify {preview_url}/ready or {preview_url}/health is reachable (snapshot is a fallback).",
     },
     {
         "id": "websocket_endpoint",
         "title": "WebSocket endpoint",
         "description": "Realtime events require a reachable WS endpoint based on backend_url.",
         "check_commands": [],
-        "connect_command": "Set VITE_WS_URL=ws://<backend-host>:<backend-port>/ws (or NEXT_PUBLIC_WS_URL for Next.js), restart the UI, then verify",
+        "connect_command": "Optional: set VITE_API_BASE_URL=http://<backend-host>:<backend-port> and VITE_WS_URL=ws://<backend-host>:<backend-port>/ws before starting Vite; if omitted the UI auto-falls back to current-host:8080",
         "stop_command": "echo 'No persistent process to stop for websocket endpoint'",
         "stop_commands": ["echo No persistent process to stop for websocket endpoint"],
-        "help": "For the Vite frontend set VITE_WS_URL and VITE_API_BASE_URL; for the Next.js demo use NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_BASE. Both must point at the FastAPI service.",
+        "help": "These env vars are frontend startup config, not runtime shell commands. They should point to the FastAPI backend host/port (usually :8080), not the Vite dev server (:5173).",
     },
     {
         "id": "race_state",
@@ -189,6 +189,7 @@ def _validate_setup_config(config: dict) -> dict:
         parsed = urlparse(str(merged.get(field, "")).strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise HTTPException(400, f"Invalid URL for {field}")
+        merged[field] = f"{parsed.scheme}://{parsed.netloc}"
 
     merged["pi_host"] = pi_host
     merged["pi_user"] = pi_user
@@ -272,25 +273,42 @@ async def _check_tcp_port(host: str, port: int):
 
 
 async def _check_http_health(url: str):
-    health_url = f"{url.rstrip('/')}/health"
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.get(health_url)
-        return {
-            "command": f"GET {health_url}",
-            "ok": response.status_code == 200,
-            "stdout": response.text.strip(),
-            "stderr": (
-                "" if response.status_code == 200 else f"HTTP {response.status_code}"
-            ),
-        }
-    except Exception as exc:
-        return {
-            "command": f"GET {health_url}",
-            "ok": False,
-            "stdout": "",
-            "stderr": str(exc),
-        }
+    return await _check_http_endpoints(url, ["/health"])
+
+
+async def _check_http_endpoints(url: str, paths: list[str]):
+    base = url.rstrip("/")
+    errors: list[str] = []
+    timeout = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for path in paths:
+            endpoint = f"{base}{path}"
+            try:
+                async with client.stream("GET", endpoint) as response:
+                    if response.status_code == 200:
+                        content_type = response.headers.get("content-type", "").strip()
+                        if content_type.startswith("image/") or content_type.startswith(
+                            "multipart/"
+                        ):
+                            summary = "[binary response omitted]"
+                        else:
+                            summary = content_type or "HTTP 200"
+                        return {
+                            "command": f"GET {endpoint}",
+                            "ok": True,
+                            "stdout": summary,
+                            "stderr": "",
+                        }
+                    errors.append(f"{endpoint} -> HTTP {response.status_code}")
+            except Exception as exc:
+                errors.append(f"{endpoint} -> {exc}")
+    first_endpoint = f"{base}{paths[0]}"
+    return {
+        "command": f"GET {first_endpoint}",
+        "ok": False,
+        "stdout": "",
+        "stderr": "; ".join(errors),
+    }
 
 
 async def _check_ws_port(url: str):
@@ -343,10 +361,18 @@ async def _build_setup_status():
             checks.append(await _check_tcp_port(pi_host, 22))
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "backend_service":
-            checks = [await _check_http_health(config["backend_url"])]
+            checks = [
+                await _check_http_endpoints(
+                    config["backend_url"], ["/health", "/docs", "/openapi.json"]
+                )
+            ]
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "vision_preview":
-            checks = [await _check_http_health(config["preview_url"])]
+            checks = [
+                await _check_http_endpoints(
+                    config["preview_url"], ["/ready", "/health", "/snapshot.jpg"]
+                )
+            ]
             check_ok = all(item["ok"] for item in checks)
         elif step["id"] == "websocket_endpoint":
             ws_result = await _check_ws_port(config["backend_url"])
@@ -368,8 +394,6 @@ async def _build_setup_status():
                 if not result["ok"]:
                     check_ok = False
         connected = bool(check_ok)
-        if state.get("connected") is False:
-            connected = False
         step_data = {
             "id": step["id"],
             "title": step["title"],
@@ -401,6 +425,15 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "connections": manager.total_connections,
+    }
+
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Race Master Pro backend",
+        "status_endpoint": "/health",
+        "docs_endpoint": "/docs",
     }
 
 

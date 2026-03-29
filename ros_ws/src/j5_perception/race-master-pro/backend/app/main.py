@@ -420,6 +420,15 @@ async def health_check():
     }
 
 
+@app.get("/")
+async def root():
+    return {
+        "service": "Race Master Pro backend",
+        "status_endpoint": "/health",
+        "docs_endpoint": "/docs",
+    }
+
+
 # ── Seasons ─────────────────────────────────────────────────
 
 

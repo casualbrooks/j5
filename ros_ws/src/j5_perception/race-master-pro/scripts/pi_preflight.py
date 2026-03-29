@@ -336,11 +336,16 @@ def run_preview_server(
                 with frame_lock:
                     stream_state["active_streams"] += 1
                 try:
+                    consecutive_failures = 0
                     while True:
                         ok, frame = cap.read()
                         if not ok or frame is None:
+                            consecutive_failures += 1
+                            if consecutive_failures >= 10:
+                                break
                             time.sleep(0.1)
                             continue
+                        consecutive_failures = 0
                         with frame_lock:
                             stream_state["latest_frame"] = frame.copy()
                             stream_state["latest_frame_ts"] = time.monotonic()

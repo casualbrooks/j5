@@ -17,6 +17,13 @@
 
 <body>
   <div id="root"></div>
+  <script>
+    // Backward-compatibility fallback for stale/hot-reloaded bundles that may still
+    // reference legacy direction symbols during panel render.
+    // eslint-disable-next-line no-var
+    var lapDirection = window.lapDirection || 'clockwise';
+    window.lapDirection = lapDirection;
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

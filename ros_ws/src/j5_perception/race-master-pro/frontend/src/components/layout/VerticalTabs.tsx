@@ -28,6 +28,7 @@ export default function VerticalTabs({ activeTab, onTabChange }: VerticalTabsPro
                     aria-current={activeTab === id ? 'page' : undefined}
                 >
                     <Icon size={18} />
+                    <span className="sidebar-tab-label">{label}</span>
                 </button>
             ))}
         </nav>

@@ -66,7 +66,6 @@ export default function SettingsPanel() {
     const [editorPoints, setEditorPoints] = useState<TrackPoint[]>([])
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
     const [editTool, setEditTool] = useState<'spline' | 'start' | 'finish' | 'checkpoint'>('spline')
-    const [trackPhotoLoadState, setTrackPhotoLoadState] = useState<'idle' | 'loaded' | 'error'>('idle')
 
     const selectedTrack = useMemo(
         () => tracks.find(track => track.id === selectedTrackId) || null,
@@ -88,7 +87,6 @@ export default function SettingsPanel() {
         setTrackName(track.name)
         setEditorPoints(track.layout_points)
         setTrackPhotoUrlState(getTrackPhotoUrl(track.id) || getLatestSnapshotUrl())
-        setTrackPhotoLoadState('idle')
         setCheckpoints(getTrackCheckpoints(track.id))
     }
 
@@ -487,11 +485,6 @@ export default function SettingsPanel() {
                             <p>3. Choose <strong>Spline Tool</strong> and click around the lane centerline to place handles.</p>
                             <p>4. Switch tools to mark <strong>Start</strong>, <strong>Finish</strong>, and additional checkpoints.</p>
                             <p>5. Save, then verify Dashboard dots and markers line up with the track image.</p>
-                            {trackPhotoUrl ? (
-                                <p className={trackPhotoLoadState === 'error' ? 'text-rose-300' : 'text-emerald-300'}>
-                                    Image status: {trackPhotoLoadState === 'error' ? 'failed to load from URL' : trackPhotoLoadState === 'loaded' ? 'loaded' : 'waiting for load'}
-                                </p>
-                            ) : null}
                         </div>
                     </div>
 

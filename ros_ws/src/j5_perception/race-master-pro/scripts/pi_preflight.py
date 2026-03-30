@@ -195,6 +195,7 @@ def run_preview_server(
     port: int,
     camera_source: str,
     capture_file: Path,
+    preview_fps: int,
 ) -> int:
     try:
         import cv2
@@ -351,6 +352,8 @@ def run_preview_server(
                 cap = cv2.VideoCapture(source)
                 if not cap.isOpened():
                     return
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                target_interval = 1.0 / max(preview_fps, 1)
                 with frame_lock:
                     stream_state["active_streams"] += 1
                 try:
@@ -361,13 +364,17 @@ def run_preview_server(
                             consecutive_failures += 1
                             if consecutive_failures >= 10:
                                 break
-                            time.sleep(0.1)
+                            time.sleep(min(target_interval, 0.05))
                             continue
                         consecutive_failures = 0
                         with frame_lock:
                             stream_state["latest_frame"] = frame.copy()
                             stream_state["latest_frame_ts"] = time.monotonic()
-                        ok, encoded = cv2.imencode(".jpg", frame)
+                        ok, encoded = cv2.imencode(
+                            ".jpg",
+                            frame,
+                            [int(cv2.IMWRITE_JPEG_QUALITY), 72],
+                        )
                         if not ok:
                             continue
                         data = encoded.tobytes()
@@ -378,7 +385,7 @@ def run_preview_server(
                         )
                         self.wfile.write(data)
                         self.wfile.write(b"\r\n")
-                        time.sleep(0.1)
+                        time.sleep(target_interval)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
                 finally:
@@ -734,6 +741,12 @@ def main() -> int:
         default=8091,
         help="Port for preview server",
     )
+    parser.add_argument(
+        "--preview-fps",
+        type=int,
+        default=15,
+        help="Target frame rate for /stream.mjpg (lower values reduce Pi CPU and network load)",
+    )
     args = parser.parse_args()
 
     checks = [list_cameras()]
@@ -800,6 +813,7 @@ def main() -> int:
             port=args.preview_port,
             camera_source=args.camera_source,
             capture_file=Path(args.capture_file),
+            preview_fps=args.preview_fps,
         )
         if preview_rc != 0:
             return preview_rc

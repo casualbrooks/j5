@@ -203,7 +203,8 @@ API_PID=$!
   if [[ ! -d node_modules ]]; then
     npm install >/dev/null
   fi
-  npm run dev -- --host "$HOST" --port "$UI_PORT"
+  rm -rf "$FRONTEND_ROOT/node_modules/.vite" 2>/dev/null || true
+  npm run dev -- --host "$HOST" --port "$UI_PORT" --force
 ) &
 UI_PID=$!
 

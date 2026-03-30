@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
+import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackCheckpoints, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackCheckpoints, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 import TrackCanvas from '@/components/track/TrackCanvas'
-import type { Track, TrackPoint } from '@/types'
+import type { Checkpoint, Track, TrackPoint } from '@/types'
 
 interface SetupCheckResult {
     command: string
@@ -64,6 +64,9 @@ export default function SettingsPanel() {
     const [trackName, setTrackName] = useState('Main Track')
     const [trackPhotoUrl, setTrackPhotoUrlState] = useState('')
     const [editorPoints, setEditorPoints] = useState<TrackPoint[]>([])
+    const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+    const [editTool, setEditTool] = useState<'spline' | 'start' | 'finish' | 'checkpoint'>('spline')
+    const [trackPhotoLoadState, setTrackPhotoLoadState] = useState<'idle' | 'loaded' | 'error'>('idle')
 
     const selectedTrack = useMemo(
         () => tracks.find(track => track.id === selectedTrackId) || null,
@@ -75,7 +78,9 @@ export default function SettingsPanel() {
             setSelectedTrackIdState('')
             setTrackName('Main Track')
             setTrackPhotoUrlState(getLatestSnapshotUrl())
+            setTrackPhotoLoadState('idle')
             setEditorPoints([])
+            setCheckpoints([])
             return
         }
         setSelectedTrackIdState(track.id)
@@ -83,6 +88,8 @@ export default function SettingsPanel() {
         setTrackName(track.name)
         setEditorPoints(track.layout_points)
         setTrackPhotoUrlState(getTrackPhotoUrl(track.id) || getLatestSnapshotUrl())
+        setTrackPhotoLoadState('idle')
+        setCheckpoints(getTrackCheckpoints(track.id))
     }
 
     const loadTracks = async () => {
@@ -142,6 +149,7 @@ export default function SettingsPanel() {
                 return
             }
             setTrackPhotoUrlState(getTrackPhotoUrl(selectedId) || getLatestSnapshotUrl())
+            setCheckpoints(getTrackCheckpoints(selectedId))
         }
         window.addEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
         return () => window.removeEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
@@ -249,6 +257,11 @@ export default function SettingsPanel() {
             if (trackPhotoUrl) {
                 setTrackPhotoUrl(created.id, trackPhotoUrl)
             }
+            setTrackCheckpoints(created.id, checkpoints.map((checkpoint, index) => ({
+                ...checkpoint,
+                track_id: created.id,
+                sort_order: index,
+            })))
             setSelectedTrackId(created.id)
             await loadTracks()
         } catch (err) {
@@ -277,6 +290,11 @@ export default function SettingsPanel() {
             if (trackPhotoUrl) {
                 setTrackPhotoUrl(selectedTrackId, trackPhotoUrl)
             }
+            setTrackCheckpoints(selectedTrackId, checkpoints.map((checkpoint, index) => ({
+                ...checkpoint,
+                track_id: selectedTrackId,
+                sort_order: index,
+            })))
             await loadTracks()
             setError('')
         } catch (err) {
@@ -289,6 +307,7 @@ export default function SettingsPanel() {
         const previewBase = normalizeBaseUrl(config.preview_url)
         const fallback = previewBase ? `${previewBase}/snapshot.jpg?t=${Date.now()}` : ''
         setTrackPhotoUrlState(latest || fallback)
+        setTrackPhotoLoadState('idle')
     }
 
     const undoSplinePoint = () => {
@@ -434,7 +453,10 @@ export default function SettingsPanel() {
                             <input
                                 className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
                                 value={trackPhotoUrl}
-                                onChange={event => setTrackPhotoUrlState(event.target.value)}
+                                onChange={event => {
+                                    setTrackPhotoUrlState(event.target.value)
+                                    setTrackPhotoLoadState('idle')
+                                }}
                                 placeholder="http://pi-ip:8091/snapshot.jpg"
                             />
                         </label>
@@ -446,27 +468,51 @@ export default function SettingsPanel() {
                         </div>
 
                         <div className="flex flex-wrap gap-2">
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'start' ? 'bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('start')}>Mark Start</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'finish' ? 'bg-amber-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('finish')}>Mark Finish</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'checkpoint' ? 'bg-violet-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('checkpoint')}>Add Checkpoint</button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
                             <button className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600" type="button" onClick={undoSplinePoint} disabled={editorPoints.length === 0}>Undo Point</button>
                             <button className="rounded bg-rose-700 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-600" type="button" onClick={() => setEditorPoints([])} disabled={editorPoints.length === 0}>Clear Spline</button>
+                            <button className="rounded bg-rose-700 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-600" type="button" onClick={() => setCheckpoints([])} disabled={checkpoints.length === 0}>Clear Markers</button>
                         </div>
 
                         <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-1">
                             <p><strong>How to use:</strong></p>
                             <p>1. Capture the track photo in the Computer Vision tab.</p>
                             <p>2. Click <strong>Use Latest Capture</strong>.</p>
-                            <p>3. Click around the lane centerline to place spline handles.</p>
-                            <p>4. Drag handles until the white path matches the real track.</p>
-                            <p>5. Save, then verify the Dashboard dots follow the spline with minimal lag.</p>
+                            <p>3. Choose <strong>Spline Tool</strong> and click around the lane centerline to place handles.</p>
+                            <p>4. Switch tools to mark <strong>Start</strong>, <strong>Finish</strong>, and additional checkpoints.</p>
+                            <p>5. Save, then verify Dashboard dots and markers line up with the track image.</p>
+                            {trackPhotoUrl ? (
+                                <p className={trackPhotoLoadState === 'error' ? 'text-rose-300' : 'text-emerald-300'}>
+                                    Image status: {trackPhotoLoadState === 'error' ? 'failed to load from URL' : trackPhotoLoadState === 'loaded' ? 'loaded' : 'waiting for load'}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
 
                     <div className="rounded border border-slate-700 bg-slate-950/40 p-3">
+                        {trackPhotoUrl ? (
+                            <img
+                                src={trackPhotoUrl}
+                                alt="Track snapshot preview"
+                                className="mb-3 max-h-52 w-full rounded border border-slate-700 object-contain bg-black/30"
+                                onLoad={() => setTrackPhotoLoadState('loaded')}
+                                onError={() => setTrackPhotoLoadState('error')}
+                            />
+                        ) : null}
                         <TrackCanvas
                             racers={[]}
                             layoutPoints={editorPoints}
-                            checkpoints={[]}
+                            checkpoints={checkpoints}
                             isEditMode
+                            editTool={editTool}
                             onTrackUpdate={setEditorPoints}
+                            onCheckpointUpdate={setCheckpoints}
                             backgroundImageUrl={trackPhotoUrl || undefined}
                         />
                     </div>

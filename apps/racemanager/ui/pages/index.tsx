@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { useEffect, useMemo, useState } from 'react';
+import { MouseEvent, useEffect, useMemo, useState } from 'react';
 import styles from '../styles/Home.module.css';
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:4000';
@@ -17,8 +17,9 @@ type Track = {
   startGate?: LineGate | null;
   finishGate?: LineGate | null;
   checkpoints: Checkpoint[];
+  calibration?: Record<string, unknown>;
 };
-type Race = { id: string; name: string; totalLaps: number; status: string };
+type Race = { id: string; name: string; totalLaps: number; status: string; trackId?: string | null };
 type LeaderboardEntry = {
   carId: string;
   lapCount: number;
@@ -59,6 +60,28 @@ type Dashboard = {
   recentEvents: RaceEvent[];
 };
 
+type TrackDraft = {
+  id?: string;
+  name: string;
+  imageUrl: string;
+  layoutPoints: Point[];
+  maskPolygon: Point[];
+  checkpoints: Checkpoint[];
+  startGate?: LineGate | null;
+  finishGate?: LineGate | null;
+  calibration: { startPosition?: Point; direction?: string };
+};
+
+type PlacementTool =
+  | 'layout'
+  | 'mask'
+  | 'checkpoint'
+  | 'start_a'
+  | 'start_b'
+  | 'finish_a'
+  | 'finish_b'
+  | 'start_position';
+
 const formatMs = (value?: number | null) => {
   if (!value) return '—';
   const seconds = value / 1000;
@@ -70,14 +93,48 @@ const formatGap = (value?: number | null) => {
   return `+${(value / 1000).toFixed(2)}s`;
 };
 
-function useTrackBounds(track?: Track | null) {
+const defaultDraft = (): TrackDraft => ({
+  name: 'New track',
+  imageUrl: '',
+  layoutPoints: [],
+  maskPolygon: [],
+  checkpoints: [],
+  startGate: { a: { x: 10, y: 50 }, b: { x: 20, y: 50 }, label: 'start' },
+  finishGate: { a: { x: 80, y: 50 }, b: { x: 90, y: 50 }, label: 'finish' },
+  calibration: { direction: 'clockwise' },
+});
+
+const asTrackDraft = (track?: Track | null): TrackDraft => {
+  if (!track) return defaultDraft();
+  return {
+    id: track.id,
+    name: track.name,
+    imageUrl: track.imageUrl ?? '',
+    layoutPoints: [...(track.layoutPoints ?? [])],
+    maskPolygon: [...(track.maskPolygon ?? [])],
+    checkpoints: [...(track.checkpoints ?? [])],
+    startGate: track.startGate ?? { a: { x: 10, y: 50 }, b: { x: 20, y: 50 }, label: 'start' },
+    finishGate: track.finishGate ?? { a: { x: 80, y: 50 }, b: { x: 90, y: 50 }, label: 'finish' },
+    calibration: {
+      startPosition: (track.calibration?.startPosition as Point | undefined),
+      direction: typeof track.calibration?.direction === 'string' ? track.calibration.direction : 'clockwise',
+    },
+  };
+};
+
+function useTrackBounds(track?: Track | null, draft?: TrackDraft | null) {
   return useMemo(() => {
     const points: Point[] = [];
-    if (track?.layoutPoints?.length) points.push(...track.layoutPoints);
-    if (track?.maskPolygon?.length) points.push(...track.maskPolygon);
-    if (track?.checkpoints?.length) points.push(...track.checkpoints.map((item) => item.position));
-    if (track?.startGate) points.push(track.startGate.a, track.startGate.b);
-    if (track?.finishGate) points.push(track.finishGate.a, track.finishGate.b);
+    const sourceTrack = track ?? undefined;
+    if (sourceTrack?.layoutPoints?.length) points.push(...sourceTrack.layoutPoints);
+    if (sourceTrack?.maskPolygon?.length) points.push(...sourceTrack.maskPolygon);
+    if (sourceTrack?.checkpoints?.length) points.push(...sourceTrack.checkpoints.map((item) => item.position));
+    if (sourceTrack?.startGate) points.push(sourceTrack.startGate.a, sourceTrack.startGate.b);
+    if (sourceTrack?.finishGate) points.push(sourceTrack.finishGate.a, sourceTrack.finishGate.b);
+
+    if (draft?.layoutPoints?.length) points.push(...draft.layoutPoints);
+    if (draft?.maskPolygon?.length) points.push(...draft.maskPolygon);
+    if (draft?.checkpoints?.length) points.push(...draft.checkpoints.map((item) => item.position));
 
     if (!points.length) {
       return { minX: 0, minY: 0, width: 100, height: 100 };
@@ -95,15 +152,49 @@ function useTrackBounds(track?: Track | null) {
       width: Math.max(maxX - minX, 1),
       height: Math.max(maxY - minY, 1),
     };
-  }, [track]);
+  }, [track, draft]);
 }
 
-function TrackPreview({ track, entries }: { track?: Track | null; entries: DashboardEntry[] }) {
-  const bounds = useTrackBounds(track);
-  const scalePoint = (point: Point) => ({
-    x: ((point.x - bounds.minX) / bounds.width) * 100,
-    y: ((point.y - bounds.minY) / bounds.height) * 100,
+function toPercentPoint(raw: Point, bounds: { minX: number; minY: number; width: number; height: number }) {
+  return {
+    x: ((raw.x - bounds.minX) / bounds.width) * 100,
+    y: ((raw.y - bounds.minY) / bounds.height) * 100,
+  };
+}
+
+function pickCarPositions(track: Track | null | undefined, entries: DashboardEntry[], events: RaceEvent[]) {
+  const checkpointById = new Map((track?.checkpoints ?? []).map((checkpoint) => [checkpoint.id, checkpoint.position]));
+  const latestByCar = new Map<string, Point>();
+
+  events.forEach((event) => {
+    if (!event.carId || latestByCar.has(event.carId)) return;
+    const payloadPoint = event.payload && typeof event.payload.x === 'number' && typeof event.payload.y === 'number'
+      ? { x: Number(event.payload.x), y: Number(event.payload.y) }
+      : null;
+    if (payloadPoint) {
+      latestByCar.set(event.carId, payloadPoint);
+      return;
+    }
+    if (event.checkpointId && checkpointById.has(event.checkpointId)) {
+      latestByCar.set(event.carId, checkpointById.get(event.checkpointId)!);
+    }
   });
+
+  return entries.map((entry, index) => {
+    const fallbackCheckpoint = track?.checkpoints?.[index % Math.max(track?.checkpoints?.length || 1, 1)]?.position;
+    const fallbackLayout = track?.layoutPoints?.[index % Math.max(track?.layoutPoints?.length || 1, 1)];
+    const point = latestByCar.get(entry.carId)
+      ?? fallbackCheckpoint
+      ?? fallbackLayout
+      ?? { x: 10 + index * 10, y: 80 - index * 8 };
+    return { entry, point };
+  });
+}
+
+function TrackPreview({ track, entries, events }: { track?: Track | null; entries: DashboardEntry[]; events: RaceEvent[] }) {
+  const bounds = useTrackBounds(track);
+  const carMarkers = pickCarPositions(track, entries, events);
+  const scalePoint = (point: Point) => toPercentPoint(point, bounds);
 
   const polyline = track?.layoutPoints?.length
     ? track.layoutPoints.map((point) => {
@@ -123,13 +214,14 @@ function TrackPreview({ track, entries }: { track?: Track | null; entries: Dashb
     <div className={styles.trackCard}>
       <div className={styles.panelHeader}>
         <div>
-          <h2>Track & checkpoints</h2>
-          <p>Start/finish geometry, checkpoints, and live race entries for the selected race.</p>
+          <h2>Track & live camera overlay</h2>
+          <p>Track image, path geometry, checkpoints, and moving car annotations from live events.</p>
         </div>
         {track?.imageUrl ? <a href={track.imageUrl} target="_blank" rel="noreferrer">Track photo</a> : null}
       </div>
       <div className={styles.trackViewport}>
         <svg viewBox="0 0 100 100" className={styles.trackSvg} preserveAspectRatio="none">
+          {track?.imageUrl ? <image href={track.imageUrl} x="0" y="0" width="100" height="100" preserveAspectRatio="none" className={styles.trackImage} /> : null}
           {polygon ? <polygon points={polygon} className={styles.maskPolygon} /> : null}
           {polyline ? <polyline points={polyline} className={styles.layoutPolyline} /> : null}
           {track?.startGate ? (() => {
@@ -153,13 +245,12 @@ function TrackPreview({ track, entries }: { track?: Track | null; entries: Dashb
               </g>
             );
           })}
-          {entries.map((entry, index) => {
-            const checkpoint = track?.checkpoints?.[index % Math.max(track?.checkpoints?.length || 1, 1)];
-            const point = checkpoint ? scalePoint(checkpoint.position) : { x: 10 + index * 10, y: 80 - index * 8 };
+          {carMarkers.map(({ entry, point }) => {
+            const scaled = scalePoint(point);
             return (
               <g key={`${entry.carId}-${entry.racerId || 'na'}`}>
-                <circle cx={point.x} cy={point.y} r="3.2" fill={entry.paintColor || '#4ade80'} className={styles.entryDot} />
-                <text x={point.x} y={point.y + 8} textAnchor="middle" className={styles.entryLabel}>
+                <circle cx={scaled.x} cy={scaled.y} r="3.2" fill={entry.paintColor || '#4ade80'} className={styles.entryDot} />
+                <text x={scaled.x} y={scaled.y + 8} textAnchor="middle" className={styles.entryLabel}>
                   #{entry.carNumber || entry.carId}
                 </text>
               </g>
@@ -172,29 +263,213 @@ function TrackPreview({ track, entries }: { track?: Track | null; entries: Dashb
   );
 }
 
+function TrackSettings({ tracks, selectedTrackId, setSelectedTrackId, onSaved }: {
+  tracks: Track[];
+  selectedTrackId: string;
+  setSelectedTrackId: (id: string) => void;
+  onSaved: (track: Track) => void;
+}) {
+  const [tool, setTool] = useState<PlacementTool>('layout');
+  const [draft, setDraft] = useState<TrackDraft>(defaultDraft());
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  useEffect(() => {
+    const selected = tracks.find((track) => track.id === selectedTrackId);
+    setDraft(asTrackDraft(selected));
+  }, [selectedTrackId, tracks]);
+
+  const bounds = useTrackBounds(undefined, draft);
+  const scalePoint = (point: Point) => toPercentPoint(point, bounds);
+  const unscalePoint = (point: Point): Point => ({
+    x: bounds.minX + (point.x / 100) * bounds.width,
+    y: bounds.minY + (point.y / 100) * bounds.height,
+  });
+
+  const onCanvasClick = (event: MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clickPercent = {
+      x: ((event.clientX - rect.left) / rect.width) * 100,
+      y: ((event.clientY - rect.top) / rect.height) * 100,
+    };
+    const clickRaw = unscalePoint(clickPercent);
+
+    setDraft((current) => {
+      if (tool === 'layout') return { ...current, layoutPoints: [...current.layoutPoints, clickRaw] };
+      if (tool === 'mask') return { ...current, maskPolygon: [...current.maskPolygon, clickRaw] };
+      if (tool === 'checkpoint') {
+        const next = current.checkpoints.length + 1;
+        return {
+          ...current,
+          checkpoints: [
+            ...current.checkpoints,
+            {
+              id: `cp-${next}`,
+              name: `CP ${next}`,
+              type: 'checkpoint',
+              order: next,
+              position: clickRaw,
+            },
+          ],
+        };
+      }
+      if (tool === 'start_a') return { ...current, startGate: { ...(current.startGate ?? { a: clickRaw, b: clickRaw }), a: clickRaw } };
+      if (tool === 'start_b') return { ...current, startGate: { ...(current.startGate ?? { a: clickRaw, b: clickRaw }), b: clickRaw } };
+      if (tool === 'finish_a') return { ...current, finishGate: { ...(current.finishGate ?? { a: clickRaw, b: clickRaw }), a: clickRaw } };
+      if (tool === 'finish_b') return { ...current, finishGate: { ...(current.finishGate ?? { a: clickRaw, b: clickRaw }), b: clickRaw } };
+      return {
+        ...current,
+        calibration: {
+          ...current.calibration,
+          startPosition: clickRaw,
+        },
+      };
+    });
+  };
+
+  const saveTrack = async () => {
+    setSaveState('saving');
+    const payload = {
+      name: draft.name,
+      imageUrl: draft.imageUrl || null,
+      layoutPoints: draft.layoutPoints,
+      maskPolygon: draft.maskPolygon,
+      startGate: draft.startGate ?? null,
+      finishGate: draft.finishGate ?? null,
+      checkpoints: draft.checkpoints,
+      calibration: draft.calibration,
+    };
+
+    const targetId = draft.id || selectedTrackId;
+    const url = targetId ? `${apiBase}/api/tracks/${targetId}` : `${apiBase}/api/tracks`;
+    const method = targetId ? 'PUT' : 'POST';
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('save failed');
+      const saved = await response.json() as Track;
+      setSaveState('saved');
+      setSelectedTrackId(saved.id);
+      setDraft(asTrackDraft(saved));
+      onSaved(saved);
+    } catch {
+      setSaveState('error');
+    }
+  };
+
+  const layout = draft.layoutPoints.map((point) => {
+    const scaled = scalePoint(point);
+    return `${scaled.x},${scaled.y}`;
+  }).join(' ');
+
+  return (
+    <section className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <div>
+          <h2>Settings · Track setup wizard</h2>
+          <p>Load the camera image, click to trace the spline path, set start/finish gates, and set start direction.</p>
+        </div>
+      </div>
+
+      <div className={styles.settingsGrid}>
+        <div className={styles.formColumn}>
+          <label className={styles.selectorLabel}>Track
+            <select value={selectedTrackId} onChange={(event) => setSelectedTrackId(event.target.value)}>
+              <option value="">New track</option>
+              {tracks.map((track) => (
+                <option key={track.id} value={track.id}>{track.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.selectorLabel}>Name
+            <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+          </label>
+          <label className={styles.selectorLabel}>Camera image URL
+            <input value={draft.imageUrl} onChange={(event) => setDraft((current) => ({ ...current, imageUrl: event.target.value }))} placeholder="https://.../track-camera.jpg" />
+          </label>
+          <label className={styles.selectorLabel}>Direction
+            <select value={draft.calibration.direction || 'clockwise'} onChange={(event) => setDraft((current) => ({ ...current, calibration: { ...current.calibration, direction: event.target.value } }))}>
+              <option value="clockwise">Clockwise</option>
+              <option value="counter-clockwise">Counter-clockwise</option>
+            </select>
+          </label>
+
+          <div className={styles.toolRow}>
+            {(['layout', 'mask', 'checkpoint', 'start_a', 'start_b', 'finish_a', 'finish_b', 'start_position'] as PlacementTool[]).map((item) => (
+              <button key={item} type="button" className={tool === item ? styles.activeTool : styles.toolButton} onClick={() => setTool(item)}>{item.replace('_', ' ')}</button>
+            ))}
+          </div>
+
+          <div className={styles.toolRow}>
+            <button type="button" className={styles.toolButton} onClick={() => setDraft((current) => ({ ...current, layoutPoints: [] }))}>Clear path</button>
+            <button type="button" className={styles.toolButton} onClick={() => setDraft((current) => ({ ...current, checkpoints: [] }))}>Clear checkpoints</button>
+            <button type="button" className={styles.toolButton} onClick={() => setDraft((current) => ({ ...current, maskPolygon: [] }))}>Clear mask</button>
+          </div>
+
+          <button type="button" className={styles.saveButton} onClick={() => void saveTrack()}>
+            {saveState === 'saving' ? 'Saving…' : 'Save track setup'}
+          </button>
+        </div>
+
+        <div className={styles.setupViewport}>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" onClick={onCanvasClick} className={styles.trackSvg}>
+            {draft.imageUrl ? <image href={draft.imageUrl} x="0" y="0" width="100" height="100" preserveAspectRatio="none" className={styles.trackImage} /> : null}
+            {layout ? <polyline points={layout} className={styles.layoutPolyline} /> : null}
+            {draft.maskPolygon.length >= 3 ? (
+              <polygon points={draft.maskPolygon.map((point) => {
+                const scaled = scalePoint(point);
+                return `${scaled.x},${scaled.y}`;
+              }).join(' ')} className={styles.maskPolygon} />
+            ) : null}
+            {draft.startGate ? <line x1={scalePoint(draft.startGate.a).x} y1={scalePoint(draft.startGate.a).y} x2={scalePoint(draft.startGate.b).x} y2={scalePoint(draft.startGate.b).y} className={styles.startGate} /> : null}
+            {draft.finishGate ? <line x1={scalePoint(draft.finishGate.a).x} y1={scalePoint(draft.finishGate.a).y} x2={scalePoint(draft.finishGate.b).x} y2={scalePoint(draft.finishGate.b).y} className={styles.finishGate} /> : null}
+            {draft.checkpoints.map((checkpoint) => {
+              const point = scalePoint(checkpoint.position);
+              return <circle key={checkpoint.id} cx={point.x} cy={point.y} r="2.2" className={styles.checkpointDot} />;
+            })}
+            {draft.calibration.startPosition ? (
+              <circle cx={scalePoint(draft.calibration.startPosition).x} cy={scalePoint(draft.calibration.startPosition).y} r="3" className={styles.startPositionDot} />
+            ) : null}
+          </svg>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
+  const [tab, setTab] = useState<'dashboard' | 'settings'>('dashboard');
   const [races, setRaces] = useState<Race[]>([]);
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [selectedRaceId, setSelectedRaceId] = useState<string>('');
+  const [selectedTrackId, setSelectedTrackId] = useState<string>('');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
 
   useEffect(() => {
     let cancelled = false;
     async function loadRaces() {
-      const response = await fetch(`${apiBase}/api/races`);
-      if (!response.ok || cancelled) return;
-      const payload = await response.json() as Race[];
-      setRaces(payload);
-      if (!selectedRaceId && payload[0]?.id) {
-        setSelectedRaceId(payload[0].id);
-      }
+      const [raceResponse, trackResponse] = await Promise.all([
+        fetch(`${apiBase}/api/races`),
+        fetch(`${apiBase}/api/tracks`),
+      ]);
+      if (!raceResponse.ok || !trackResponse.ok || cancelled) return;
+      const racePayload = await raceResponse.json() as Race[];
+      const trackPayload = await trackResponse.json() as Track[];
+      setRaces(racePayload);
+      setTracks(trackPayload);
+      if (!selectedRaceId && racePayload[0]?.id) setSelectedRaceId(racePayload[0].id);
+      if (!selectedTrackId && trackPayload[0]?.id) setSelectedTrackId(trackPayload[0].id);
     }
 
     void loadRaces();
     return () => {
       cancelled = true;
     };
-  }, [selectedRaceId]);
+  }, [selectedRaceId, selectedTrackId]);
 
   useEffect(() => {
     if (!selectedRaceId) return;
@@ -204,6 +479,7 @@ export default function Home() {
       if (!response.ok || cancelled) return;
       const payload = await response.json() as Dashboard;
       setDashboard(payload);
+      if (payload.track?.id) setSelectedTrackId(payload.track.id);
     }
 
     void loadDashboard();
@@ -238,9 +514,7 @@ export default function Home() {
     };
 
     const keepAlive = window.setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send('ping');
-      }
+      if (socket.readyState === WebSocket.OPEN) socket.send('ping');
     }, 15000);
 
     return () => {
@@ -248,6 +522,20 @@ export default function Home() {
       socket.close();
     };
   }, [selectedRaceId]);
+
+  const refreshTracks = async (savedTrack?: Track) => {
+    if (savedTrack) {
+      setTracks((current) => {
+        const without = current.filter((item) => item.id !== savedTrack.id);
+        return [savedTrack, ...without];
+      });
+      return;
+    }
+    const response = await fetch(`${apiBase}/api/tracks`);
+    if (!response.ok) return;
+    const payload = await response.json() as Track[];
+    setTracks(payload);
+  };
 
   return (
     <div className={styles.container}>
@@ -284,25 +572,28 @@ export default function Home() {
               ))}
             </select>
           </label>
-          <div className={styles.toolbarText}>
-            Use the API to CRUD tracks/cars/racers/races, then watch lap + checkpoint events refresh this dashboard in real time.
+          <div className={styles.tabRow}>
+            <button type="button" className={tab === 'dashboard' ? styles.activeTool : styles.toolButton} onClick={() => setTab('dashboard')}>Dashboard</button>
+            <button type="button" className={tab === 'settings' ? styles.activeTool : styles.toolButton} onClick={() => setTab('settings')}>Settings</button>
           </div>
         </section>
 
-        {!dashboard ? (
+        {tab === 'settings' ? (
+          <TrackSettings tracks={tracks} selectedTrackId={selectedTrackId} setSelectedTrackId={setSelectedTrackId} onSaved={(track) => void refreshTracks(track)} />
+        ) : !dashboard ? (
           <section className={styles.emptyState}>
             <h2>No dashboard loaded</h2>
             <p>Create race records through the new CRUD API (`/api/tracks`, `/api/cars`, `/api/racers`, `/api/races`) and select a race to visualize it here.</p>
           </section>
         ) : (
           <div className={styles.grid}>
-            <TrackPreview track={dashboard.track} entries={dashboard.entries} />
+            <TrackPreview track={dashboard.track} entries={dashboard.entries} events={dashboard.recentEvents} />
 
             <section className={styles.panel}>
               <div className={styles.panelHeader}>
                 <div>
                   <h2>{dashboard.race.name}</h2>
-                  <p>{dashboard.race.status} · {dashboard.race.totalLaps} total laps</p>
+                  <p>{dashboard.race.status} · {dashboard.race.totalLaps} total laps (lap count pauses while race is paused)</p>
                 </div>
               </div>
               <div className={styles.entryList}>

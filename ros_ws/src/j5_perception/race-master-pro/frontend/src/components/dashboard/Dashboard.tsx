@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRaceContext } from '@/stores/raceStore'
 import Leaderboard from './Leaderboard'
 import TrackCanvas from '@/components/track/TrackCanvas'
-import type { Track } from '@/types'
+import type { Checkpoint, Track } from '@/types'
 import {
     TRACK_OVERLAY_EVENT,
     apiFetch,
+    clearLatestSnapshotUrl,
+    clearTrackPhotoUrl,
+    getLatestSnapshotUrl,
     getSelectedTrackId,
+    getTrackCheckpoints,
     getTrackPhotoUrl,
     parseTrackRecord,
 } from '@/lib/utils'
@@ -15,6 +19,7 @@ export default function Dashboard() {
     const { liveRace, showTrack } = useRaceContext()
     const [track, setTrack] = useState<Track | null>(null)
     const [trackPhotoUrl, setTrackPhotoUrl] = useState('')
+    const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
 
     useEffect(() => {
         let cancelled = false
@@ -29,7 +34,9 @@ export default function Dashboard() {
                 : []
             const nextTrack = tracks.find((item) => item.id === selectedTrackId) || tracks[0] || null
             setTrack(nextTrack)
-            setTrackPhotoUrl(nextTrack ? getTrackPhotoUrl(nextTrack.id) : '')
+            const mappedPhotoUrl = nextTrack ? getTrackPhotoUrl(nextTrack.id) : ''
+            setTrackPhotoUrl(mappedPhotoUrl || getLatestSnapshotUrl())
+            setCheckpoints(nextTrack ? getTrackCheckpoints(nextTrack.id) : [])
         }
 
         void loadTrack()
@@ -44,7 +51,6 @@ export default function Dashboard() {
         }
     }, [])
 
-    const checkpoints = useMemo(() => [], [])
 
     if (!liveRace) {
         return (
@@ -72,6 +78,11 @@ export default function Dashboard() {
                             <p className="text-xs text-[var(--color-text-secondary)]">
                                 Saved spline path is drawn over the captured track photo. Racer dots follow camera updates when available, and otherwise interpolate along the spline.
                             </p>
+                            {!trackPhotoUrl ? (
+                                <p className="text-xs text-amber-300">
+                                    No reachable snapshot URL yet. Start the preview server and capture a fresh image in Vision.
+                                </p>
+                            ) : null}
                         </div>
                         {track?.layout_points.length ? (
                             <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-300">
@@ -83,6 +94,13 @@ export default function Dashboard() {
                         racers={liveRace.racers}
                         layoutPoints={track?.layout_points || []}
                         checkpoints={checkpoints}
+                        onBackgroundImageError={() => {
+                            if (track?.id) {
+                                clearTrackPhotoUrl(track.id)
+                            }
+                            clearLatestSnapshotUrl()
+                            setTrackPhotoUrl('')
+                        }}
                         backgroundImageUrl={trackPhotoUrl || undefined}
                     />
                 </div>

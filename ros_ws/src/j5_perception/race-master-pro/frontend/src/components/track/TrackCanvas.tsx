@@ -2,12 +2,18 @@ import { useRef, useEffect, useCallback, useMemo, useState, type PointerEvent as
 import type { LiveRacer, TrackPoint, Checkpoint } from '@/types'
 import { stringToColor } from '@/lib/utils'
 
+type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'
+
 interface TrackCanvasProps {
     racers: LiveRacer[]
     layoutPoints: TrackPoint[]
     checkpoints: Checkpoint[]
     isEditMode?: boolean
+    editTool?: EditTool
     onTrackUpdate?: (points: TrackPoint[]) => void
+    onCheckpointUpdate?: (checkpoints: Checkpoint[]) => void
+    onMarkerPlaced?: (checkpoint: Checkpoint) => void
+    onBackgroundImageError?: (url: string) => void
     backgroundImageUrl?: string
 }
 
@@ -59,7 +65,11 @@ export default function TrackCanvas({
     layoutPoints,
     checkpoints,
     isEditMode = false,
+    editTool = 'spline',
     onTrackUpdate,
+    onCheckpointUpdate,
+    onMarkerPlaced,
+    onBackgroundImageError,
     backgroundImageUrl,
 }: TrackCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -72,16 +82,26 @@ export default function TrackCanvas({
             backgroundImageRef.current = null
             return
         }
-        const image = new Image()
-        image.crossOrigin = 'anonymous'
-        image.src = backgroundImageUrl
-        image.onload = () => {
-            backgroundImageRef.current = image
+        const loadImage = (useAnonymousCors: boolean) => {
+            const image = new Image()
+            if (useAnonymousCors) {
+                image.crossOrigin = 'anonymous'
+            }
+            image.src = backgroundImageUrl
+            image.onload = () => {
+                backgroundImageRef.current = image
+            }
+            image.onerror = () => {
+                if (useAnonymousCors) {
+                    loadImage(false)
+                    return
+                }
+                backgroundImageRef.current = null
+                onBackgroundImageError?.(backgroundImageUrl)
+            }
         }
-        image.onerror = () => {
-            backgroundImageRef.current = null
-        }
-    }, [backgroundImageUrl])
+        loadImage(true)
+    }, [backgroundImageUrl, onBackgroundImageError])
 
     const splinePoints = useMemo(() => sampleSpline(layoutPoints), [layoutPoints])
 
@@ -126,6 +146,20 @@ export default function TrackCanvas({
         })
         return bestDistance <= 18 ? bestIndex : -1
     }, [layoutPoints, pointToCanvas])
+
+    const snapToSplinePoint = useCallback((point: TrackPoint): TrackPoint => {
+        if (splinePoints.length === 0) return point
+        let nearest = splinePoints[0]!
+        let bestDistance = Number.POSITIVE_INFINITY
+        splinePoints.forEach((candidate) => {
+            const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                nearest = candidate
+            }
+        })
+        return nearest
+    }, [splinePoints])
 
     const draw = useCallback(() => {
         const canvas = canvasRef.current
@@ -233,9 +267,14 @@ export default function TrackCanvas({
             ctx.fillStyle = '#cbd5f5'
             ctx.font = '12px Inter'
             ctx.textAlign = 'center'
-            ctx.fillText('Click to add spline points. Drag blue handles to reshape the path.', canvas.width / 2, canvas.height - 10)
+            const hint = editTool === 'spline'
+                ? 'Click to add spline points. Drag blue handles to reshape the path.'
+                : editTool === 'checkpoint'
+                    ? 'Click to place checkpoints on the track.'
+                    : `Click to set the ${editTool.toUpperCase()} marker.`
+            ctx.fillText(hint, canvas.width / 2, canvas.height - 10)
         }
-    }, [checkpoints, dragIndex, isEditMode, layoutPoints, pointToCanvas, racers, splinePoints])
+    }, [checkpoints, dragIndex, editTool, isEditMode, layoutPoints, pointToCanvas, racers, splinePoints])
 
     useEffect(() => {
         let animId: number
@@ -248,7 +287,29 @@ export default function TrackCanvas({
     }, [draw])
 
     const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-        if (!isEditMode || !onTrackUpdate) return
+        if (!isEditMode) return
+
+        if (editTool !== 'spline') {
+            if (!onCheckpointUpdate) return
+            const point = canvasToPoint(event.clientX, event.clientY)
+            if (!point) return
+            const snappedPoint = snapToSplinePoint(point)
+            const nextType = editTool === 'start' ? 'start' : editTool === 'finish' ? 'finish' : 'checkpoint'
+            const checkpoint: Checkpoint = {
+                id: crypto.randomUUID(),
+                track_id: '',
+                name: nextType === 'checkpoint' ? `CP ${checkpoints.filter(item => item.type === 'checkpoint').length + 1}` : nextType.toUpperCase(),
+                type: nextType,
+                sort_order: checkpoints.length,
+                position: snappedPoint,
+            }
+            const withoutSingle = nextType === 'checkpoint' ? checkpoints : checkpoints.filter(item => item.type !== nextType)
+            onCheckpointUpdate([...withoutSingle, checkpoint])
+            onMarkerPlaced?.(checkpoint)
+            return
+        }
+
+        if (!onTrackUpdate) return
         const nearestIndex = findNearestIndex(event.clientX, event.clientY)
         if (nearestIndex >= 0) {
             setDragIndex(nearestIndex)
@@ -258,7 +319,7 @@ export default function TrackCanvas({
         if (!point) return
         onTrackUpdate([...layoutPoints, point])
         setDragIndex(layoutPoints.length)
-    }, [canvasToPoint, findNearestIndex, isEditMode, layoutPoints, onTrackUpdate])
+    }, [canvasToPoint, checkpoints, editTool, findNearestIndex, isEditMode, layoutPoints, onCheckpointUpdate, onMarkerPlaced, onTrackUpdate, snapToSplinePoint])
 
     const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
         if (!isEditMode || dragIndex == null || !onTrackUpdate) return

@@ -285,10 +285,22 @@ async def _check_http_endpoints(url: str, paths: list[str]):
             try:
                 response = await client.get(endpoint)
                 if response.status_code == 200:
+                    content_type = response.headers.get("content-type", "")
+                    lower_content_type = content_type.lower()
+                    if (
+                        lower_content_type.startswith("multipart/")
+                        or lower_content_type.startswith("image/")
+                        or "application/octet-stream" in lower_content_type
+                    ):
+                        summary = (
+                            f"HTTP {response.status_code} {content_type or 'binary'}"
+                        )
+                    else:
+                        summary = response.text.strip()
                     return {
                         "command": f"GET {endpoint}",
                         "ok": True,
-                        "stdout": response.text.strip(),
+                        "stdout": summary,
                         "stderr": "",
                     }
                 errors.append(f"{endpoint} -> HTTP {response.status_code}")

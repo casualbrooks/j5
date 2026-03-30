@@ -102,12 +102,12 @@ _SETUP_STEPS = [
         "id": "vision_preview",
         "title": "Camera preview stream",
         "description": "Preview and track-image capture endpoint from the Pi.",
-        "check_commands": ["GET {preview_url}/health or /stream.mjpg or /snapshot.jpg"],
-        "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
+        "check_commands": ["GET {preview_url}/ready or /snapshot.jpg"],
+        "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15",
         "stop_command": "pkill -f pi_preflight.py || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f pi_preflight.py"],
-        "help": "Start the preview service to restore the Computer Vision feed, then verify at least one of {preview_url}/health, /stream.mjpg, or /snapshot.jpg is reachable.",
+        "help": "Start the preview service to restore the Computer Vision feed, then verify {preview_url}/ready or {preview_url}/snapshot.jpg is reachable.",
     },
     {
         "id": "websocket_endpoint",
@@ -285,10 +285,22 @@ async def _check_http_endpoints(url: str, paths: list[str]):
             try:
                 response = await client.get(endpoint)
                 if response.status_code == 200:
+                    content_type = response.headers.get("content-type", "")
+                    lower_content_type = content_type.lower()
+                    if (
+                        lower_content_type.startswith("multipart/")
+                        or lower_content_type.startswith("image/")
+                        or "application/octet-stream" in lower_content_type
+                    ):
+                        summary = (
+                            f"HTTP {response.status_code} {content_type or 'binary'}"
+                        )
+                    else:
+                        summary = response.text.strip()
                     return {
                         "command": f"GET {endpoint}",
                         "ok": True,
-                        "stdout": response.text.strip(),
+                        "stdout": summary,
                         "stderr": "",
                     }
                 errors.append(f"{endpoint} -> HTTP {response.status_code}")
@@ -362,7 +374,7 @@ async def _build_setup_status():
         elif step["id"] == "vision_preview":
             checks = [
                 await _check_http_endpoints(
-                    config["preview_url"], ["/health", "/stream.mjpg", "/snapshot.jpg"]
+                    config["preview_url"], ["/ready", "/snapshot.jpg"]
                 )
             ]
             check_ok = all(item["ok"] for item in checks)

@@ -17,6 +17,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -251,10 +252,12 @@ def run_preview_server(
             self.wfile.write(payload)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path in ("/", "/index.html"):
+            request_path = urlsplit(self.path).path
+
+            if request_path in ("/", "/index.html"):
                 self._send_html()
                 return
-            if self.path == "/ready":
+            if request_path == "/ready":
                 with frame_lock:
                     latest_frame = stream_state["latest_frame"]
                     active_streams = stream_state["active_streams"]
@@ -319,7 +322,7 @@ def run_preview_server(
                 self.end_headers()
                 self.wfile.write(payload)
                 return
-            if self.path == "/snapshot.jpg":
+            if request_path == "/snapshot.jpg":
                 if not capture_file.exists():
                     self.send_error(HTTPStatus.NOT_FOUND, "Snapshot not found")
                     return
@@ -332,7 +335,7 @@ def run_preview_server(
                 self.end_headers()
                 self.wfile.write(payload)
                 return
-            if self.path == "/stream.mjpg":
+            if request_path == "/stream.mjpg":
                 with frame_lock:
                     if stream_state["active_streams"] > 0:
                         self.send_error(
@@ -402,7 +405,9 @@ def run_preview_server(
             self.end_headers()
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/capture":
+            request_path = urlsplit(self.path).path
+
+            if request_path != "/capture":
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
                 return
 

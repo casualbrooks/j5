@@ -182,6 +182,11 @@ async def ingest_lap(
     repository: RaceRepository = Depends(repo_provider),
 ) -> LapResponse:
     speed = calculate_speed_kph(payload.trackDistanceM, payload.lapTimeMs)
+    race = repository.get_entity("races", payload.raceId)
+    race_is_active = bool(race and race.get("status") == "active")
+    if not race_is_active:
+        payload.validity.minLapTimeOk = False
+
     try:
         inserted_id = repository.insert_lap(payload, speed)
         leaderboard = repository.leaderboard(payload.raceId)
@@ -199,6 +204,7 @@ async def ingest_lap(
                 "lapTimeMs": payload.lapTimeMs,
                 "speedKph": speed,
                 "isValid": payload.validity.is_valid,
+                "lapCounted": payload.validity.is_valid and race_is_active,
                 "source": payload.source,
                 "timestamp": payload.timestamp.isoformat(),
             },

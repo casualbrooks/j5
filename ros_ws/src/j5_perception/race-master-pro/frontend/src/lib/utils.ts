@@ -8,7 +8,6 @@ const LATEST_SNAPSHOT_KEY = 'race-master-pro.latestSnapshotUrl'
 export const TRACK_OVERLAY_EVENT = 'j5-track-overlay-updated'
 
 const TRACK_CHECKPOINTS_KEY_PREFIX = 'race-master-pro.trackCheckpoints.'
-const TRACK_DIRECTION_KEY_PREFIX = 'race-master-pro.trackDirection.'
 
 function sanitizeStoredUrl(url: string): string {
     const value = (url || '').trim()
@@ -226,20 +225,6 @@ export function getLatestSnapshotUrl(): string {
     return sanitizeStoredUrl(storage?.getItem(LATEST_SNAPSHOT_KEY) || '')
 }
 
-export function clearLatestSnapshotUrl(): void {
-    const storage = getStorage()
-    if (!storage) return
-    storage.removeItem(LATEST_SNAPSHOT_KEY)
-    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
-}
-
-export function clearTrackPhotoUrl(trackId: string): void {
-    const storage = getStorage()
-    if (!storage || !trackId) return
-    storage.removeItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`)
-    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
-}
-
 export function setTrackCheckpoints(trackId: string, checkpoints: Checkpoint[]): void {
     const storage = getStorage()
     if (!storage || !trackId) return
@@ -271,18 +256,4 @@ export function getTrackCheckpoints(trackId: string): Checkpoint[] {
     } catch {
         return []
     }
-}
-
-export function setTrackDirection(trackId: string, direction: 'clockwise' | 'counterclockwise'): void {
-    const storage = getStorage()
-    if (!storage || !trackId) return
-    storage.setItem(`${TRACK_DIRECTION_KEY_PREFIX}${trackId}`, direction)
-    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
-}
-
-export function getTrackDirection(trackId: string): 'clockwise' | 'counterclockwise' {
-    const storage = getStorage()
-    if (!storage || !trackId) return 'clockwise'
-    const raw = storage.getItem(`${TRACK_DIRECTION_KEY_PREFIX}${trackId}`)
-    return raw === 'counterclockwise' ? 'counterclockwise' : 'clockwise'
 }

@@ -103,7 +103,7 @@ _SETUP_STEPS = [
         "title": "Camera preview stream",
         "description": "Preview and track-image capture endpoint from the Pi.",
         "check_commands": ["GET {preview_url}/ready or /snapshot.jpg"],
-        "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15",
+        "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
         "stop_command": "pkill -f pi_preflight.py || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f pi_preflight.py"],

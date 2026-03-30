@@ -6,8 +6,6 @@ import type { Checkpoint, Track } from '@/types'
 import {
     TRACK_OVERLAY_EVENT,
     apiFetch,
-    clearLatestSnapshotUrl,
-    clearTrackPhotoUrl,
     getLatestSnapshotUrl,
     getSelectedTrackId,
     getTrackCheckpoints,
@@ -34,8 +32,7 @@ export default function Dashboard() {
                 : []
             const nextTrack = tracks.find((item) => item.id === selectedTrackId) || tracks[0] || null
             setTrack(nextTrack)
-            const mappedPhotoUrl = nextTrack ? getTrackPhotoUrl(nextTrack.id) : ''
-            setTrackPhotoUrl(mappedPhotoUrl || getLatestSnapshotUrl())
+            setTrackPhotoUrl(nextTrack ? getTrackPhotoUrl(nextTrack.id) : '')
             setCheckpoints(nextTrack ? getTrackCheckpoints(nextTrack.id) : [])
         }
 
@@ -94,13 +91,7 @@ export default function Dashboard() {
                         racers={liveRace.racers}
                         layoutPoints={track?.layout_points || []}
                         checkpoints={checkpoints}
-                        onBackgroundImageError={() => {
-                            if (track?.id) {
-                                clearTrackPhotoUrl(track.id)
-                            }
-                            clearLatestSnapshotUrl()
-                            setTrackPhotoUrl('')
-                        }}
+                        onBackgroundImageError={() => setTrackPhotoUrl('')}
                         backgroundImageUrl={trackPhotoUrl || undefined}
                     />
                 </div>

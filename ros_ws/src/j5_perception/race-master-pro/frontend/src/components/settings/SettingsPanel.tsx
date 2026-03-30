@@ -81,6 +81,7 @@ export default function SettingsPanel() {
     const [selectedTrackId, setSelectedTrackIdState] = useState('')
     const [trackName, setTrackName] = useState('Main Track')
     const [trackPhotoUrl, setTrackPhotoUrlState] = useState('')
+    const [, setTrackPhotoLoadState] = useState<'idle' | 'loaded' | 'error'>('idle')
     const [editorPoints, setEditorPoints] = useState<TrackPoint[]>([])
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
     const [editTool, setEditTool] = useState<'spline' | 'start' | 'finish' | 'checkpoint'>('spline')
@@ -500,13 +501,6 @@ export default function SettingsPanel() {
                                 <option value="counterclockwise">Counter-clockwise</option>
                             </select>
                         </label>
-
-                        <div className="flex flex-wrap gap-2">
-                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>
-                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'start' ? 'bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('start')}>Mark Start</button>
-                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'finish' ? 'bg-amber-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('finish')}>Mark Finish</button>
-                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'checkpoint' ? 'bg-violet-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('checkpoint')}>Add Checkpoint</button>
-                        </div>
 
                         <div className="flex flex-wrap gap-2">
                             <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>

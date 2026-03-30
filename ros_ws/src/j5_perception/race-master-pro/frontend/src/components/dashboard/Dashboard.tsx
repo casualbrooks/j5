@@ -75,6 +75,11 @@ export default function Dashboard() {
                             <p className="text-xs text-[var(--color-text-secondary)]">
                                 Saved spline path is drawn over the captured track photo. Racer dots follow camera updates when available, and otherwise interpolate along the spline.
                             </p>
+                            {!trackPhotoUrl ? (
+                                <p className="text-xs text-amber-300">
+                                    No reachable snapshot URL yet. Start the preview server and capture a fresh image in Vision.
+                                </p>
+                            ) : null}
                         </div>
                         {track?.layout_points.length ? (
                             <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-300">
@@ -86,6 +91,7 @@ export default function Dashboard() {
                         racers={liveRace.racers}
                         layoutPoints={track?.layout_points || []}
                         checkpoints={checkpoints}
+                        onBackgroundImageError={() => setTrackPhotoUrl('')}
                         backgroundImageUrl={trackPhotoUrl || undefined}
                     />
                 </div>

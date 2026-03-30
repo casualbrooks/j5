@@ -207,7 +207,8 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
 
             ws.onerror = () => {
-                ws.close()
+                // Let browser manage transition to onclose for failed handshakes.
+                // Calling close() here can produce noisy "closed before established" warnings in dev.
             }
         }
 
@@ -269,7 +270,9 @@ export function RaceProvider({ children }: { children: ReactNode }) {
         return () => {
             clearTimeout(reconnectTimer)
             clearInterval(pingInterval)
-            ws?.close()
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.close()
+            }
         }
     }, [refreshRaceState, updateRacerPosition])
 

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackCheckpoints, getTrackDirection, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackCheckpoints, setTrackDirection, setTrackPhotoUrl } from '@/lib/utils'
+import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackCheckpoints, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackCheckpoints, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 import TrackCanvas from '@/components/track/TrackCanvas'
 import type { Checkpoint, Track, TrackPoint } from '@/types'
@@ -84,9 +84,6 @@ export default function SettingsPanel() {
     const [editorPoints, setEditorPoints] = useState<TrackPoint[]>([])
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
     const [editTool, setEditTool] = useState<'spline' | 'start' | 'finish' | 'checkpoint'>('spline')
-    const [trackDirection, setTrackDirectionState] = useState<'clockwise' | 'counterclockwise'>('clockwise')
-    const [trackPhotoLoadState, setTrackPhotoLoadState] = useState<'idle' | 'loaded' | 'error'>('idle')
-    const [markerNotice, setMarkerNotice] = useState('')
 
     const selectedTrack = useMemo(
         () => tracks.find(track => track.id === selectedTrackId) || null,
@@ -101,7 +98,6 @@ export default function SettingsPanel() {
             setTrackPhotoLoadState('idle')
             setEditorPoints([])
             setCheckpoints([])
-            setTrackDirectionState('clockwise')
             return
         }
         setSelectedTrackIdState(track.id)
@@ -109,9 +105,7 @@ export default function SettingsPanel() {
         setTrackName(track.name)
         setEditorPoints(track.layout_points)
         setTrackPhotoUrlState(getTrackPhotoUrl(track.id) || getLatestSnapshotUrl())
-        setTrackPhotoLoadState('idle')
         setCheckpoints(getTrackCheckpoints(track.id))
-        setTrackDirectionState(getTrackDirection(track.id))
     }
 
     const loadTracks = async () => {
@@ -172,7 +166,6 @@ export default function SettingsPanel() {
             }
             setTrackPhotoUrlState(getTrackPhotoUrl(selectedId) || getLatestSnapshotUrl())
             setCheckpoints(getTrackCheckpoints(selectedId))
-            setTrackDirectionState(getTrackDirection(selectedId))
         }
         window.addEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
         return () => window.removeEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
@@ -285,7 +278,6 @@ export default function SettingsPanel() {
                 track_id: created.id,
                 sort_order: index,
             })))
-            setTrackDirection(created.id, trackDirection)
             setSelectedTrackId(created.id)
             await loadTracks()
         } catch (err) {
@@ -314,56 +306,11 @@ export default function SettingsPanel() {
             if (trackPhotoUrl) {
                 setTrackPhotoUrl(selectedTrackId, trackPhotoUrl)
             }
-            const start = checkpoints.find(item => item.type === 'start')
-            const finish = checkpoints.find(item => item.type === 'finish')
-            if (start && finish && pointDistance(start.position, finish.position) > 0.0001) {
-                setError('Start and finish must be the same spline point. Re-place one marker so both overlap.')
-                return
-            }
-            const defaultPoint = editorPoints[0]
-            const baseStart = start?.position || finish?.position || defaultPoint
-            const checkpointPoints = checkpoints.filter(item => item.type === 'checkpoint')
-            const normalized = checkpoints
-                .filter(item => item.type === 'checkpoint')
-                .concat(
-                    !start && baseStart ? [{
-                        id: crypto.randomUUID(),
-                        track_id: selectedTrackId,
-                        name: 'START',
-                        type: 'start' as const,
-                        sort_order: 0,
-                        position: baseStart,
-                    }] : [],
-                    !finish && baseStart ? [{
-                        id: crypto.randomUUID(),
-                        track_id: selectedTrackId,
-                        name: 'FINISH',
-                        type: 'finish' as const,
-                        sort_order: 0,
-                        position: baseStart,
-                    }] : [],
-                    checkpointPoints.length === 0 && baseStart ? [{
-                        id: crypto.randomUUID(),
-                        track_id: selectedTrackId,
-                        name: 'CP 1',
-                        type: 'checkpoint' as const,
-                        sort_order: 0,
-                        position: baseStart,
-                    }] : [],
-                )
-                .sort((a, b) => {
-                    const aIdx = findNearestSplineIndex(editorPoints, a.position)
-                    const bIdx = findNearestSplineIndex(editorPoints, b.position)
-                    if (trackDirection === 'clockwise') return aIdx - bIdx
-                    return bIdx - aIdx
-                })
-                .map((checkpoint, index) => ({
-                    ...checkpoint,
-                    track_id: selectedTrackId,
-                    sort_order: index,
-                }))
-            setTrackCheckpoints(selectedTrackId, normalized)
-            setTrackDirection(selectedTrackId, trackDirection)
+            setTrackCheckpoints(selectedTrackId, checkpoints.map((checkpoint, index) => ({
+                ...checkpoint,
+                track_id: selectedTrackId,
+                sort_order: index,
+            })))
             await loadTracks()
             setError('')
         } catch (err) {
@@ -546,13 +493,20 @@ export default function SettingsPanel() {
                             Lap direction
                             <select
                                 className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                                value={trackDirection}
-                                onChange={event => setTrackDirectionState(event.target.value as 'clockwise' | 'counterclockwise')}
+                                value={lapDirection}
+                                onChange={event => setLapDirection(event.target.value as 'clockwise' | 'counterclockwise')}
                             >
                                 <option value="clockwise">Clockwise (default)</option>
                                 <option value="counterclockwise">Counter-clockwise</option>
                             </select>
                         </label>
+
+                        <div className="flex flex-wrap gap-2">
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'start' ? 'bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('start')}>Mark Start</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'finish' ? 'bg-amber-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('finish')}>Mark Finish</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'checkpoint' ? 'bg-violet-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('checkpoint')}>Add Checkpoint</button>
+                        </div>
 
                         <div className="flex flex-wrap gap-2">
                             <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>
@@ -573,14 +527,7 @@ export default function SettingsPanel() {
                             <p>2. Click <strong>Use Latest Capture</strong>.</p>
                             <p>3. Choose <strong>Spline Tool</strong> and click around the lane centerline to place handles.</p>
                             <p>4. Switch tools to mark <strong>Start</strong>, <strong>Finish</strong>, and additional checkpoints.</p>
-                            <p>5. Start and finish must be the same point. If unset, both default to spline point 1.</p>
-                            <p>6. Save, then verify Dashboard dots and markers line up with the track image.</p>
-                            {markerNotice ? <p className="text-emerald-300">{markerNotice}</p> : null}
-                            {trackPhotoUrl ? (
-                                <p className={trackPhotoLoadState === 'error' ? 'text-rose-300' : 'text-emerald-300'}>
-                                    Image status: {trackPhotoLoadState === 'error' ? 'failed to load from URL' : trackPhotoLoadState === 'loaded' ? 'loaded' : 'waiting for load'}
-                                </p>
-                            ) : null}
+                            <p>5. Save, then verify Dashboard dots and markers line up with the track image.</p>
                         </div>
                     </div>
 
@@ -602,8 +549,6 @@ export default function SettingsPanel() {
                             editTool={editTool}
                             onTrackUpdate={setEditorPoints}
                             onCheckpointUpdate={setCheckpoints}
-                            onMarkerPlaced={onMarkerPlaced}
-                            onBackgroundImageError={() => setTrackPhotoLoadState('error')}
                             backgroundImageUrl={trackPhotoUrl || undefined}
                         />
                     </div>

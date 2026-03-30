@@ -332,6 +332,13 @@ def run_preview_server(
                 self.wfile.write(payload)
                 return
             if self.path == "/stream.mjpg":
+                with frame_lock:
+                    if stream_state["active_streams"] > 0:
+                        self.send_error(
+                            HTTPStatus.CONFLICT,
+                            "Stream already active in another client. Close other preview tabs and retry.",
+                        )
+                        return
                 self.send_response(HTTPStatus.OK)
                 self._set_cors_headers()
                 self.send_header(
@@ -371,7 +378,7 @@ def run_preview_server(
                         )
                         self.wfile.write(data)
                         self.wfile.write(b"\r\n")
-                        time.sleep(0.05)
+                        time.sleep(0.1)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
                 finally:

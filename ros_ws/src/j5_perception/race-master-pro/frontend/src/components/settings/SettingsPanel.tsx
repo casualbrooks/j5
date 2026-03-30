@@ -77,6 +77,7 @@ export default function SettingsPanel() {
             setSelectedTrackIdState('')
             setTrackName('Main Track')
             setTrackPhotoUrlState(getLatestSnapshotUrl())
+            setTrackPhotoLoadState('idle')
             setEditorPoints([])
             setCheckpoints([])
             return
@@ -304,6 +305,7 @@ export default function SettingsPanel() {
         const previewBase = normalizeBaseUrl(config.preview_url)
         const fallback = previewBase ? `${previewBase}/snapshot.jpg?t=${Date.now()}` : ''
         setTrackPhotoUrlState(latest || fallback)
+        setTrackPhotoLoadState('idle')
     }
 
     const undoSplinePoint = () => {
@@ -449,7 +451,10 @@ export default function SettingsPanel() {
                             <input
                                 className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
                                 value={trackPhotoUrl}
-                                onChange={event => setTrackPhotoUrlState(event.target.value)}
+                                onChange={event => {
+                                    setTrackPhotoUrlState(event.target.value)
+                                    setTrackPhotoLoadState('idle')
+                                }}
                                 placeholder="http://pi-ip:8091/snapshot.jpg"
                             />
                         </label>
@@ -484,6 +489,15 @@ export default function SettingsPanel() {
                     </div>
 
                     <div className="rounded border border-slate-700 bg-slate-950/40 p-3">
+                        {trackPhotoUrl ? (
+                            <img
+                                src={trackPhotoUrl}
+                                alt="Track snapshot preview"
+                                className="mb-3 max-h-52 w-full rounded border border-slate-700 object-contain bg-black/30"
+                                onLoad={() => setTrackPhotoLoadState('loaded')}
+                                onError={() => setTrackPhotoLoadState('error')}
+                            />
+                        ) : null}
                         <TrackCanvas
                             racers={[]}
                             layoutPoints={editorPoints}

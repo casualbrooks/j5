@@ -102,12 +102,12 @@ _SETUP_STEPS = [
         "id": "vision_preview",
         "title": "Camera preview stream",
         "description": "Preview and track-image capture endpoint from the Pi.",
-        "check_commands": ["GET {preview_url}/health or /stream.mjpg or /snapshot.jpg"],
+        "check_commands": ["GET {preview_url}/ready or /snapshot.jpg"],
         "connect_command": "python scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091",
         "stop_command": "pkill -f pi_preflight.py || true",
         "manual_connect": True,
         "stop_commands": ["pkill -f pi_preflight.py"],
-        "help": "Start the preview service to restore the Computer Vision feed, then verify at least one of {preview_url}/health, /stream.mjpg, or /snapshot.jpg is reachable.",
+        "help": "Start the preview service to restore the Computer Vision feed, then verify {preview_url}/ready or {preview_url}/snapshot.jpg is reachable.",
     },
     {
         "id": "websocket_endpoint",
@@ -374,7 +374,7 @@ async def _build_setup_status():
         elif step["id"] == "vision_preview":
             checks = [
                 await _check_http_endpoints(
-                    config["preview_url"], ["/health", "/stream.mjpg", "/snapshot.jpg"]
+                    config["preview_url"], ["/ready", "/snapshot.jpg"]
                 )
             ]
             check_ok = all(item["ok"] for item in checks)

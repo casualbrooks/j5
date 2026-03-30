@@ -32,8 +32,7 @@ export default function Dashboard() {
                 : []
             const nextTrack = tracks.find((item) => item.id === selectedTrackId) || tracks[0] || null
             setTrack(nextTrack)
-            const mappedPhotoUrl = nextTrack ? getTrackPhotoUrl(nextTrack.id) : ''
-            setTrackPhotoUrl(mappedPhotoUrl || getLatestSnapshotUrl())
+            setTrackPhotoUrl(nextTrack ? getTrackPhotoUrl(nextTrack.id) : '')
             setCheckpoints(nextTrack ? getTrackCheckpoints(nextTrack.id) : [])
         }
 

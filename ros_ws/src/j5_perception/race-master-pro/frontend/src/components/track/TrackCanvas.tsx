@@ -4,8 +4,6 @@ import { generateId, stringToColor } from '@/lib/utils'
 
 type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'
 
-type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'
-
 interface TrackCanvasProps {
     racers: LiveRacer[]
     layoutPoints: TrackPoint[]
@@ -292,12 +290,12 @@ export default function TrackCanvas({
             if (!point) return
             const nextType = editTool === 'start' ? 'start' : editTool === 'finish' ? 'finish' : 'checkpoint'
             const checkpoint: Checkpoint = {
-                id: crypto.randomUUID(),
+                id: generateId('checkpoint'),
                 track_id: '',
                 name: nextType === 'checkpoint' ? `CP ${checkpoints.filter(item => item.type === 'checkpoint').length + 1}` : nextType.toUpperCase(),
                 type: nextType,
                 sort_order: checkpoints.length,
-                position: point,
+                position: snapToSplinePoint(point),
             }
             const withoutSingle = nextType === 'checkpoint' ? checkpoints : checkpoints.filter(item => item.type !== nextType)
             onCheckpointUpdate([...withoutSingle, checkpoint])
@@ -314,7 +312,7 @@ export default function TrackCanvas({
         if (!point) return
         onTrackUpdate([...layoutPoints, point])
         setDragIndex(layoutPoints.length)
-    }, [canvasToPoint, checkpoints, editTool, findNearestIndex, isEditMode, layoutPoints, onCheckpointUpdate, onTrackUpdate])
+    }, [canvasToPoint, checkpoints, editTool, findNearestIndex, isEditMode, layoutPoints, onCheckpointUpdate, onTrackUpdate, snapToSplinePoint])
 
     const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
         if (!isEditMode || dragIndex == null || !onTrackUpdate) return

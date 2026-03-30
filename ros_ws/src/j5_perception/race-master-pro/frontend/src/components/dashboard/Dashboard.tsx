@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRaceContext } from '@/stores/raceStore'
 import Leaderboard from './Leaderboard'
 import TrackCanvas from '@/components/track/TrackCanvas'
-import type { Track } from '@/types'
+import type { Checkpoint, Track } from '@/types'
 import {
     TRACK_OVERLAY_EVENT,
     apiFetch,
     getSelectedTrackId,
+    getTrackCheckpoints,
     getTrackPhotoUrl,
     parseTrackRecord,
 } from '@/lib/utils'
@@ -15,6 +16,7 @@ export default function Dashboard() {
     const { liveRace, showTrack } = useRaceContext()
     const [track, setTrack] = useState<Track | null>(null)
     const [trackPhotoUrl, setTrackPhotoUrl] = useState('')
+    const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
 
     useEffect(() => {
         let cancelled = false
@@ -30,6 +32,7 @@ export default function Dashboard() {
             const nextTrack = tracks.find((item) => item.id === selectedTrackId) || tracks[0] || null
             setTrack(nextTrack)
             setTrackPhotoUrl(nextTrack ? getTrackPhotoUrl(nextTrack.id) : '')
+            setCheckpoints(nextTrack ? getTrackCheckpoints(nextTrack.id) : [])
         }
 
         void loadTrack()
@@ -44,7 +47,6 @@ export default function Dashboard() {
         }
     }, [])
 
-    const checkpoints = useMemo(() => [], [])
 
     if (!liveRace) {
         return (

@@ -1,6 +1,8 @@
 import { useRef, useEffect, useCallback, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { LiveRacer, TrackPoint, Checkpoint } from '@/types'
-import { stringToColor } from '@/lib/utils'
+import { generateId, stringToColor } from '@/lib/utils'
+
+type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'
 
 type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'
 

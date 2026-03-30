@@ -142,6 +142,20 @@ export default function TrackCanvas({
         return bestDistance <= 18 ? bestIndex : -1
     }, [layoutPoints, pointToCanvas])
 
+    const snapToSplinePoint = useCallback((point: TrackPoint): TrackPoint => {
+        if (splinePoints.length === 0) return point
+        let nearest = splinePoints[0]!
+        let bestDistance = Number.POSITIVE_INFINITY
+        splinePoints.forEach((candidate) => {
+            const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                nearest = candidate
+            }
+        })
+        return nearest
+    }, [splinePoints])
+
     const draw = useCallback(() => {
         const canvas = canvasRef.current
         const container = containerRef.current

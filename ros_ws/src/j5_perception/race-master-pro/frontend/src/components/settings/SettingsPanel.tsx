@@ -53,6 +53,24 @@ function normalizeBaseUrl(value: string): string {
     }
 }
 
+function pointDistance(a: TrackPoint, b: TrackPoint): number {
+    return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+function findNearestSplineIndex(points: TrackPoint[], target: TrackPoint): number {
+    if (points.length === 0) return -1
+    let bestIndex = 0
+    let bestDistance = Number.POSITIVE_INFINITY
+    points.forEach((point, index) => {
+        const distance = pointDistance(point, target)
+        if (distance < bestDistance) {
+            bestDistance = distance
+            bestIndex = index
+        }
+    })
+    return bestIndex
+}
+
 export default function SettingsPanel() {
     const { refreshRaceState } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
@@ -312,6 +330,12 @@ export default function SettingsPanel() {
         setEditorPoints(prev => prev.slice(0, -1))
     }
 
+    const onMarkerPlaced = (checkpoint: Checkpoint) => {
+        const nearestIndex = findNearestSplineIndex(editorPoints, checkpoint.position)
+        const splineText = nearestIndex >= 0 ? ` snapped to spline point #${nearestIndex + 1}` : ''
+        setMarkerNotice(`${checkpoint.type.toUpperCase()} marker placed${splineText}.`)
+    }
+
     return (
         <div className="fade-in space-y-4">
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Settings · Race Setup Wizard</h2>
@@ -463,6 +487,25 @@ export default function SettingsPanel() {
                             <button className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500" type="button" onClick={useLatestCapture}>Use Latest Capture</button>
                             <button className="rounded bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500" type="button" onClick={saveTrackSpline}>Save Spline</button>
                             <button className="rounded bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500" type="button" onClick={createTrack}>New Track</button>
+                        </div>
+
+                        <label className="block text-sm text-[var(--color-text-secondary)]">
+                            Lap direction
+                            <select
+                                className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                                value={lapDirection}
+                                onChange={event => setLapDirection(event.target.value as 'clockwise' | 'counterclockwise')}
+                            >
+                                <option value="clockwise">Clockwise (default)</option>
+                                <option value="counterclockwise">Counter-clockwise</option>
+                            </select>
+                        </label>
+
+                        <div className="flex flex-wrap gap-2">
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'start' ? 'bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('start')}>Mark Start</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'finish' ? 'bg-amber-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('finish')}>Mark Finish</button>
+                            <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'checkpoint' ? 'bg-violet-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('checkpoint')}>Add Checkpoint</button>
                         </div>
 
                         <div className="flex flex-wrap gap-2">

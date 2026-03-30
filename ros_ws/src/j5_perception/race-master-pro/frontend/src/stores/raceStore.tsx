@@ -220,10 +220,29 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                     break
                 case 'positionUpdate':
                     if (msg.data.racer_profile_id && msg.data) {
+                        const x = Number(msg.data.position_x)
+                        const y = Number(msg.data.position_y)
                         updateRacerPosition(
                             msg.data.racer_profile_id as string,
-                            msg.data as Partial<LiveRacer>,
+                            {
+                                ...(msg.data as Partial<LiveRacer>),
+                                track_position: Number.isFinite(x) && Number.isFinite(y)
+                                    ? { x, y }
+                                    : (msg.data as Partial<LiveRacer>).track_position ?? null,
+                            },
                         )
+                    }
+                    break
+                case 'visionDetection':
+                    if (msg.data.racer_profile_id) {
+                        const x = Number(msg.data.position_x)
+                        const y = Number(msg.data.position_y)
+                        if (Number.isFinite(x) && Number.isFinite(y)) {
+                            updateRacerPosition(
+                                String(msg.data.racer_profile_id),
+                                { track_position: { x, y } },
+                            )
+                        }
                     }
                     break
                 case 'raceStart':

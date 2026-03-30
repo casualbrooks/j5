@@ -6,6 +6,7 @@ import type { Checkpoint, Track } from '@/types'
 import {
     TRACK_OVERLAY_EVENT,
     apiFetch,
+    getLatestSnapshotUrl,
     getSelectedTrackId,
     getTrackCheckpoints,
     getTrackPhotoUrl,

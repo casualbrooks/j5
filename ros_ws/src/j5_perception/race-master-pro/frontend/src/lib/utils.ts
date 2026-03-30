@@ -1,11 +1,29 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { Track, TrackPoint } from '@/types'
+import type { Checkpoint, Track, TrackPoint } from '@/types'
 
 const TRACK_SELECTION_KEY = 'race-master-pro.selectedTrackId'
 const TRACK_PHOTO_KEY_PREFIX = 'race-master-pro.trackPhoto.'
 const LATEST_SNAPSHOT_KEY = 'race-master-pro.latestSnapshotUrl'
 export const TRACK_OVERLAY_EVENT = 'j5-track-overlay-updated'
+
+const TRACK_CHECKPOINTS_KEY_PREFIX = 'race-master-pro.trackCheckpoints.'
+const TRACK_DIRECTION_KEY_PREFIX = 'race-master-pro.trackDirection.'
+
+function sanitizeStoredUrl(url: string): string {
+    const value = (url || '').trim()
+    if (!value || value.startsWith('blob:')) return ''
+    if (value.endsWith('/stream.mjpg')) return `${value.replace(/\/stream\.mjpg$/, '')}/snapshot.jpg`
+    try {
+        const parsed = new URL(value)
+        if (parsed.pathname === '/' || parsed.pathname === '') {
+            return `${parsed.origin}/snapshot.jpg`
+        }
+    } catch {
+        // keep raw value when URL parsing fails
+    }
+    return value
+}
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs))
@@ -75,7 +93,10 @@ export function stringToColor(str: string): string {
  * Generate a UUID v4.
  */
 export function generateId(): string {
-    return crypto.randomUUID()
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID()
+    }
+    return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function configuredApiBaseUrl(): string | null {
@@ -181,25 +202,90 @@ export function getSelectedTrackId(): string {
 export function setTrackPhotoUrl(trackId: string, url: string): void {
     const storage = getStorage()
     if (!storage || !trackId) return
-    storage.setItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`, url)
-    storage.setItem(LATEST_SNAPSHOT_KEY, url)
+    const cleanUrl = sanitizeStoredUrl(url)
+    if (!cleanUrl) return
+    storage.setItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`, cleanUrl)
+    storage.setItem(LATEST_SNAPSHOT_KEY, cleanUrl)
     window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
 }
 
 export function getTrackPhotoUrl(trackId: string): string {
     const storage = getStorage()
     if (!storage || !trackId) return ''
-    return storage.getItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`) || ''
+    return sanitizeStoredUrl(storage.getItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`) || '')
 }
 
 export function setLatestSnapshotUrl(url: string): void {
     const storage = getStorage()
     if (!storage) return
-    storage.setItem(LATEST_SNAPSHOT_KEY, url)
+    const cleanUrl = sanitizeStoredUrl(url)
+    if (!cleanUrl) return
+    storage.setItem(LATEST_SNAPSHOT_KEY, cleanUrl)
     window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
 }
 
 export function getLatestSnapshotUrl(): string {
     const storage = getStorage()
-    return storage?.getItem(LATEST_SNAPSHOT_KEY) || ''
+    return sanitizeStoredUrl(storage?.getItem(LATEST_SNAPSHOT_KEY) || '')
+}
+
+export function clearLatestSnapshotUrl(): void {
+    const storage = getStorage()
+    if (!storage) return
+    storage.removeItem(LATEST_SNAPSHOT_KEY)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function clearTrackPhotoUrl(trackId: string): void {
+    const storage = getStorage()
+    if (!storage || !trackId) return
+    storage.removeItem(`${TRACK_PHOTO_KEY_PREFIX}${trackId}`)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function setTrackCheckpoints(trackId: string, checkpoints: Checkpoint[]): void {
+    const storage = getStorage()
+    if (!storage || !trackId) return
+    storage.setItem(`${TRACK_CHECKPOINTS_KEY_PREFIX}${trackId}`, JSON.stringify(checkpoints))
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function getTrackCheckpoints(trackId: string): Checkpoint[] {
+    const storage = getStorage()
+    if (!storage || !trackId) return []
+    const raw = storage.getItem(`${TRACK_CHECKPOINTS_KEY_PREFIX}${trackId}`)
+    if (!raw) return []
+    try {
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+        return parsed
+            .filter(item => item && typeof item === 'object')
+            .map(item => ({
+                id: String((item as Checkpoint).id || generateId()),
+                track_id: String((item as Checkpoint).track_id || trackId),
+                name: String((item as Checkpoint).name || 'Checkpoint'),
+                type: ((item as Checkpoint).type || 'checkpoint') as Checkpoint['type'],
+                position: {
+                    x: Number((item as Checkpoint).position?.x || 0),
+                    y: Number((item as Checkpoint).position?.y || 0),
+                },
+                sort_order: Number((item as Checkpoint).sort_order || 0),
+            }))
+    } catch {
+        return []
+    }
+}
+
+export function setTrackDirection(trackId: string, direction: 'clockwise' | 'counterclockwise'): void {
+    const storage = getStorage()
+    if (!storage || !trackId) return
+    storage.setItem(`${TRACK_DIRECTION_KEY_PREFIX}${trackId}`, direction)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
+}
+
+export function getTrackDirection(trackId: string): 'clockwise' | 'counterclockwise' {
+    const storage = getStorage()
+    if (!storage || !trackId) return 'clockwise'
+    const raw = storage.getItem(`${TRACK_DIRECTION_KEY_PREFIX}${trackId}`)
+    return raw === 'counterclockwise' ? 'counterclockwise' : 'clockwise'
 }

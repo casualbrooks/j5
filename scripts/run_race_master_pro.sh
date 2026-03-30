@@ -6,6 +6,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 APP_ROOT="$REPO_ROOT/ros_ws/src/j5_perception/race-master-pro"
 BACKEND_ROOT="$APP_ROOT/backend"
 FRONTEND_ROOT="$APP_ROOT/frontend"
+TRACK_CANVAS_FILE="$FRONTEND_ROOT/src/components/track/TrackCanvas.tsx"
 
 MODE="standalone"
 HOST="0.0.0.0"
@@ -187,6 +188,30 @@ if [[ ! -d "$VENV_DIR" ]]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
+if [[ -f "$TRACK_CANVAS_FILE" ]]; then
+  edit_tool_decl_count="$(grep -c "^type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'$" "$TRACK_CANVAS_FILE" || true)"
+  if [[ "${edit_tool_decl_count:-0}" -gt 1 ]]; then
+    echo "Detected duplicate EditTool declarations in $TRACK_CANVAS_FILE; auto-repairing stale file copy."
+    "$PYTHON_BIN" - "$TRACK_CANVAS_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+needle = "type EditTool = 'spline' | 'start' | 'finish' | 'checkpoint'"
+seen = False
+out: list[str] = []
+for line in lines:
+    if line.strip() == needle:
+        if seen:
+            continue
+        seen = True
+    out.append(line)
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+  fi
+fi
+
 "$VENV_PYTHON" -m pip install -r "$BACKEND_ROOT/requirements.txt" >/dev/null
 
 export VITE_API_BASE_URL="http://$PI_IP:$API_PORT"
@@ -203,7 +228,8 @@ API_PID=$!
   if [[ ! -d node_modules ]]; then
     npm install >/dev/null
   fi
-  npm run dev -- --host "$HOST" --port "$UI_PORT"
+  rm -rf "$FRONTEND_ROOT/node_modules/.vite" 2>/dev/null || true
+  npm run dev -- --host "$HOST" --port "$UI_PORT" --force
 ) &
 UI_PID=$!
 

@@ -53,6 +53,12 @@ function normalizeBaseUrl(value: string): string {
     }
 }
 
+function withCacheBust(url: string): string {
+    if (!url) return ''
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}t=${Date.now()}`
+}
+
 function pointDistance(a: TrackPoint, b: TrackPoint): number {
     return Math.hypot(a.x - b.x, a.y - b.y)
 }
@@ -344,9 +350,16 @@ export default function SettingsPanel() {
     const useLatestCapture = () => {
         const latest = getLatestSnapshotUrl()
         const previewBase = normalizeBaseUrl(config.preview_url)
-        const fallback = previewBase ? `${previewBase}/snapshot.jpg?t=${Date.now()}` : ''
-        setTrackPhotoUrlState(latest || fallback)
+        const fallback = previewBase ? `${previewBase}/snapshot.jpg` : ''
+        const nextUrl = latest || fallback
+        if (!nextUrl) {
+            setError('No snapshot is available yet. Capture one in the Computer Vision tab first.')
+            return
+        }
+        setTrackPhotoUrlState(withCacheBust(nextUrl))
         setTrackPhotoLoadState('idle')
+        setMarkerNotice('Loaded latest capture into the track mapper preview.')
+        setError('')
     }
 
     const undoSplinePoint = () => {

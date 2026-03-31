@@ -82,25 +82,16 @@ export default function TrackCanvas({
             backgroundImageRef.current = null
             return
         }
-        const loadImage = (useAnonymousCors: boolean) => {
-            const image = new Image()
-            if (useAnonymousCors) {
-                image.crossOrigin = 'anonymous'
-            }
-            image.src = backgroundImageUrl
-            image.onload = () => {
-                backgroundImageRef.current = image
-            }
-            image.onerror = () => {
-                if (useAnonymousCors) {
-                    loadImage(false)
-                    return
-                }
-                backgroundImageRef.current = null
-                onBackgroundImageError?.()
-            }
+        const image = new Image()
+        image.crossOrigin = 'anonymous'
+        image.src = backgroundImageUrl
+        image.onload = () => {
+            backgroundImageRef.current = image
         }
-        loadImage(true)
+        image.onerror = () => {
+            backgroundImageRef.current = null
+            onBackgroundImageError?.()
+        }
     }, [backgroundImageUrl, onBackgroundImageError])
 
     const splinePoints = useMemo(() => sampleSpline(layoutPoints), [layoutPoints])

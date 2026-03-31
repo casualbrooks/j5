@@ -5,6 +5,8 @@ import type { Checkpoint, Track, TrackPoint } from '@/types'
 const TRACK_SELECTION_KEY = 'race-master-pro.selectedTrackId'
 const TRACK_PHOTO_KEY_PREFIX = 'race-master-pro.trackPhoto.'
 const LATEST_SNAPSHOT_KEY = 'race-master-pro.latestSnapshotUrl'
+const TRACK_RACER_ASSIGNMENTS_KEY_PREFIX = 'race-master-pro.trackRacerAssignments.'
+const TRACKING_BACKEND_KEY = 'race-master-pro.trackingBackend'
 export const TRACK_OVERLAY_EVENT = 'j5-track-overlay-updated'
 
 const TRACK_CHECKPOINTS_KEY_PREFIX = 'race-master-pro.trackCheckpoints.'
@@ -258,5 +260,45 @@ export function getTrackCheckpoints(trackId: string): Checkpoint[] {
             }))
     } catch {
         return []
+    }
+}
+
+export type TrackingBackend = 'yolo' | 'isaac' | 'manual'
+
+export function setTrackingBackend(backend: TrackingBackend): void {
+    const storage = getStorage()
+    if (!storage) return
+    storage.setItem(TRACKING_BACKEND_KEY, backend)
+}
+
+export function getTrackingBackend(): TrackingBackend {
+    const storage = getStorage()
+    const value = storage?.getItem(TRACKING_BACKEND_KEY)
+    if (value === 'isaac' || value === 'manual' || value === 'yolo') return value
+    return 'yolo'
+}
+
+export function setTrackRacerAssignments(trackId: string, assignments: Record<string, string>): void {
+    const storage = getStorage()
+    if (!storage || !trackId) return
+    storage.setItem(`${TRACK_RACER_ASSIGNMENTS_KEY_PREFIX}${trackId}`, JSON.stringify(assignments))
+}
+
+export function getTrackRacerAssignments(trackId: string): Record<string, string> {
+    const storage = getStorage()
+    if (!storage || !trackId) return {}
+    const raw = storage.getItem(`${TRACK_RACER_ASSIGNMENTS_KEY_PREFIX}${trackId}`)
+    if (!raw) return {}
+    try {
+        const parsed = JSON.parse(raw)
+        if (!parsed || typeof parsed !== 'object') return {}
+        return Object.entries(parsed).reduce<Record<string, string>>((acc, [racerId, objectId]) => {
+            if (typeof objectId !== 'string') return acc
+            const clean = objectId.trim()
+            if (clean) acc[racerId] = clean
+            return acc
+        }, {})
+    } catch {
+        return {}
     }
 }

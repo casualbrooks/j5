@@ -12,6 +12,8 @@ interface TrackCanvasProps {
     editTool?: EditTool
     onTrackUpdate?: (points: TrackPoint[]) => void
     onCheckpointUpdate?: (checkpoints: Checkpoint[]) => void
+    onMarkerPlaced?: (checkpoint: Checkpoint) => void
+    onBackgroundImageError?: () => void
     backgroundImageUrl?: string
 }
 
@@ -66,6 +68,8 @@ export default function TrackCanvas({
     editTool = 'spline',
     onTrackUpdate,
     onCheckpointUpdate,
+    onMarkerPlaced,
+    onBackgroundImageError,
     backgroundImageUrl,
 }: TrackCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -93,10 +97,11 @@ export default function TrackCanvas({
                     return
                 }
                 backgroundImageRef.current = null
+                onBackgroundImageError?.()
             }
         }
         loadImage(true)
-    }, [backgroundImageUrl])
+    }, [backgroundImageUrl, onBackgroundImageError])
 
     const splinePoints = useMemo(() => sampleSpline(layoutPoints), [layoutPoints])
 
@@ -290,7 +295,7 @@ export default function TrackCanvas({
             if (!point) return
             const nextType = editTool === 'start' ? 'start' : editTool === 'finish' ? 'finish' : 'checkpoint'
             const checkpoint: Checkpoint = {
-                id: generateId('checkpoint'),
+                id: generateId(),
                 track_id: '',
                 name: nextType === 'checkpoint' ? `CP ${checkpoints.filter(item => item.type === 'checkpoint').length + 1}` : nextType.toUpperCase(),
                 type: nextType,
@@ -299,6 +304,7 @@ export default function TrackCanvas({
             }
             const withoutSingle = nextType === 'checkpoint' ? checkpoints : checkpoints.filter(item => item.type !== nextType)
             onCheckpointUpdate([...withoutSingle, checkpoint])
+            onMarkerPlaced?.(checkpoint)
             return
         }
 
@@ -312,7 +318,7 @@ export default function TrackCanvas({
         if (!point) return
         onTrackUpdate([...layoutPoints, point])
         setDragIndex(layoutPoints.length)
-    }, [canvasToPoint, checkpoints, editTool, findNearestIndex, isEditMode, layoutPoints, onCheckpointUpdate, onTrackUpdate, snapToSplinePoint])
+    }, [canvasToPoint, checkpoints, editTool, findNearestIndex, isEditMode, layoutPoints, onCheckpointUpdate, onMarkerPlaced, onTrackUpdate, snapToSplinePoint])
 
     const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
         if (!isEditMode || dragIndex == null || !onTrackUpdate) return

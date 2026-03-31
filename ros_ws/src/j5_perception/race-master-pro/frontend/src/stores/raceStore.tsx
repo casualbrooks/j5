@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import type { LiveRaceState, LiveRacer } from '@/types'
-import { apiFetch, backendWsUrl, stringToColor } from '@/lib/utils'
+import type { Checkpoint, LiveRaceState, LiveRacer, TrackPoint } from '@/types'
+import { apiFetch, backendWsUrl, getSelectedTrackId, getTrackCheckpoints, getTrackRacerAssignments, stringToColor } from '@/lib/utils'
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 
@@ -35,6 +35,19 @@ interface LapRecordResponse {
     racer_profile_id?: string
     lap_number?: number
     lap_time?: number
+}
+
+interface RacerCheckpointState {
+    touchedCheckpointIds: Set<string>
+    insideMarkers: Set<string>
+    lastFinishAtMs: number
+}
+
+const CHECKPOINT_CAPTURE_RADIUS = 0.035
+const FINISH_COOLDOWN_MS = 2000
+
+function pointDistance(a: TrackPoint, b: TrackPoint): number {
+    return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
 function buildLiveRace(statePayload: RuntimeStateResponse, activeRaceId: string, laps: LapRecordResponse[]): LiveRaceState {
@@ -112,6 +125,9 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const [showTrack, setShowTrack] = useState(true)
     const wsRef = useRef<WebSocket | null>(null)
     const liveRaceRef = useRef<LiveRaceState | null>(null)
+    const checkpointStateRef = useRef<Map<string, RacerCheckpointState>>(new Map())
+    const checkpointsRef = useRef<Checkpoint[]>([])
+    const requiredCheckpointIdsRef = useRef<Set<string>>(new Set())
 
     const toggleTrack = useCallback(() => {
         setShowTrack(prev => !prev)
@@ -172,9 +188,88 @@ export function RaceProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
+    const evaluateCheckpointProgress = useCallback(async (racerProfileId: string, position: TrackPoint) => {
+        const race = liveRaceRef.current
+        if (!race) return
+        const markers = checkpointsRef.current
+        if (markers.length === 0) return
+
+        const racer = race.racers.find(item => item.racer_profile_id === racerProfileId)
+        if (!racer) return
+
+        const state = checkpointStateRef.current.get(racerProfileId) || {
+            touchedCheckpointIds: new Set<string>(),
+            insideMarkers: new Set<string>(),
+            lastFinishAtMs: 0,
+        }
+
+        for (const marker of markers) {
+            const isInside = pointDistance(position, marker.position) <= CHECKPOINT_CAPTURE_RADIUS
+            const wasInside = state.insideMarkers.has(marker.id)
+
+            if (isInside && !wasInside) {
+                state.insideMarkers.add(marker.id)
+                if (marker.type === 'checkpoint') {
+                    state.touchedCheckpointIds.add(marker.id)
+                } else if (marker.type === 'finish') {
+                    const nowMs = Date.now()
+                    if (nowMs - state.lastFinishAtMs > FINISH_COOLDOWN_MS) {
+                        const required = requiredCheckpointIdsRef.current
+                        const touchedAll = [...required].every(id => state.touchedCheckpointIds.has(id))
+                        if (touchedAll) {
+                            const lapNumber = racer.current_lap + 1
+                            await apiFetch('/api/laps', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    race_id: race.race_id,
+                                    racer_profile_id: racerProfileId,
+                                    lap_number: lapNumber,
+                                    lap_time: Math.max(racer.current_lap_time, 1),
+                                }),
+                            })
+                            await apiFetch(`/api/races/${race.race_id}/logs`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} completed lap ${lapNumber}` }),
+                            })
+                        } else {
+                            await apiFetch(`/api/races/${race.race_id}/logs`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} hit finish without all checkpoints (shortcut detected)` }),
+                            })
+                        }
+                        state.touchedCheckpointIds.clear()
+                        state.lastFinishAtMs = nowMs
+                        void refreshRaceState(race.race_id)
+                    }
+                }
+            } else if (!isInside && wasInside) {
+                state.insideMarkers.delete(marker.id)
+            }
+        }
+
+        checkpointStateRef.current.set(racerProfileId, state)
+    }, [refreshRaceState])
+
     useEffect(() => {
         liveRaceRef.current = liveRace
     }, [liveRace])
+
+    useEffect(() => {
+        const hydrateTrackOverlayState = () => {
+            const selectedTrackId = getSelectedTrackId()
+            const markers = selectedTrackId ? getTrackCheckpoints(selectedTrackId) : []
+            checkpointsRef.current = markers
+            requiredCheckpointIdsRef.current = new Set(
+                markers.filter(marker => marker.type === 'checkpoint').map(marker => marker.id),
+            )
+        }
+        hydrateTrackOverlayState()
+        window.addEventListener('j5-track-overlay-updated', hydrateTrackOverlayState)
+        return () => window.removeEventListener('j5-track-overlay-updated', hydrateTrackOverlayState)
+    }, [])
 
     useEffect(() => {
         const wsUrl = backendWsUrl('organizer')
@@ -223,26 +318,47 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                     if (msg.data.racer_profile_id && msg.data) {
                         const x = Number(msg.data.position_x)
                         const y = Number(msg.data.position_y)
+                        const nextPosition = Number.isFinite(x) && Number.isFinite(y)
+                            ? { x, y }
+                            : (msg.data as Partial<LiveRacer>).track_position ?? null
                         updateRacerPosition(
                             msg.data.racer_profile_id as string,
                             {
                                 ...(msg.data as Partial<LiveRacer>),
-                                track_position: Number.isFinite(x) && Number.isFinite(y)
-                                    ? { x, y }
-                                    : (msg.data as Partial<LiveRacer>).track_position ?? null,
+                                track_position: nextPosition,
                             },
                         )
+                        if (nextPosition) {
+                            void evaluateCheckpointProgress(String(msg.data.racer_profile_id), nextPosition)
+                        }
                     }
                     break
                 case 'visionDetection':
-                    if (msg.data.racer_profile_id) {
+                    {
+                        const selectedTrackId = getSelectedTrackId()
+                        const assignments = selectedTrackId ? getTrackRacerAssignments(selectedTrackId) : {}
+                        const incomingObjectId = String(
+                            msg.data.object_id
+                            || msg.data.tracker_id
+                            || msg.data.detection_id
+                            || msg.data.track_id
+                            || '',
+                        ).trim()
+                        let racerId = String(msg.data.racer_profile_id || '').trim()
+                        if (incomingObjectId) {
+                            const match = Object.entries(assignments).find(([, objectId]) => objectId === incomingObjectId)
+                            racerId = match?.[0] || ''
+                        }
+                        if (!racerId) break
+                        if (Object.keys(assignments).length > 0 && !assignments[racerId]) {
+                            break
+                        }
                         const x = Number(msg.data.position_x)
                         const y = Number(msg.data.position_y)
                         if (Number.isFinite(x) && Number.isFinite(y)) {
-                            updateRacerPosition(
-                                String(msg.data.racer_profile_id),
-                                { track_position: { x, y } },
-                            )
+                            const position = { x, y }
+                            updateRacerPosition(racerId, { track_position: position })
+                            void evaluateCheckpointProgress(racerId, position)
                         }
                     }
                     break
@@ -274,7 +390,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                 ws.close()
             }
         }
-    }, [refreshRaceState, updateRacerPosition])
+    }, [evaluateCheckpointProgress, refreshRaceState, updateRacerPosition])
 
     return (
         <RaceContext.Provider value={{

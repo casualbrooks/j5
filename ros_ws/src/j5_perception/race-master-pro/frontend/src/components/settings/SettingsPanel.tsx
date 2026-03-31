@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackCheckpoints, getTrackPhotoUrl, parseTrackRecord, setSelectedTrackId, setTrackCheckpoints, setTrackPhotoUrl } from '@/lib/utils'
+import { TRACK_OVERLAY_EVENT, apiFetch, backendBaseUrl, backendWsUrl, configuredApiBaseUrl, getLatestSnapshotUrl, getSelectedTrackId, getTrackCheckpoints, getTrackPhotoUrl, getTrackRacerAssignments, getTrackingBackend, parseTrackRecord, setSelectedTrackId, setTrackCheckpoints, setTrackPhotoUrl, setTrackRacerAssignments, setTrackingBackend, type TrackingBackend } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 import TrackCanvas from '@/components/track/TrackCanvas'
 import type { Checkpoint, Track, TrackPoint } from '@/types'
@@ -72,7 +72,7 @@ function findNearestSplineIndex(points: TrackPoint[], target: TrackPoint): numbe
 }
 
 export default function SettingsPanel() {
-    const { refreshRaceState } = useRaceContext()
+    const { refreshRaceState, liveRace } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
     const [busyStepId, setBusyStepId] = useState<string | null>(null)
     const [error, setError] = useState('')
@@ -85,6 +85,10 @@ export default function SettingsPanel() {
     const [editorPoints, setEditorPoints] = useState<TrackPoint[]>([])
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
     const [editTool, setEditTool] = useState<'spline' | 'start' | 'finish' | 'checkpoint'>('spline')
+    const [lapDirection, setLapDirection] = useState<'clockwise' | 'counterclockwise'>('clockwise')
+    const [markerNotice, setMarkerNotice] = useState('')
+    const [trackingBackend, setTrackingBackendState] = useState<TrackingBackend>(getTrackingBackend())
+    const [assignmentDraft, setAssignmentDraft] = useState<Record<string, string>>({})
 
     const selectedTrack = useMemo(
         () => tracks.find(track => track.id === selectedTrackId) || null,
@@ -99,6 +103,7 @@ export default function SettingsPanel() {
             setTrackPhotoLoadState('idle')
             setEditorPoints([])
             setCheckpoints([])
+            setAssignmentDraft({})
             return
         }
         setSelectedTrackIdState(track.id)
@@ -107,6 +112,7 @@ export default function SettingsPanel() {
         setEditorPoints(track.layout_points)
         setTrackPhotoUrlState(getTrackPhotoUrl(track.id) || getLatestSnapshotUrl())
         setCheckpoints(getTrackCheckpoints(track.id))
+        setAssignmentDraft(getTrackRacerAssignments(track.id))
     }
 
     const loadTracks = async () => {
@@ -312,6 +318,8 @@ export default function SettingsPanel() {
                 track_id: selectedTrackId,
                 sort_order: index,
             })))
+            setTrackRacerAssignments(selectedTrackId, assignmentDraft)
+            setTrackingBackend(trackingBackend)
             await loadTracks()
             setError('')
         } catch (err) {
@@ -335,6 +343,17 @@ export default function SettingsPanel() {
         const nearestIndex = findNearestSplineIndex(editorPoints, checkpoint.position)
         const splineText = nearestIndex >= 0 ? ` snapped to spline point #${nearestIndex + 1}` : ''
         setMarkerNotice(`${checkpoint.type.toUpperCase()} marker placed${splineText}.`)
+    }
+
+    const saveAssignments = () => {
+        if (!selectedTrackId) {
+            setError('Select or create a track before saving racer/object assignments.')
+            return
+        }
+        setTrackRacerAssignments(selectedTrackId, assignmentDraft)
+        setTrackingBackend(trackingBackend)
+        setMarkerNotice('Racer tracking assignments saved.')
+        setError('')
     }
 
     return (
@@ -501,6 +520,18 @@ export default function SettingsPanel() {
                                 <option value="counterclockwise">Counter-clockwise</option>
                             </select>
                         </label>
+                        <label className="block text-sm text-[var(--color-text-secondary)]">
+                            Tracking backend
+                            <select
+                                className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                                value={trackingBackend}
+                                onChange={event => setTrackingBackendState(event.target.value as TrackingBackend)}
+                            >
+                                <option value="yolo">YOLO (recommended)</option>
+                                <option value="isaac">NVIDIA Isaac (placeholder)</option>
+                                <option value="manual">Manual object IDs</option>
+                            </select>
+                        </label>
 
                         <div className="flex flex-wrap gap-2">
                             <button className={`rounded px-3 py-2 text-xs font-semibold text-white ${editTool === 'spline' ? 'bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'}`} type="button" onClick={() => setEditTool('spline')}>Spline Tool</button>
@@ -523,18 +554,25 @@ export default function SettingsPanel() {
                             <p>4. Switch tools to mark <strong>Start</strong>, <strong>Finish</strong>, and additional checkpoints.</p>
                             <p>5. Save, then verify Dashboard dots and markers line up with the track image.</p>
                         </div>
+                        <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-2">
+                            <p><strong>Racer object assignment</strong></p>
+                            <p>Assign the tracker object id for each racer. During race tracking, only assigned objects are annotated and lap-checked.</p>
+                            {(liveRace?.racers || []).map(racer => (
+                                <label key={racer.racer_profile_id} className="block">
+                                    <span className="text-slate-200">{racer.name} (#{racer.number || '?'})</span>
+                                    <input
+                                        className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white"
+                                        value={assignmentDraft[racer.racer_profile_id] || ''}
+                                        onChange={event => setAssignmentDraft(prev => ({ ...prev, [racer.racer_profile_id]: event.target.value }))}
+                                        placeholder="tracker object id (e.g. yolo-track-17)"
+                                    />
+                                </label>
+                            ))}
+                            <button className="rounded bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-500" type="button" onClick={saveAssignments}>Save Assignments</button>
+                        </div>
                     </div>
 
                     <div className="rounded border border-slate-700 bg-slate-950/40 p-3">
-                        {trackPhotoUrl ? (
-                            <img
-                                src={trackPhotoUrl}
-                                alt="Track snapshot preview"
-                                className="mb-3 max-h-52 w-full rounded border border-slate-700 object-contain bg-black/30"
-                                onLoad={() => setTrackPhotoLoadState('loaded')}
-                                onError={() => setTrackPhotoLoadState('error')}
-                            />
-                        ) : null}
                         <TrackCanvas
                             racers={[]}
                             layoutPoints={editorPoints}
@@ -543,10 +581,12 @@ export default function SettingsPanel() {
                             editTool={editTool}
                             onTrackUpdate={setEditorPoints}
                             onCheckpointUpdate={setCheckpoints}
+                            onMarkerPlaced={onMarkerPlaced}
                             backgroundImageUrl={trackPhotoUrl || undefined}
                         />
                     </div>
                 </div>
+                {markerNotice ? <p className="text-xs text-emerald-300">{markerNotice}</p> : null}
             </div>
         </div>
     )

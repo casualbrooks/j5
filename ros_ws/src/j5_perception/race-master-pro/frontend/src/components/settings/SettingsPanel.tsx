@@ -78,7 +78,7 @@ function findNearestSplineIndex(points: TrackPoint[], target: TrackPoint): numbe
 }
 
 export default function SettingsPanel() {
-    const { refreshRaceState, liveRace } = useRaceContext()
+    const { refreshRaceState, liveRace, recentVisionObjects } = useRaceContext()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
     const [busyStepId, setBusyStepId] = useState<string | null>(null)
     const [error, setError] = useState('')
@@ -588,13 +588,44 @@ export default function SettingsPanel() {
                                 <label key={racer.racer_profile_id} className="block">
                                     <span className="text-slate-200">{racer.name} (#{racer.number || '?'})</span>
                                     <input
+                                        list={`object-id-options-${racer.racer_profile_id}`}
                                         className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white"
                                         value={assignmentDraft[racer.racer_profile_id] || ''}
                                         onChange={event => setAssignmentDraft(prev => ({ ...prev, [racer.racer_profile_id]: event.target.value }))}
                                         placeholder="tracker object id (e.g. yolo-track-17)"
                                     />
+                                    <datalist id={`object-id-options-${racer.racer_profile_id}`}>
+                                        {recentVisionObjects.map(item => (
+                                            <option key={item.objectId} value={item.objectId} />
+                                        ))}
+                                    </datalist>
                                 </label>
                             ))}
+                            {recentVisionObjects.length > 0 ? (
+                                <div className="rounded border border-slate-700 bg-slate-900/60 p-2 text-[11px] text-slate-300 space-y-1">
+                                    <p className="font-semibold text-slate-200">Live object IDs (from Vision tracking):</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {recentVisionObjects.map(item => (
+                                            <button
+                                                key={item.objectId}
+                                                type="button"
+                                                className="rounded bg-slate-800 px-2 py-0.5 text-[11px] hover:bg-slate-700"
+                                                onClick={() => {
+                                                    const firstUnassigned = (liveRace?.racers || [])
+                                                        .find(racer => !(assignmentDraft[racer.racer_profile_id] || '').trim())
+                                                    if (!firstUnassigned) return
+                                                    setAssignmentDraft(prev => ({ ...prev, [firstUnassigned.racer_profile_id]: item.objectId }))
+                                                }}
+                                                title="Click to assign this ID to the first unassigned racer"
+                                            >
+                                                {item.objectId}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-[11px] text-amber-300">No object IDs seen yet. In Computer Vision: enable preview, start tracking, then move cars through frame.</p>
+                            )}
                             <button className="rounded bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-500" type="button" onClick={saveAssignments}>Save Assignments</button>
                         </div>
                     </div>

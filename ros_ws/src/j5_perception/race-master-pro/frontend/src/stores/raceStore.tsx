@@ -363,6 +363,18 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                             || msg.data.track_id
                             || '',
                         ).trim()
+                        const x = Number(msg.data.position_x)
+                        const y = Number(msg.data.position_y)
+                        const position = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
+                        if (incomingObjectId) {
+                            setRecentVisionObjects(prev => {
+                                const next = [
+                                    { objectId: incomingObjectId, seenAt: Date.now(), position },
+                                    ...prev.filter(item => item.objectId !== incomingObjectId),
+                                ]
+                                return next.slice(0, 24)
+                            })
+                        }
                         let racerId = String(msg.data.racer_profile_id || '').trim()
                         if (incomingObjectId) {
                             const match = Object.entries(assignments).find(([, objectId]) => objectId === incomingObjectId)

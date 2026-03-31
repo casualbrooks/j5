@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { apiFetch, getSelectedTrackId, parseTrackRecord, setLatestSnapshotUrl, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
+import { apiFetch, getSelectedTrackId, getTrackRacerAssignments, parseTrackRecord, setLatestSnapshotUrl, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
+import { useRaceContext } from '@/stores/raceStore'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
@@ -20,6 +21,7 @@ function normalizePreviewBaseUrl(value: string): string {
 }
 
 export default function VisionPanel() {
+    const { liveRace, recentObjectDetections } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
@@ -136,6 +138,7 @@ export default function VisionPanel() {
 
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
+    const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')
@@ -172,7 +175,7 @@ export default function VisionPanel() {
                     captured, return here to start object tracking and monitor lap-count logs.
                 </p>
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                    The preview stream is raw camera video. Tracked car annotations render on the Dashboard track overlay, not directly on this MJPEG feed.
+                    The preview stream is raw camera video. Use the detection table below to map object IDs to racers; dashboard overlay updates when mapped IDs are seen.
                 </p>
                 <p className="text-xs text-amber-300">
                     Keep the camera stream open in only one viewer at a time. Viewing <code>/stream.mjpg</code> in multiple places can drop the camera connection.
@@ -251,6 +254,27 @@ export default function VisionPanel() {
 
                 {statusMessage ? (
                     <p className={`text-sm ${statusError ? 'text-red-400' : 'text-emerald-400'}`}>{statusMessage}</p>
+                ) : null}
+            </div>
+
+            <div className="race-card p-4 space-y-2">
+                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Recent object detections</h3>
+                {recentObjectDetections.length === 0 ? <p className="text-xs text-[var(--color-text-secondary)]">No detections yet. Start tracking and assign object IDs in Settings.</p> : null}
+                {recentObjectDetections.length > 0 ? (
+                    <div className="max-h-52 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200 space-y-1">
+                        {recentObjectDetections.map(item => {
+                            const racer = (liveRace?.racers || []).find(entry => entry.racer_profile_id === item.racerProfileId)
+                            const assignedId = racer ? racerAssignments[racer.racer_profile_id] : ''
+                            const mapped = Boolean(racer && assignedId && assignedId === item.objectId)
+                            return (
+                                <p key={`${item.objectId}-${item.seenAt}`}>
+                                    <span className={mapped ? 'text-emerald-300' : 'text-amber-300'}>{item.objectId}</span>
+                                    {' → '}
+                                    <span>{racer?.name || 'unmapped racer'}</span>
+                                </p>
+                            )
+                        })}
+                    </div>
                 ) : null}
             </div>
 

@@ -15,6 +15,7 @@ interface RaceContextValue {
     wsRef: React.MutableRefObject<WebSocket | null>
     sendWsMessage: (msg: Record<string, unknown>) => void
     refreshRaceState: (raceId?: string | null) => Promise<void>
+    recentObjectDetections: Array<{ objectId: string, racerProfileId: string, seenAt: number }>
 }
 
 const RaceContext = createContext<RaceContextValue | null>(null)
@@ -39,6 +40,7 @@ interface LapRecordResponse {
 
 interface RacerCheckpointState {
     touchedCheckpointIds: Set<string>
+    nextCheckpointIndex: number
     insideMarkers: Set<string>
     lastFinishAtMs: number
 }
@@ -97,6 +99,7 @@ function buildLiveRace(statePayload: RuntimeStateResponse, activeRaceId: string,
                 gap_to_leader: 0,
                 status: race.status === 'finished' ? 'finished' : 'racing',
                 track_position: null,
+                tracked_object_id: null,
             }
         })
         .sort((a, b) => {
@@ -126,6 +129,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const wsRef = useRef<WebSocket | null>(null)
     const liveRaceRef = useRef<LiveRaceState | null>(null)
     const checkpointStateRef = useRef<Map<string, RacerCheckpointState>>(new Map())
+    const [recentObjectDetections, setRecentObjectDetections] = useState<Array<{ objectId: string, racerProfileId: string, seenAt: number }>>([])
     const checkpointsRef = useRef<Checkpoint[]>([])
     const requiredCheckpointIdsRef = useRef<Set<string>>(new Set())
 
@@ -199,9 +203,13 @@ export function RaceProvider({ children }: { children: ReactNode }) {
 
         const state = checkpointStateRef.current.get(racerProfileId) || {
             touchedCheckpointIds: new Set<string>(),
+            nextCheckpointIndex: 0,
             insideMarkers: new Set<string>(),
             lastFinishAtMs: 0,
         }
+        const orderedCheckpoints = markers
+            .filter(marker => marker.type === 'checkpoint')
+            .sort((a, b) => a.sort_order - b.sort_order)
 
         for (const marker of markers) {
             const isInside = pointDistance(position, marker.position) <= CHECKPOINT_CAPTURE_RADIUS
@@ -210,12 +218,22 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             if (isInside && !wasInside) {
                 state.insideMarkers.add(marker.id)
                 if (marker.type === 'checkpoint') {
-                    state.touchedCheckpointIds.add(marker.id)
+                    const expected = orderedCheckpoints[state.nextCheckpointIndex]
+                    if (expected?.id === marker.id) {
+                        state.touchedCheckpointIds.add(marker.id)
+                        state.nextCheckpointIndex += 1
+                    } else if (orderedCheckpoints[0]?.id === marker.id) {
+                        state.touchedCheckpointIds.clear()
+                        state.touchedCheckpointIds.add(marker.id)
+                        state.nextCheckpointIndex = 1
+                    }
                 } else if (marker.type === 'finish') {
                     const nowMs = Date.now()
                     if (nowMs - state.lastFinishAtMs > FINISH_COOLDOWN_MS) {
                         const required = requiredCheckpointIdsRef.current
-                        const touchedAll = [...required].every(id => state.touchedCheckpointIds.has(id))
+                        const touchedAll = orderedCheckpoints.length === 0
+                            || (state.nextCheckpointIndex >= orderedCheckpoints.length
+                                && [...required].every(id => state.touchedCheckpointIds.has(id)))
                         if (touchedAll) {
                             const lapNumber = racer.current_lap + 1
                             await apiFetch('/api/laps', {
@@ -241,6 +259,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                             })
                         }
                         state.touchedCheckpointIds.clear()
+                        state.nextCheckpointIndex = 0
                         state.lastFinishAtMs = nowMs
                         void refreshRaceState(race.race_id)
                     }
@@ -353,11 +372,20 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                         if (Object.keys(assignments).length > 0 && !assignments[racerId]) {
                             break
                         }
+                        if (incomingObjectId) {
+                            setRecentObjectDetections(prev => {
+                                const next = [
+                                    { objectId: incomingObjectId, racerProfileId: racerId, seenAt: Date.now() },
+                                    ...prev.filter(item => !(item.objectId === incomingObjectId && item.racerProfileId === racerId)),
+                                ]
+                                return next.slice(0, 12)
+                            })
+                        }
                         const x = Number(msg.data.position_x)
                         const y = Number(msg.data.position_y)
                         if (Number.isFinite(x) && Number.isFinite(y)) {
                             const position = { x, y }
-                            updateRacerPosition(racerId, { track_position: position })
+                            updateRacerPosition(racerId, { track_position: position, tracked_object_id: incomingObjectId || null })
                             void evaluateCheckpointProgress(racerId, position)
                         }
                     }
@@ -404,6 +432,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             wsRef,
             sendWsMessage,
             refreshRaceState,
+            recentObjectDetections,
         }}>
             {children}
         </RaceContext.Provider>

@@ -178,6 +178,20 @@ export default function SettingsPanel() {
         return () => window.removeEventListener(TRACK_OVERLAY_EVENT, handleOverlayUpdate)
     }, [selectedTrackId])
 
+    useEffect(() => {
+        if (!selectedTrackId) return
+        setTrackCheckpoints(selectedTrackId, checkpoints.map((checkpoint, index) => ({
+            ...checkpoint,
+            track_id: selectedTrackId,
+            sort_order: index,
+        })))
+    }, [checkpoints, selectedTrackId])
+
+    useEffect(() => {
+        if (!selectedTrackId) return
+        setTrackRacerAssignments(selectedTrackId, assignmentDraft)
+    }, [assignmentDraft, selectedTrackId])
+
     const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
     const frontendWsUrl = backendWsUrl('organizer')
 

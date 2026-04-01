@@ -233,7 +233,10 @@ export function getLatestSnapshotUrl(): string {
 export function setTrackCheckpoints(trackId: string, checkpoints: Checkpoint[]): void {
     const storage = getStorage()
     if (!storage || !trackId) return
-    storage.setItem(`${TRACK_CHECKPOINTS_KEY_PREFIX}${trackId}`, JSON.stringify(checkpoints))
+    const key = `${TRACK_CHECKPOINTS_KEY_PREFIX}${trackId}`
+    const payload = JSON.stringify(checkpoints)
+    if (storage.getItem(key) === payload) return
+    storage.setItem(key, payload)
     window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
 }
 
@@ -247,17 +250,24 @@ export function getTrackCheckpoints(trackId: string): Checkpoint[] {
         if (!Array.isArray(parsed)) return []
         return parsed
             .filter(item => item && typeof item === 'object')
-            .map(item => ({
-                id: String((item as Checkpoint).id || crypto.randomUUID()),
-                track_id: String((item as Checkpoint).track_id || trackId),
-                name: String((item as Checkpoint).name || 'Checkpoint'),
-                type: ((item as Checkpoint).type || 'checkpoint') as Checkpoint['type'],
-                position: {
-                    x: Number((item as Checkpoint).position?.x || 0),
-                    y: Number((item as Checkpoint).position?.y || 0),
-                },
-                sort_order: Number((item as Checkpoint).sort_order || 0),
-            }))
+            .map((item, index) => {
+                const checkpoint = item as Checkpoint
+                const type = (checkpoint.type || 'checkpoint') as Checkpoint['type']
+                const positionX = Number(checkpoint.position?.x || 0)
+                const positionY = Number(checkpoint.position?.y || 0)
+                const sortOrder = Number(checkpoint.sort_order || 0)
+                return {
+                    id: String(checkpoint.id || `${trackId}-${type}-${sortOrder || index}-${positionX.toFixed(4)}-${positionY.toFixed(4)}`),
+                    track_id: String(checkpoint.track_id || trackId),
+                    name: String(checkpoint.name || 'Checkpoint'),
+                    type,
+                    position: {
+                        x: positionX,
+                        y: positionY,
+                    },
+                    sort_order: sortOrder,
+                }
+            })
     } catch {
         return []
     }
@@ -281,7 +291,11 @@ export function getTrackingBackend(): TrackingBackend {
 export function setTrackRacerAssignments(trackId: string, assignments: Record<string, string>): void {
     const storage = getStorage()
     if (!storage || !trackId) return
-    storage.setItem(`${TRACK_RACER_ASSIGNMENTS_KEY_PREFIX}${trackId}`, JSON.stringify(assignments))
+    const key = `${TRACK_RACER_ASSIGNMENTS_KEY_PREFIX}${trackId}`
+    const payload = JSON.stringify(assignments)
+    if (storage.getItem(key) === payload) return
+    storage.setItem(key, payload)
+    window.dispatchEvent(new CustomEvent(TRACK_OVERLAY_EVENT))
 }
 
 export function getTrackRacerAssignments(trackId: string): Record<string, string> {

@@ -92,7 +92,7 @@ export default function Leaderboard({ racers, totalLaps }: LeaderboardProps) {
 
                             {/* Expanded Detail */}
                             {isExpanded && (
-                                <div className="slide-in-right ml-10 mr-4 mb-2 p-3 rounded-lg bg-[var(--color-bg-surface)] border border-[rgba(255,255,255,0.06)] grid grid-cols-4 gap-3 text-xs">
+                                <div className="slide-in-right ml-10 mr-4 mb-2 p-3 rounded-lg bg-[var(--color-bg-surface)] border border-[rgba(255,255,255,0.06)] grid grid-cols-5 gap-3 text-xs">
                                     <div>
                                         <div className="text-[var(--color-text-muted)]">Total Time</div>
                                         <div className="font-timing text-sm">{formatLapTime(racer.total_time)}</div>
@@ -110,6 +110,10 @@ export default function Leaderboard({ racers, totalLaps }: LeaderboardProps) {
                                     <div>
                                         <div className="text-[var(--color-text-muted)]">Status</div>
                                         <div className="text-sm font-medium capitalize">{racer.status}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[var(--color-text-muted)]">Object ID</div>
+                                        <div className="text-sm font-medium">{racer.tracked_object_id || '—'}</div>
                                     </div>
                                 </div>
                             )}

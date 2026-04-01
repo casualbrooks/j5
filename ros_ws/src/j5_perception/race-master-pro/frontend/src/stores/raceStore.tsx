@@ -16,7 +16,6 @@ interface RaceContextValue {
     sendWsMessage: (msg: Record<string, unknown>) => void
     refreshRaceState: (raceId?: string | null) => Promise<void>
     recentObjectDetections: Array<{ objectId: string, racerProfileId: string, seenAt: number }>
-    recentVisionObjects: Array<{ objectId: string, seenAt: number, position: TrackPoint | null }>
 }
 
 const RaceContext = createContext<RaceContextValue | null>(null)
@@ -131,7 +130,6 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const liveRaceRef = useRef<LiveRaceState | null>(null)
     const checkpointStateRef = useRef<Map<string, RacerCheckpointState>>(new Map())
     const [recentObjectDetections, setRecentObjectDetections] = useState<Array<{ objectId: string, racerProfileId: string, seenAt: number }>>([])
-    const [recentVisionObjects, setRecentVisionObjects] = useState<Array<{ objectId: string, seenAt: number, position: TrackPoint | null }>>([])
     const checkpointsRef = useRef<Checkpoint[]>([])
     const requiredCheckpointIdsRef = useRef<Set<string>>(new Set())
 
@@ -366,11 +364,9 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                             || msg.data.track_id
                             || '',
                         ).trim()
-                        const positionX = Number(msg.data.position_x)
-                        const positionY = Number(msg.data.position_y)
-                        const position = Number.isFinite(positionX) && Number.isFinite(positionY)
-                            ? { x: positionX, y: positionY }
-                            : null
+                        const x = Number(msg.data.position_x)
+                        const y = Number(msg.data.position_y)
+                        const position = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
                         if (incomingObjectId) {
                             setRecentVisionObjects(prev => {
                                 const next = [
@@ -398,7 +394,10 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                                 return next.slice(0, 12)
                             })
                         }
-                        if (position) {
+                        const x = Number(msg.data.position_x)
+                        const y = Number(msg.data.position_y)
+                        if (Number.isFinite(x) && Number.isFinite(y)) {
+                            const position = { x, y }
                             updateRacerPosition(racerId, { track_position: position, tracked_object_id: incomingObjectId || null })
                             void evaluateCheckpointProgress(racerId, position)
                         }
@@ -447,7 +446,6 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             sendWsMessage,
             refreshRaceState,
             recentObjectDetections,
-            recentVisionObjects,
         }}>
             {children}
         </RaceContext.Provider>

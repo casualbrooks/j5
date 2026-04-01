@@ -52,6 +52,13 @@ function pointDistance(a: TrackPoint, b: TrackPoint): number {
     return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
+function extractTrackPosition(payload: Record<string, unknown>): TrackPoint | null {
+    const positionX = Number(payload.position_x)
+    const positionY = Number(payload.position_y)
+    if (!Number.isFinite(positionX) || !Number.isFinite(positionY)) return null
+    return { x: positionX, y: positionY }
+}
+
 function buildLiveRace(statePayload: RuntimeStateResponse, activeRaceId: string, laps: LapRecordResponse[]): LiveRaceState {
     const race = statePayload.race || {}
     const context = statePayload.context || {}

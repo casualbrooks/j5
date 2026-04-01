@@ -473,6 +473,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
         }
 
+
         void refreshRaceState()
         connect()
 

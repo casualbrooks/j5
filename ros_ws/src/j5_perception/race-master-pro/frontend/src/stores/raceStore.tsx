@@ -383,7 +383,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
 
         function handleWsMessage(msg: { type: string, data: Record<string, unknown> }) {
             switch (msg.type) {
-                case 'raceUpdate':
+                case 'raceUpdate': {
                     if (msg.data.race) {
                         setLiveRace(msg.data.race as LiveRaceState)
                     }
@@ -458,15 +458,18 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                         }
                     }
                     break
+                }
                 case 'raceStart':
                 case 'racePause':
                 case 'raceResume':
                 case 'raceFinish':
-                case 'lapComplete':
+                case 'lapComplete': {
                     void refreshRaceState(String(msg.data?.race_id || liveRaceRef.current?.race_id || ''))
                     break
-                case 'pong':
+                }
+                case 'pong': {
                     break
+                }
             }
         }
 

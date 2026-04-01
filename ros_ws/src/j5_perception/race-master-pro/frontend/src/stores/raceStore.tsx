@@ -333,12 +333,12 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                         setLiveRace(msg.data.race as LiveRaceState)
                     }
                     break
-                case 'positionUpdate':
+                case 'positionUpdate': {
                     if (msg.data.racer_profile_id && msg.data) {
-                        const x = Number(msg.data.position_x)
-                        const y = Number(msg.data.position_y)
-                        const nextPosition = Number.isFinite(x) && Number.isFinite(y)
-                            ? { x, y }
+                        const positionX = Number(msg.data.position_x)
+                        const positionY = Number(msg.data.position_y)
+                        const nextPosition = Number.isFinite(positionX) && Number.isFinite(positionY)
+                            ? { x: positionX, y: positionY }
                             : (msg.data as Partial<LiveRacer>).track_position ?? null
                         updateRacerPosition(
                             msg.data.racer_profile_id as string,
@@ -352,6 +352,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                         }
                     }
                     break
+                }
                 case 'visionDetection':
                     {
                         const selectedTrackId = getSelectedTrackId()

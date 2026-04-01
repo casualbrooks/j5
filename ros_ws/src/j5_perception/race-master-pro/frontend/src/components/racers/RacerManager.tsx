@@ -63,6 +63,18 @@ export default function RacerManager() {
 
     const submitRacer = async (event: FormEvent) => {
         event.preventDefault()
+        const normalizedName = form.name.trim().toLowerCase()
+        const normalizedNumber = form.number.trim()
+        const duplicate = racers.find(existing => {
+            if (form.id && existing.id === form.id) return false
+            const sameName = existing.name.trim().toLowerCase() === normalizedName
+            const sameNumber = normalizedNumber && existing.number.trim() === normalizedNumber
+            return sameName || sameNumber
+        })
+        if (duplicate) {
+            setStatus(`Racer already exists (${duplicate.name} #${duplicate.number || '—'}). Edit the existing profile instead of creating a duplicate.`)
+            return
+        }
         const payload = {
             name: form.name,
             number: form.number,

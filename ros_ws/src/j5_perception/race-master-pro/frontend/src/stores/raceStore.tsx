@@ -326,6 +326,54 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
         }
 
+        function handleVisionDetection(data: Record<string, unknown>) {
+            const selectedTrackId = getSelectedTrackId()
+            const assignments = selectedTrackId ? getTrackRacerAssignments(selectedTrackId) : {}
+            const incomingObjectId = String(
+                data.object_id
+                || data.tracker_id
+                || data.detection_id
+                || data.track_id
+                || '',
+            ).trim()
+            const positionX = Number(data.position_x)
+            const positionY = Number(data.position_y)
+            const position = Number.isFinite(positionX) && Number.isFinite(positionY)
+                ? { x: positionX, y: positionY }
+                : null
+            if (incomingObjectId) {
+                setRecentVisionObjects(prev => {
+                    const next = [
+                        { objectId: incomingObjectId, seenAt: Date.now(), position },
+                        ...prev.filter(item => item.objectId !== incomingObjectId),
+                    ]
+                    return next.slice(0, 24)
+                })
+            }
+            let racerId = String(data.racer_profile_id || '').trim()
+            if (incomingObjectId) {
+                const match = Object.entries(assignments).find(([, objectId]) => objectId === incomingObjectId)
+                racerId = match?.[0] || ''
+            }
+            if (!racerId) return
+            if (Object.keys(assignments).length > 0 && !assignments[racerId]) {
+                return
+            }
+            if (incomingObjectId) {
+                setRecentObjectDetections(prev => {
+                    const next = [
+                        { objectId: incomingObjectId, racerProfileId: racerId, seenAt: Date.now() },
+                        ...prev.filter(item => !(item.objectId === incomingObjectId && item.racerProfileId === racerId)),
+                    ]
+                    return next.slice(0, 12)
+                })
+            }
+            if (position) {
+                updateRacerPosition(racerId, { track_position: position, tracked_object_id: incomingObjectId || null })
+                void evaluateCheckpointProgress(racerId, position)
+            }
+        }
+
         function handleWsMessage(msg: { type: string, data: Record<string, unknown> }) {
             switch (msg.type) {
                 case 'raceUpdate':

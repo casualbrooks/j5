@@ -544,6 +544,12 @@ async def delete_track(track_id: str):
 
 @app.post("/api/racers")
 async def create_racer(data: RacerProfileCreate):
+    existing = await query(
+        "SELECT * FROM racer_profiles WHERE lower(name)=lower(?) OR number=? ORDER BY created_at ASC LIMIT 1",
+        [data.name, data.number],
+    )
+    if existing:
+        return existing[0]
     row = {"id": str(uuid.uuid4()), **data.model_dump()}
     return await insert_row("racer_profiles", row)
 
@@ -1040,15 +1046,23 @@ async def initialize_race_from_wizard():
     )
     racers = []
     for idx, name in enumerate(config.get("racer_names", []), start=1):
-        racer = await insert_row(
-            "racer_profiles",
-            {
-                "id": str(uuid.uuid4()),
-                "name": name,
-                "number": str(idx),
-                "profile_pic": None,
-                "vehicle_description": None,
-            },
+        racer_rows = await query(
+            "SELECT * FROM racer_profiles WHERE lower(name)=lower(?) OR number=? ORDER BY created_at ASC LIMIT 1",
+            [name, str(idx)],
+        )
+        racer = (
+            racer_rows[0]
+            if racer_rows
+            else await insert_row(
+                "racer_profiles",
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": name,
+                    "number": str(idx),
+                    "profile_pic": None,
+                    "vehicle_description": None,
+                },
+            )
         )
         racers.append(racer)
     context = {

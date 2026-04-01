@@ -162,6 +162,7 @@ export interface LiveRacer {
     gap_to_leader: number
     status: RacerStatus
     track_position: TrackPoint | null
+    tracked_object_id?: string | null
 }
 
 export interface LiveRaceState {

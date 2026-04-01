@@ -7,6 +7,7 @@ APP_ROOT="$REPO_ROOT/ros_ws/src/j5_perception/race-master-pro"
 BACKEND_ROOT="$APP_ROOT/backend"
 FRONTEND_ROOT="$APP_ROOT/frontend"
 TRACK_CANVAS_FILE="$FRONTEND_ROOT/src/components/track/TrackCanvas.tsx"
+RACE_STORE_FILE="$FRONTEND_ROOT/src/stores/raceStore.tsx"
 
 MODE="standalone"
 HOST="0.0.0.0"
@@ -208,6 +209,69 @@ for line in lines:
         seen = True
     out.append(line)
 path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+  fi
+fi
+
+if [[ -f "$RACE_STORE_FILE" ]]; then
+  if grep -q "case 'positionUpdate':" "$RACE_STORE_FILE"; then
+    echo "Detected legacy switch-based websocket handler in $RACE_STORE_FILE; auto-repairing to parser-safe handler."
+    "$PYTHON_BIN" - "$RACE_STORE_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+start_marker = "        function handleWsMessage(msg: { type: string, data: Record<string, unknown> }) {"
+end_marker = "\n\n        void refreshRaceState()"
+start = text.find(start_marker)
+end = text.find(end_marker, start)
+if start == -1 or end == -1:
+    raise SystemExit(0)
+replacement = """        function handleWsMessage(msg: { type: string, data: Record<string, unknown> }) {
+            if (msg.type === 'raceUpdate') {
+                if (msg.data.race) {
+                    setLiveRace(msg.data.race as LiveRaceState)
+                }
+                return
+            }
+
+            if (msg.type === 'positionUpdate') {
+                if (!msg.data.racer_profile_id || !msg.data) return
+                const nextPosition = extractTrackPosition(msg.data)
+                    ?? (msg.data as Partial<LiveRacer>).track_position
+                    ?? null
+                updateRacerPosition(
+                    msg.data.racer_profile_id as string,
+                    {
+                        ...(msg.data as Partial<LiveRacer>),
+                        track_position: nextPosition,
+                    },
+                )
+                if (nextPosition) {
+                    void evaluateCheckpointProgress(String(msg.data.racer_profile_id), nextPosition)
+                }
+                return
+            }
+
+            if (msg.type === 'visionDetection') {
+                handleVisionDetection(msg.data)
+                return
+            }
+
+            if (
+                msg.type === 'raceStart'
+                || msg.type === 'racePause'
+                || msg.type === 'raceResume'
+                || msg.type === 'raceFinish'
+                || msg.type === 'lapComplete'
+            ) {
+                void refreshRaceState(String(msg.data?.race_id || liveRaceRef.current?.race_id || ''))
+                return
+            }
+        }
+"""
+path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
 PY
   fi
 fi

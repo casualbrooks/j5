@@ -21,7 +21,7 @@ function normalizePreviewBaseUrl(value: string): string {
 }
 
 export default function VisionPanel() {
-    const { liveRace, recentObjectDetections, recentVisionObjects } = useRaceContext()
+    const { liveRace, recentObjectDetections } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
@@ -276,20 +276,6 @@ export default function VisionPanel() {
                         })}
                     </div>
                 ) : null}
-                <div className="rounded border border-slate-700 bg-slate-950/60 p-2 text-xs text-slate-300">
-                    <p className="font-semibold text-slate-200">All visible tracker IDs</p>
-                    {recentVisionObjects.length === 0 ? (
-                        <p className="text-[11px] text-amber-300 mt-1">No object IDs observed yet. Click <strong>Start Tracking</strong> and ensure YOLO/Isaac publisher is running.</p>
-                    ) : (
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                            {recentVisionObjects.map(item => (
-                                <span key={item.objectId} className="rounded bg-slate-800 px-2 py-0.5 text-[11px]">
-                                    {item.objectId}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-                </div>
             </div>
 
             <div className="race-card p-4 space-y-2">

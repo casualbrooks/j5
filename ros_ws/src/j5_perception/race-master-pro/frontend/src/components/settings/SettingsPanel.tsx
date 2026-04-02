@@ -586,7 +586,7 @@ export default function SettingsPanel() {
                         <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-2">
                             <p><strong>Racer object assignment</strong></p>
                             <p>Assign the tracker object id for each racer. During race tracking, only assigned objects are annotated and lap-checked.</p>
-                            {(Array.isArray(liveRace?.racers) ? liveRace.racers : []).map(racer => (
+                            {liveRacers.map(racer => (
                                 <label key={racer.racer_profile_id} className="block">
                                     <span className="text-slate-200">{racer.name} (#{racer.number || '?'})</span>
                                     <input
@@ -613,7 +613,7 @@ export default function SettingsPanel() {
                                                 type="button"
                                                 className="rounded bg-slate-800 px-2 py-0.5 text-[11px] hover:bg-slate-700"
                                                 onClick={() => {
-                                                    const firstUnassigned = (Array.isArray(liveRace?.racers) ? liveRace.racers : [])
+                                                    const firstUnassigned = liveRacers
                                                         .find(racer => !(assignmentDraft[racer.racer_profile_id] || '').trim())
                                                     if (!firstUnassigned) return
                                                     setAssignmentDraft(prev => ({ ...prev, [firstUnassigned.racer_profile_id]: item.objectId }))

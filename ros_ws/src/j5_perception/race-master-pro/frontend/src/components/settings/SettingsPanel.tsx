@@ -96,6 +96,7 @@ export default function SettingsPanel() {
     const [markerNotice, setMarkerNotice] = useState('')
     const [trackingBackend, setTrackingBackendState] = useState<TrackingBackend>(getTrackingBackend())
     const [assignmentDraft, setAssignmentDraft] = useState<Record<string, string>>({})
+    const wizardSteps = Array.isArray(wizard?.steps) ? wizard.steps : []
 
     const selectedTrack = useMemo(
         () => tracks.find(track => track.id === selectedTrackId) || null,
@@ -437,7 +438,7 @@ export default function SettingsPanel() {
                 ) : <p className="text-xs text-emerald-400">All setup steps are currently marked connected.</p>}
 
                 <div className="space-y-3">
-                    {wizard?.steps.map((step, idx) => (
+                    {wizardSteps.map((step, idx) => (
                         <div key={step.id} className={`rounded border p-3 ${step.connected ? 'border-emerald-700 bg-emerald-950/30' : 'border-amber-700 bg-amber-950/30'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
@@ -458,7 +459,7 @@ export default function SettingsPanel() {
                                 <button className="rounded bg-rose-700 px-3 py-1 text-xs font-semibold text-white" onClick={() => runStepAction(step.id, 'stop')} disabled={busyStepId === step.id}>Stop</button>
                             </div>
 
-                            {step.checks.length > 0 ? (
+                            {Array.isArray(step.checks) && step.checks.length > 0 ? (
                                 <ul className="mt-3 space-y-1 text-xs">
                                     {step.checks.map(check => (
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>

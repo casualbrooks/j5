@@ -271,6 +271,7 @@ if ROS2_AVAILABLE:
                 cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
             centroids: list[tuple[float, float]] = []
+            contour_areas: list[float] = []
             for contour in contours:
                 area = cv2.contourArea(contour)
                 if area < 250:
@@ -279,17 +280,34 @@ if ROS2_AVAILABLE:
                 if w < 10 or h < 10:
                     continue
                 centroids.append((x + (w / 2.0), y + (h / 2.0)))
+                contour_areas.append(float(area))
 
             tracked = tracker.update(centroids)
             for object_id, state in tracked.items():
                 if state.disappeared != 0:
+                    continue
+                confidence = 0.5
+                if centroids:
+                    distances = [
+                        (
+                            idx,
+                            np.hypot(
+                                state.centroid[0] - c[0], state.centroid[1] - c[1]
+                            ),
+                        )
+                        for idx, c in enumerate(centroids)
+                    ]
+                    nearest_idx = min(distances, key=lambda item: item[1])[0]
+                    area = contour_areas[nearest_idx]
+                    confidence = min(0.99, 0.5 + (area / 5000.0))
+                if confidence < self.confidence_threshold:
                     continue
                 detection = {
                     "object_id": f"cv-{topic.replace('/', '-')}-track-{object_id}",
                     "camera_topic": topic,
                     "position_x": round(state.centroid[0], 1),
                     "position_y": round(state.centroid[1], 1),
-                    "confidence": 0.95,
+                    "confidence": round(confidence, 3),
                 }
                 try:
                     self._detection_queue.put_nowait(detection)

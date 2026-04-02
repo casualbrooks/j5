@@ -11,6 +11,9 @@ import threading
 import asyncio
 import json
 import time
+import queue
+from collections import OrderedDict
+from dataclasses import dataclass
 
 try:
     import rclpy
@@ -24,12 +27,115 @@ except ImportError:
 
 
 if ROS2_AVAILABLE:
-    from sensor_msgs.msg import Image, CameraInfo
+    from sensor_msgs.msg import Image
 
     try:
         import websockets
     except ImportError:
         websockets = None  # type: ignore
+
+    cv2_import_error = ""
+    numpy_import_error = ""
+    cv_bridge_import_error = ""
+
+    try:
+        import cv2
+    except ImportError as exc:
+        cv2 = None  # type: ignore
+        cv2_import_error = str(exc)
+
+    try:
+        import numpy as np
+    except ImportError as exc:
+        np = None  # type: ignore
+        numpy_import_error = str(exc)
+
+    try:
+        from cv_bridge import CvBridge
+    except ImportError as exc:
+        CvBridge = None  # type: ignore
+        cv_bridge_import_error = str(exc)
+
+    @dataclass
+    class TrackerState:
+        centroid: tuple[float, float]
+        disappeared: int = 0
+
+    class SimpleCentroidTracker:
+        """Lightweight centroid tracker for moving objects."""
+
+        def __init__(self, max_disappeared: int = 8, max_distance: float = 90.0):
+            self.max_disappeared = max_disappeared
+            self.max_distance = max_distance
+            self.next_object_id = 1
+            self.objects: OrderedDict[int, TrackerState] = OrderedDict()
+
+        def _register(self, centroid: tuple[float, float]):
+            self.objects[self.next_object_id] = TrackerState(centroid=centroid)
+            self.next_object_id += 1
+
+        def _deregister(self, object_id: int):
+            self.objects.pop(object_id, None)
+
+        def update(
+            self, centroids: list[tuple[float, float]]
+        ) -> OrderedDict[int, TrackerState]:
+            if np is None:
+                return self.objects
+            if not centroids:
+                stale_ids: list[int] = []
+                for object_id, state in self.objects.items():
+                    state.disappeared += 1
+                    if state.disappeared > self.max_disappeared:
+                        stale_ids.append(object_id)
+                for object_id in stale_ids:
+                    self._deregister(object_id)
+                return self.objects
+
+            if not self.objects:
+                for centroid in centroids:
+                    self._register(centroid)
+                return self.objects
+
+            object_items = list(self.objects.items())
+            object_ids = [item[0] for item in object_items]
+            existing = np.array(
+                [item[1].centroid for item in object_items], dtype=float
+            )
+            incoming = np.array(centroids, dtype=float)
+            distances = np.linalg.norm(existing[:, None] - incoming[None, :], axis=2)
+
+            rows = distances.min(axis=1).argsort()
+            used_rows: set[int] = set()
+            used_cols: set[int] = set()
+
+            for row in rows:
+                if row in used_rows:
+                    continue
+                for col in np.argsort(distances[row]):
+                    col = int(col)
+                    if col in used_cols:
+                        continue
+                    if float(distances[row, col]) > self.max_distance:
+                        continue
+                    object_id = object_ids[row]
+                    self.objects[object_id].centroid = centroids[col]
+                    self.objects[object_id].disappeared = 0
+                    used_rows.add(row)
+                    used_cols.add(col)
+                    break
+
+            for row, object_id in enumerate(object_ids):
+                if row in used_rows:
+                    continue
+                self.objects[object_id].disappeared += 1
+                if self.objects[object_id].disappeared > self.max_disappeared:
+                    self._deregister(object_id)
+
+            for col, centroid in enumerate(centroids):
+                if col not in used_cols:
+                    self._register(centroid)
+            return self.objects
 
     class RaceMasterPerceptionNode(Node):
         """ROS2 node that subscribes to camera image topics and publishes racer detections."""
@@ -64,6 +170,10 @@ if ROS2_AVAILABLE:
             )
             self._ws_stop = threading.Event()
             self._ws_thread = None
+            self._detection_queue: queue.Queue[dict] = queue.Queue(maxsize=128)
+            self._bridger = CvBridge() if CvBridge is not None else None
+            self._trackers: dict[str, SimpleCentroidTracker] = {}
+            self._background_models: dict[str, object] = {}
 
             # Create subscribers for each camera topic
             self.image_subscriptions = []
@@ -75,15 +185,41 @@ if ROS2_AVAILABLE:
                     10,
                 )
                 self.image_subscriptions.append(sub)
+                self._trackers[topic] = SimpleCentroidTracker()
+                if cv2 is not None:
+                    self._background_models[topic] = cv2.createBackgroundSubtractorMOG2(
+                        history=500, varThreshold=24, detectShadows=False
+                    )
                 self.get_logger().info(f"Subscribed to camera topic: {topic}")
 
             self.get_logger().info("Race Master Pro — Perception Node started")
             self.get_logger().info(f"Model: {self.model_path}")
             self.get_logger().info(f"Confidence threshold: {self.confidence_threshold}")
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
-            self.get_logger().warning(
-                "ROS2 camera subscription is active, but AI detection/tracking is not implemented in this node yet."
-            )
+            if cv2 is None or np is None:
+                self.get_logger().warning(
+                    "OpenCV/Numpy not available. Install python3-opencv + numpy for motion tracking detections."
+                )
+                if cv2 is None and cv2_import_error:
+                    self.get_logger().warning(
+                        f"OpenCV import error detail: {cv2_import_error}"
+                    )
+                if np is None and numpy_import_error:
+                    self.get_logger().warning(
+                        f"NumPy import error detail: {numpy_import_error}"
+                    )
+            if self._bridger is None:
+                self.get_logger().warning(
+                    "cv_bridge not available. Build/source vision_opencv (cv_bridge) in the active ROS overlay so Python can import cv_bridge."
+                )
+                if cv_bridge_import_error:
+                    self.get_logger().warning(
+                        f"cv_bridge import error detail: {cv_bridge_import_error}"
+                    )
+                self.get_logger().warning(f"Python executable: {sys.executable}")
+                self.get_logger().warning(
+                    "If using source-built ROS (no /opt underlay), ensure your current shell has that install overlay sourced before running this node."
+                )
             self._start_ws_bridge()
 
         def _start_ws_bridge(self):
@@ -105,16 +241,33 @@ if ROS2_AVAILABLE:
                         self.get_logger().info(
                             "Connected to backend websocket as cv_system client."
                         )
+                        last_ping = 0.0
                         while not self._ws_stop.is_set():
+                            now = time.time()
+                            if now - last_ping >= 10.0:
+                                await ws.send(
+                                    json.dumps(
+                                        {
+                                            "type": "ping",
+                                            "timestamp": now,
+                                        }
+                                    )
+                                )
+                                last_ping = now
+                            try:
+                                payload = self._detection_queue.get_nowait()
+                            except queue.Empty:
+                                await asyncio.sleep(0.03)
+                                continue
                             await ws.send(
                                 json.dumps(
                                     {
-                                        "type": "ping",
-                                        "timestamp": time.time(),
+                                        "type": "visionDetection",
+                                        "data": payload,
+                                        "timestamp": now,
                                     }
                                 )
                             )
-                            await asyncio.sleep(10.0)
                 except Exception as exc:
                     self.get_logger().warning(
                         f"WebSocket bridge disconnected ({exc}); retrying in 3s."
@@ -123,12 +276,75 @@ if ROS2_AVAILABLE:
 
         def image_callback(self, msg: Image, topic: str):
             """Process an incoming camera image."""
-            # TODO: Convert ROS Image to numpy array
-            # TODO: Run through AI detection pipeline
-            # TODO: Publish detections via WebSocket bridge
-            self.get_logger().debug(
-                f"Received frame from {topic}: {msg.width}x{msg.height}"
+            if self._bridger is None or cv2 is None or np is None:
+                return
+            subtractor = self._background_models.get(topic)
+            tracker = self._trackers.get(topic)
+            if subtractor is None or tracker is None:
+                return
+
+            try:
+                frame = self._bridger.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            except Exception as exc:
+                self.get_logger().warning(f"Failed to decode frame from {topic}: {exc}")
+                return
+
+            mask = subtractor.apply(frame)
+            mask = cv2.GaussianBlur(mask, (5, 5), 0)
+            _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
+            kernel = np.ones((3, 3), dtype=np.uint8)
+            cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+            cleaned = cv2.dilate(cleaned, kernel, iterations=2)
+
+            contours, _ = cv2.findContours(
+                cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
+            centroids: list[tuple[float, float]] = []
+            contour_areas: list[float] = []
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < 250:
+                    continue
+                x, y, w, h = cv2.boundingRect(contour)
+                if w < 10 or h < 10:
+                    continue
+                centroids.append((x + (w / 2.0), y + (h / 2.0)))
+                contour_areas.append(float(area))
+
+            tracked = tracker.update(centroids)
+            for object_id, state in tracked.items():
+                if state.disappeared != 0:
+                    continue
+                confidence = 0.5
+                if centroids:
+                    distances = [
+                        (
+                            idx,
+                            np.hypot(
+                                state.centroid[0] - c[0], state.centroid[1] - c[1]
+                            ),
+                        )
+                        for idx, c in enumerate(centroids)
+                    ]
+                    nearest_idx = min(distances, key=lambda item: item[1])[0]
+                    area = contour_areas[nearest_idx]
+                    confidence = min(0.99, 0.5 + (area / 5000.0))
+                if confidence < self.confidence_threshold:
+                    continue
+                detection = {
+                    "object_id": f"cv-{topic.replace('/', '-')}-track-{object_id}",
+                    "camera_topic": topic,
+                    "position_x": round(state.centroid[0], 1),
+                    "position_y": round(state.centroid[1], 1),
+                    "confidence": round(confidence, 3),
+                }
+                try:
+                    self._detection_queue.put_nowait(detection)
+                except queue.Full:
+                    self.get_logger().debug(
+                        "Detection queue full; dropping frame detections."
+                    )
+                    break
 
         def destroy_node(self):
             self._ws_stop.set()

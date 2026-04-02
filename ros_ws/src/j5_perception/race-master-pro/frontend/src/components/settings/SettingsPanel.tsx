@@ -79,6 +79,7 @@ function findNearestSplineIndex(points: TrackPoint[], target: TrackPoint): numbe
 
 export default function SettingsPanel() {
     const { refreshRaceState, liveRace, recentVisionObjects } = useRaceContext()
+    const safeRecentVisionObjects = Array.isArray(recentVisionObjects) ? recentVisionObjects : []
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
     const [busyStepId, setBusyStepId] = useState<string | null>(null)
     const [error, setError] = useState('')
@@ -595,17 +596,17 @@ export default function SettingsPanel() {
                                         placeholder="tracker object id (e.g. yolo-track-17)"
                                     />
                                     <datalist id={`object-id-options-${racer.racer_profile_id}`}>
-                                        {recentVisionObjects.map(item => (
+                                        {safeRecentVisionObjects.map(item => (
                                             <option key={item.objectId} value={item.objectId} />
                                         ))}
                                     </datalist>
                                 </label>
                             ))}
-                            {recentVisionObjects.length > 0 ? (
+                            {safeRecentVisionObjects.length > 0 ? (
                                 <div className="rounded border border-slate-700 bg-slate-900/60 p-2 text-[11px] text-slate-300 space-y-1">
                                     <p className="font-semibold text-slate-200">Live object IDs (from Vision tracking):</p>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {recentVisionObjects.map(item => (
+                                        {safeRecentVisionObjects.map(item => (
                                             <button
                                                 key={item.objectId}
                                                 type="button"

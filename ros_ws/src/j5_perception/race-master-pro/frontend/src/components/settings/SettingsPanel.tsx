@@ -80,8 +80,6 @@ function findNearestSplineIndex(points: TrackPoint[], target: TrackPoint): numbe
 export default function SettingsPanel() {
     const { refreshRaceState, liveRace, recentVisionObjects } = useRaceContext()
     const safeRecentVisionObjects = Array.isArray(recentVisionObjects) ? recentVisionObjects : []
-    const getLiveRacers = () => (Array.isArray(liveRace?.racers) ? liveRace.racers : [])
-    const liveRacers = getLiveRacers()
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
     const [busyStepId, setBusyStepId] = useState<string | null>(null)
     const [error, setError] = useState('')

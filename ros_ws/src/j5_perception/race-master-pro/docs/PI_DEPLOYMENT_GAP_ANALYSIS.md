@@ -37,7 +37,7 @@ This document maps your target architecture to what is already implemented in `r
    - React UI includes dashboard, leaderboard, championship view, racer manager, analytics, track canvas, and settings panels.
 4. **Perception integration path exists**
    - ROS2 node and standalone runner are present.
-   - Standalone runner can stream mock detections over WebSocket for end-to-end flow testing.
+   - Standalone runner can stream mock detections and camera-based motion tracking detections over WebSocket for end-to-end flow testing.
 
 ---
 
@@ -91,6 +91,7 @@ This document maps your target architecture to what is already implemented in `r
    - Guided confirmation and revision screens for racers/cars/race format before green flag.
 3. **Video stream endpoint integration**
    - Publish annotated feed (e.g., RTSP/WebRTC) and embed in browser panel.
+   - Note: object ID tracking events are now available via websocket, but annotated browser video streaming is still pending.
 
 ---
 
@@ -114,4 +115,3 @@ Use this as go/no-go criteria:
 - camera discovered
 - snapshot captured
 - setup summary reviewed and accepted
-

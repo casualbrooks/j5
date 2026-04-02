@@ -79,6 +79,8 @@ function findNearestSplineIndex(points: TrackPoint[], target: TrackPoint): numbe
 
 export default function SettingsPanel() {
     const { refreshRaceState, liveRace, recentVisionObjects } = useRaceContext()
+    const safeRecentVisionObjects = Array.isArray(recentVisionObjects) ? recentVisionObjects : []
+    const racerOptions = Array.isArray(liveRace?.racers) ? liveRace.racers : []
     const [wizard, setWizard] = useState<WizardStatus | null>(null)
     const [busyStepId, setBusyStepId] = useState<string | null>(null)
     const [error, setError] = useState('')
@@ -95,6 +97,7 @@ export default function SettingsPanel() {
     const [markerNotice, setMarkerNotice] = useState('')
     const [trackingBackend, setTrackingBackendState] = useState<TrackingBackend>(getTrackingBackend())
     const [assignmentDraft, setAssignmentDraft] = useState<Record<string, string>>({})
+    const wizardSteps = Array.isArray(wizard?.steps) ? wizard.steps : []
 
     const selectedTrack = useMemo(
         () => tracks.find(track => track.id === selectedTrackId) || null,
@@ -436,7 +439,7 @@ export default function SettingsPanel() {
                 ) : <p className="text-xs text-emerald-400">All setup steps are currently marked connected.</p>}
 
                 <div className="space-y-3">
-                    {wizard?.steps.map((step, idx) => (
+                    {wizardSteps.map((step, idx) => (
                         <div key={step.id} className={`rounded border p-3 ${step.connected ? 'border-emerald-700 bg-emerald-950/30' : 'border-amber-700 bg-amber-950/30'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
@@ -457,7 +460,7 @@ export default function SettingsPanel() {
                                 <button className="rounded bg-rose-700 px-3 py-1 text-xs font-semibold text-white" onClick={() => runStepAction(step.id, 'stop')} disabled={busyStepId === step.id}>Stop</button>
                             </div>
 
-                            {step.checks.length > 0 ? (
+                            {Array.isArray(step.checks) && step.checks.length > 0 ? (
                                 <ul className="mt-3 space-y-1 text-xs">
                                     {step.checks.map(check => (
                                         <li key={check.command} className={check.ok ? 'text-emerald-300' : 'text-rose-300'}>
@@ -584,7 +587,7 @@ export default function SettingsPanel() {
                         <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-2">
                             <p><strong>Racer object assignment</strong></p>
                             <p>Assign the tracker object id for each racer. During race tracking, only assigned objects are annotated and lap-checked.</p>
-                            {(liveRace?.racers || []).map(racer => (
+                            {racerOptions.map(racer => (
                                 <label key={racer.racer_profile_id} className="block">
                                     <span className="text-slate-200">{racer.name} (#{racer.number || '?'})</span>
                                     <input
@@ -595,23 +598,23 @@ export default function SettingsPanel() {
                                         placeholder="tracker object id (e.g. yolo-track-17)"
                                     />
                                     <datalist id={`object-id-options-${racer.racer_profile_id}`}>
-                                        {recentVisionObjects.map(item => (
+                                        {safeRecentVisionObjects.map(item => (
                                             <option key={item.objectId} value={item.objectId} />
                                         ))}
                                     </datalist>
                                 </label>
                             ))}
-                            {recentVisionObjects.length > 0 ? (
+                            {safeRecentVisionObjects.length > 0 ? (
                                 <div className="rounded border border-slate-700 bg-slate-900/60 p-2 text-[11px] text-slate-300 space-y-1">
                                     <p className="font-semibold text-slate-200">Live object IDs (from Vision tracking):</p>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {recentVisionObjects.map(item => (
+                                        {safeRecentVisionObjects.map(item => (
                                             <button
                                                 key={item.objectId}
                                                 type="button"
                                                 className="rounded bg-slate-800 px-2 py-0.5 text-[11px] hover:bg-slate-700"
                                                 onClick={() => {
-                                                    const firstUnassigned = (liveRace?.racers || [])
+                                                    const firstUnassigned = racerOptions
                                                         .find(racer => !(assignmentDraft[racer.racer_profile_id] || '').trim())
                                                     if (!firstUnassigned) return
                                                     setAssignmentDraft(prev => ({ ...prev, [firstUnassigned.racer_profile_id]: item.objectId }))

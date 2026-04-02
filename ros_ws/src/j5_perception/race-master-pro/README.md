@@ -108,7 +108,7 @@ ros2 run racetracker_perception perception_node
 ```
 
 When standalone camera mode is running, it publishes `visionDetection` websocket
-events with object IDs like `cv-track-1`, `cv-track-2`, etc. The **Computer Vision**
+events with object IDs like `cv-cam1-track-1`, `cv-cam1-track-2`, etc. The **Computer Vision**
 panel will show those IDs in **Recent object detections**, and you can assign
 them to racers in **Settings → Racer tracking assignments**.
 

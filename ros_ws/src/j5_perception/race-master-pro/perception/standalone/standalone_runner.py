@@ -76,16 +76,20 @@ class SimpleCentroidTracker:
         used_cols: set[int] = set()
 
         for row in rows:
-            col = int(distances[row].argmin())
-            if row in used_rows or col in used_cols:
+            if row in used_rows:
                 continue
-            if float(distances[row, col]) > self.max_distance:
-                continue
-            object_id = object_ids[row]
-            self.objects[object_id].centroid = centroids[col]
-            self.objects[object_id].disappeared = 0
-            used_rows.add(row)
-            used_cols.add(col)
+            for col in np.argsort(distances[row]):
+                col = int(col)
+                if col in used_cols:
+                    continue
+                if float(distances[row, col]) > self.max_distance:
+                    continue
+                object_id = object_ids[row]
+                self.objects[object_id].centroid = centroids[col]
+                self.objects[object_id].disappeared = 0
+                used_rows.add(row)
+                used_cols.add(col)
+                break
 
         for row, object_id in enumerate(object_ids):
             if row in used_rows:
@@ -215,7 +219,7 @@ class StandaloneRunner:
 
             detections.append(
                 {
-                    "object_id": f"mock-track-{i+1}",
+                    "object_id": f"mock-cam1-track-{i+1}",
                     "camera_id": "cam1",
                     "position_x": round(x, 1),
                     "position_y": round(y, 1),
@@ -263,7 +267,7 @@ class StandaloneRunner:
                 continue
             detections.append(
                 {
-                    "object_id": f"cv-track-{object_id}",
+                    "object_id": f"cv-{cam_id}-track-{object_id}",
                     "camera_id": cam_id,
                     "position_x": round(state.centroid[0], 1),
                     "position_y": round(state.centroid[1], 1),

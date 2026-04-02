@@ -1156,11 +1156,26 @@ async def resume_race_from_snapshot(race_id: str):
 async def start_tracking(race_id: str):
     context = await _get_state_json("race_context", {})
     context["tracking_enabled"] = True
+    cv_system_connections = len(manager.active_connections.get("cv_system", []))
+    warning = None
+    if cv_system_connections == 0:
+        warning = (
+            "Tracking enabled, but no cv_system websocket clients are connected. "
+            "Start the perception runner/ROS2 perception node so detections can be produced."
+        )
     context.setdefault("log_stream", []).append(
         f"{datetime.now().isoformat()} Tracking started for race {race_id}"
     )
+    if warning:
+        context.setdefault("log_stream", []).append(
+            f"{datetime.now().isoformat()} WARNING: {warning}"
+        )
     await _set_state_json("race_context", context)
-    return context
+    return {
+        "context": context,
+        "cv_system_connections": cv_system_connections,
+        "warning": warning,
+    }
 
 
 @app.post("/api/races/{race_id}/tracking/stop")

@@ -390,6 +390,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                         setLiveRace(msg.data.race as LiveRaceState)
                     }
                     break
+                }
                 case 'positionUpdate': {
                     if (msg.data.racer_profile_id && msg.data) {
                         const positionX = Number(msg.data.position_x)
@@ -410,55 +411,8 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                     }
                     break
                 }
-                case 'visionDetection':
-                    {
-                        const selectedTrackId = getSelectedTrackId()
-                        const assignments = selectedTrackId ? getTrackRacerAssignments(selectedTrackId) : {}
-                        const incomingObjectId = String(
-                            msg.data.object_id
-                            || msg.data.tracker_id
-                            || msg.data.detection_id
-                            || msg.data.track_id
-                            || '',
-                        ).trim()
-                        const x = Number(msg.data.position_x)
-                        const y = Number(msg.data.position_y)
-                        const position = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
-                        if (incomingObjectId) {
-                            setRecentVisionObjects(prev => {
-                                const next = [
-                                    { objectId: incomingObjectId, seenAt: Date.now(), position },
-                                    ...prev.filter(item => item.objectId !== incomingObjectId),
-                                ]
-                                return next.slice(0, 24)
-                            })
-                        }
-                        let racerId = String(msg.data.racer_profile_id || '').trim()
-                        if (incomingObjectId) {
-                            const match = Object.entries(assignments).find(([, objectId]) => objectId === incomingObjectId)
-                            racerId = match?.[0] || ''
-                        }
-                        if (!racerId) break
-                        if (Object.keys(assignments).length > 0 && !assignments[racerId]) {
-                            break
-                        }
-                        if (incomingObjectId) {
-                            setRecentObjectDetections(prev => {
-                                const next = [
-                                    { objectId: incomingObjectId, racerProfileId: racerId, seenAt: Date.now() },
-                                    ...prev.filter(item => !(item.objectId === incomingObjectId && item.racerProfileId === racerId)),
-                                ]
-                                return next.slice(0, 12)
-                            })
-                        }
-                        const x = Number(msg.data.position_x)
-                        const y = Number(msg.data.position_y)
-                        if (Number.isFinite(x) && Number.isFinite(y)) {
-                            const position = { x, y }
-                            updateRacerPosition(racerId, { track_position: position, tracked_object_id: incomingObjectId || null })
-                            void evaluateCheckpointProgress(racerId, position)
-                        }
-                    }
+                case 'visionDetection': {
+                    handleVisionDetection(msg.data)
                     break
                 }
                 case 'raceStart':

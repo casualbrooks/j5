@@ -34,27 +34,14 @@ if ROS2_AVAILABLE:
     except ImportError:
         websockets = None  # type: ignore
 
-    cv2_import_error = ""
-    numpy_import_error = ""
-    cv_bridge_import_error = ""
-
     try:
         import cv2
-    except ImportError as exc:
-        cv2 = None  # type: ignore
-        cv2_import_error = str(exc)
-
-    try:
         import numpy as np
-    except ImportError as exc:
-        np = None  # type: ignore
-        numpy_import_error = str(exc)
-
-    try:
         from cv_bridge import CvBridge
-    except ImportError as exc:
+    except ImportError:
+        cv2 = None  # type: ignore
+        np = None  # type: ignore
         CvBridge = None  # type: ignore
-        cv_bridge_import_error = str(exc)
 
     @dataclass
     class TrackerState:
@@ -200,25 +187,9 @@ if ROS2_AVAILABLE:
                 self.get_logger().warning(
                     "OpenCV/Numpy not available. Install python3-opencv + numpy for motion tracking detections."
                 )
-                if cv2 is None and cv2_import_error:
-                    self.get_logger().warning(
-                        f"OpenCV import error detail: {cv2_import_error}"
-                    )
-                if np is None and numpy_import_error:
-                    self.get_logger().warning(
-                        f"NumPy import error detail: {numpy_import_error}"
-                    )
             if self._bridger is None:
                 self.get_logger().warning(
-                    "cv_bridge not available. Build/source vision_opencv (cv_bridge) in the active ROS overlay so Python can import cv_bridge."
-                )
-                if cv_bridge_import_error:
-                    self.get_logger().warning(
-                        f"cv_bridge import error detail: {cv_bridge_import_error}"
-                    )
-                self.get_logger().warning(f"Python executable: {sys.executable}")
-                self.get_logger().warning(
-                    "If using source-built ROS (no /opt underlay), ensure your current shell has that install overlay sourced before running this node."
+                    "cv_bridge not available. Install ROS cv_bridge to convert Image frames."
                 )
             self._start_ws_bridge()
 

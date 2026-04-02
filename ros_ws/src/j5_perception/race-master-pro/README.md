@@ -94,12 +94,28 @@ FastAPI service lives on a different host or port.
 ### 3. Run the Perception System
 
 ```bash
-# Standalone mode (no ROS2 needed, uses mock cameras)
-python -m perception.standalone.standalone_runner
+# Standalone mode with a real USB camera (no ROS2 required)
+python -m perception.standalone.standalone_runner \
+  --camera-source /dev/video0 \
+  --camera-id cam1 \
+  --ws-url ws://<api-host>:8080/ws?client_type=cv_system
 
-# ROS2 node mode (requires sourced underlay + overlay in THIS shell)
+# Optional: mock mode for quick UI testing only
+python -m perception.standalone.standalone_runner --use-mock
+
+# ROS2 node mode (requires sourced underlay + overlay in this shell)
 ros2 run racetracker_perception perception_node
 ```
+
+When standalone camera mode is running, it publishes `visionDetection` websocket
+events with object IDs like `cv-cam1-track-1`, `cv-cam1-track-2`, etc. The **Computer Vision**
+panel will show those IDs in **Recent object detections**, and you can assign
+them to racers in **Settings → Racer tracking assignments**.
+
+`perception_node` now establishes a `cv_system` websocket connection so backend
+tracking controls recognize the node as connected, but the ROS2 image-to-detection
+pipeline is still under active development. For live object IDs today, run the
+standalone camera runner command above.
 
 If you see `ros2: command not found` here, re-source before running the node:
 
@@ -127,6 +143,20 @@ source ~/j5/ros_ws/install/setup.bash
 ros2 pkg list | rg '^sensor_msgs$'
 python3 -c "from sensor_msgs.msg import Image; print('sensor_msgs OK')"
 ```
+
+### 4. Operator flow for camera-based object tracking
+
+1. Start backend + frontend.
+2. Start camera preview (`scripts/pi_preflight.py --serve-preview ...`) so you can position camera framing.
+3. Start standalone perception camera runner (`python -m perception.standalone.standalone_runner --camera-source /dev/video0 ...`).
+4. In UI **Settings**, initialize race state and assign each racer a live object ID from detections.
+5. In **Computer Vision**, click **Start Tracking**.
+6. In **Dashboard**, verify racer markers move with incoming detections.
+
+If detections do not appear:
+- Confirm the runner is connected to `ws://<api-host>:8080/ws?client_type=cv_system`.
+- Confirm only one process has exclusive access to `/dev/video0`.
+- Move cars clearly across frame (motion-based detector filters static background).
 
 If `sensor_msgs` is still missing, make sure you are building the underlay (not `~/j5/ros_ws`), then re-source both layers:
 

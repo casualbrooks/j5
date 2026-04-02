@@ -150,10 +150,19 @@ export default function VisionPanel() {
         const endpoint = start ? `/api/races/${raceId}/tracking/start` : `/api/races/${raceId}/tracking/stop`
         const response = await apiFetch(endpoint, { method: 'POST' })
         if (response.ok) {
+            const payload = await response.json() as { warning?: string }
             await refreshWizardContext()
+            if (start && payload.warning) {
+                setStatusMessage(payload.warning)
+                setStatusError(true)
+                return
+            }
             setStatusMessage(start ? 'Object tracking started.' : 'Object tracking stopped.')
             setStatusError(false)
+            return
         }
+        setStatusMessage(start ? 'Unable to start object tracking.' : 'Unable to stop object tracking.')
+        setStatusError(true)
     }
 
     return (

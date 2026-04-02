@@ -112,11 +112,6 @@ events with object IDs like `cv-cam1-track-1`, `cv-cam1-track-2`, etc. The **Com
 panel will show those IDs in **Recent object detections**, and you can assign
 them to racers in **Settings → Racer tracking assignments**.
 
-`perception_node` now establishes a `cv_system` websocket connection so backend
-tracking controls recognize the node as connected, but the ROS2 image-to-detection
-pipeline is still under active development. For live object IDs today, run the
-standalone camera runner command above.
-
 If you see `ros2: command not found` here, re-source before running the node:
 
 ```bash

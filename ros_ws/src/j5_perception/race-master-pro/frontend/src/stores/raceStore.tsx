@@ -15,6 +15,7 @@ interface RaceContextValue {
     wsRef: React.MutableRefObject<WebSocket | null>
     sendWsMessage: (msg: Record<string, unknown>) => void
     refreshRaceState: (raceId?: string | null) => Promise<void>
+    recentVisionObjects: Array<{ objectId: string, seenAt: number, position: TrackPoint | null }>
     recentObjectDetections: Array<{ objectId: string, racerProfileId: string, seenAt: number }>
 }
 
@@ -136,6 +137,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const wsRef = useRef<WebSocket | null>(null)
     const liveRaceRef = useRef<LiveRaceState | null>(null)
     const checkpointStateRef = useRef<Map<string, RacerCheckpointState>>(new Map())
+    const [recentVisionObjects, setRecentVisionObjects] = useState<Array<{ objectId: string, seenAt: number, position: TrackPoint | null }>>([])
     const [recentObjectDetections, setRecentObjectDetections] = useState<Array<{ objectId: string, racerProfileId: string, seenAt: number }>>([])
     const checkpointsRef = useRef<Checkpoint[]>([])
     const requiredCheckpointIdsRef = useRef<Set<string>>(new Set())
@@ -504,6 +506,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             wsRef,
             sendWsMessage,
             refreshRaceState,
+            recentVisionObjects,
             recentObjectDetections,
         }}>
             {children}

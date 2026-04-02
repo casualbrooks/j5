@@ -7,6 +7,10 @@ Usage:
 """
 
 import sys
+import threading
+import asyncio
+import json
+import time
 
 try:
     import rclpy
@@ -21,6 +25,11 @@ except ImportError:
 
 if ROS2_AVAILABLE:
     from sensor_msgs.msg import Image, CameraInfo
+
+    try:
+        import websockets
+    except ImportError:
+        websockets = None  # type: ignore
 
     class RaceMasterPerceptionNode(Node):
         """ROS2 node that subscribes to camera image topics and publishes racer detections."""
@@ -50,6 +59,11 @@ if ROS2_AVAILABLE:
                 .get_parameter_value()
                 .double_value
             )
+            self.ws_url = (
+                self.get_parameter("ws_url").get_parameter_value().string_value
+            )
+            self._ws_stop = threading.Event()
+            self._ws_thread = None
 
             # Create subscribers for each camera topic
             self.image_subscriptions = []
@@ -66,6 +80,46 @@ if ROS2_AVAILABLE:
             self.get_logger().info("Race Master Pro — Perception Node started")
             self.get_logger().info(f"Model: {self.model_path}")
             self.get_logger().info(f"Confidence threshold: {self.confidence_threshold}")
+            self.get_logger().info(f"WebSocket target: {self.ws_url}")
+            self.get_logger().warning(
+                "ROS2 camera subscription is active, but AI detection/tracking is not implemented in this node yet."
+            )
+            self._start_ws_bridge()
+
+        def _start_ws_bridge(self):
+            if websockets is None:
+                self.get_logger().warning(
+                    "python package 'websockets' is not installed; cv_system websocket connection is disabled."
+                )
+                return
+            self._ws_thread = threading.Thread(target=self._ws_worker, daemon=True)
+            self._ws_thread.start()
+
+        def _ws_worker(self):
+            asyncio.run(self._ws_worker_async())
+
+        async def _ws_worker_async(self):
+            while not self._ws_stop.is_set():
+                try:
+                    async with websockets.connect(self.ws_url) as ws:
+                        self.get_logger().info(
+                            "Connected to backend websocket as cv_system client."
+                        )
+                        while not self._ws_stop.is_set():
+                            await ws.send(
+                                json.dumps(
+                                    {
+                                        "type": "ping",
+                                        "timestamp": time.time(),
+                                    }
+                                )
+                            )
+                            await asyncio.sleep(10.0)
+                except Exception as exc:
+                    self.get_logger().warning(
+                        f"WebSocket bridge disconnected ({exc}); retrying in 3s."
+                    )
+                    await asyncio.sleep(3.0)
 
         def image_callback(self, msg: Image, topic: str):
             """Process an incoming camera image."""
@@ -75,6 +129,12 @@ if ROS2_AVAILABLE:
             self.get_logger().debug(
                 f"Received frame from {topic}: {msg.width}x{msg.height}"
             )
+
+        def destroy_node(self):
+            self._ws_stop.set()
+            if self._ws_thread and self._ws_thread.is_alive():
+                self._ws_thread.join(timeout=2.0)
+            return super().destroy_node()
 
     def main(args=None):
         rclpy.init(args=args)

@@ -8,7 +8,7 @@ import Analytics from '@/components/analytics/Analytics'
 import ChampionshipView from '@/components/championship/ChampionshipView'
 import RacerManager from '@/components/racers/RacerManager'
 import VisionPanel from '@/components/vision/VisionPanel'
-import SettingsPanel from '@/components/settings/SettingsPanel'
+import SettingsPanel from '@/components/settings/SettingsPanelView'
 import { RaceProvider, useRaceContext } from '@/stores/raceStore'
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; message: string }> {

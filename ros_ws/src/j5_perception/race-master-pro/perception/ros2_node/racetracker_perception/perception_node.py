@@ -139,14 +139,6 @@ if ROS2_AVAILABLE:
             # Declare parameters
             self.declare_parameter("camera_topics", ["/camera/cam1/image_raw"])
             self.declare_parameter("auto_discover_camera_topics", True)
-            self.declare_parameter("use_yolo", True)
-            self.declare_parameter("fallback_to_motion_tracking", True)
-            self.declare_parameter(
-                "yolo_target_classes", rclpy.Parameter.Type.INTEGER_ARRAY
-            )
-            self.declare_parameter("yolo_min_box_area", 0.0)
-            self.declare_parameter("motion_min_area", 250.0)
-            self.declare_parameter("motion_min_box_size", 10.0)
             self.declare_parameter("model_path", "perception/models/yolov8n.pt")
             self.declare_parameter("confidence_threshold", 0.5)
             self.declare_parameter(
@@ -163,33 +155,6 @@ if ROS2_AVAILABLE:
                 self.get_parameter("auto_discover_camera_topics")
                 .get_parameter_value()
                 .bool_value
-            )
-            self.use_yolo = (
-                self.get_parameter("use_yolo").get_parameter_value().bool_value
-            )
-            self.fallback_to_motion_tracking = (
-                self.get_parameter("fallback_to_motion_tracking")
-                .get_parameter_value()
-                .bool_value
-            )
-            self.yolo_target_classes = {
-                int(value)
-                for value in self.get_parameter("yolo_target_classes")
-                .get_parameter_value()
-                .integer_array_value
-            }
-            self.yolo_min_box_area = (
-                self.get_parameter("yolo_min_box_area")
-                .get_parameter_value()
-                .double_value
-            )
-            self.motion_min_area = (
-                self.get_parameter("motion_min_area").get_parameter_value().double_value
-            )
-            self.motion_min_box_size = (
-                self.get_parameter("motion_min_box_size")
-                .get_parameter_value()
-                .double_value
             )
             self.model_path = (
                 self.get_parameter("model_path").get_parameter_value().string_value
@@ -212,12 +177,6 @@ if ROS2_AVAILABLE:
             self._configured_camera_topics: set[str] = {
                 topic.strip() for topic in camera_topics if topic.strip()
             }
-            self._yolo_model = None
-            self._frames_seen = 0
-            self._yolo_candidate_frames = 0
-            self._motion_candidate_frames = 0
-            self._detections_sent = 0
-            self._load_yolo_model()
 
             # Create subscribers for each configured camera topic
             self.image_subscriptions = []
@@ -226,7 +185,6 @@ if ROS2_AVAILABLE:
             self._topic_refresh_timer = self.create_timer(
                 5.0, self._refresh_camera_subscriptions
             )
-            self._health_timer = self.create_timer(10.0, self._log_detection_health)
 
             self.get_logger().info("Race Master Pro — Perception Node started")
             self.get_logger().info(f"Model: {self.model_path}")
@@ -234,18 +192,6 @@ if ROS2_AVAILABLE:
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
             self.get_logger().info(
                 f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
-            )
-            self.get_logger().info(f"YOLO enabled: {self.use_yolo}")
-            self.get_logger().info(
-                f"Motion fallback enabled: {self.fallback_to_motion_tracking}"
-            )
-            self.get_logger().info(
-                "YOLO target classes: "
-                + (
-                    ",".join(str(item) for item in sorted(self.yolo_target_classes))
-                    if self.yolo_target_classes
-                    else "all"
-                )
             )
             if cv2 is None or np is None:
                 self.get_logger().warning(
@@ -257,43 +203,6 @@ if ROS2_AVAILABLE:
                 )
             self._start_ws_bridge()
             self._refresh_camera_subscriptions()
-
-        def _log_detection_health(self):
-            if self._frames_seen == 0:
-                return
-            mode = "yolo" if self._yolo_model is not None else "motion-only"
-            self.get_logger().info(
-                "Detection health: "
-                f"mode={mode}, frames={self._frames_seen}, "
-                f"yolo_frames={self._yolo_candidate_frames}, "
-                f"motion_frames={self._motion_candidate_frames}, "
-                f"detections_sent={self._detections_sent}"
-            )
-
-        def _load_yolo_model(self):
-            if not self.use_yolo:
-                return
-            if YOLO is None:
-                self.get_logger().warning(
-                    "ultralytics is not installed; YOLO inference disabled."
-                )
-                return
-            model_path = Path(self.model_path)
-            try:
-                # Allow both local paths and Ultralytics model identifiers
-                # (e.g. "yolov8n.pt"), which may download/resolve at runtime.
-                self._yolo_model = YOLO(self.model_path)
-                if model_path.exists():
-                    self.get_logger().info(f"YOLO model loaded from {model_path}")
-                else:
-                    self.get_logger().info(
-                        f"YOLO model loaded using identifier '{self.model_path}'"
-                    )
-            except Exception as exc:
-                self.get_logger().warning(
-                    f"Failed to load YOLO model '{self.model_path}': {exc}"
-                )
-                self._yolo_model = None
 
         def _subscribe_to_camera_topic(
             self, topic: str, announce_reason: str = "auto-discovered"
@@ -332,16 +241,7 @@ if ROS2_AVAILABLE:
                     self._subscribe_to_camera_topic(
                         topic, announce_reason="auto-discovered"
                     )
-            configured_with_publishers: set[str] = set()
-            for topic in self._configured_camera_topics:
-                if topic not in active_topics:
-                    continue
-                try:
-                    if self.get_publishers_info_by_topic(topic):
-                        configured_with_publishers.add(topic)
-                except Exception:
-                    # Topic may disappear between graph queries.
-                    continue
+            configured_with_publishers = self._configured_camera_topics & active_topics
             if (
                 self._configured_camera_topics
                 and active_topics
@@ -407,7 +307,9 @@ if ROS2_AVAILABLE:
                     )
                     await asyncio.sleep(3.0)
 
-        def _motion_candidates(self, frame, subtractor) -> list[dict]:
+        def _motion_candidates(
+            self, frame, subtractor
+        ) -> list[tuple[tuple[float, float], float]]:
             if cv2 is None or np is None:
                 return []
             mask = subtractor.apply(frame)
@@ -420,7 +322,7 @@ if ROS2_AVAILABLE:
             contours, _ = cv2.findContours(
                 cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
-            candidates: list[dict] = []
+            candidates: list[tuple[tuple[float, float], float]] = []
             for contour in contours:
                 area = cv2.contourArea(contour)
                 if area < self.motion_min_area:
@@ -471,50 +373,40 @@ if ROS2_AVAILABLE:
                 coords = box.xyxy.tolist()[0] if box.xyxy is not None else []
                 if len(coords) != 4:
                     continue
-                x1, y1, x2, y2 = coords
-                box_area = max(0.0, (x2 - x1) * (y2 - y1))
-                if box_area < self.yolo_min_box_area:
-                    continue
-                centroid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-                candidates.append(
-                    {
-                        "centroid": centroid,
-                        "confidence": confidence,
-                        "source": "yolo",
-                    }
-                )
+                confidence = min(0.99, 0.5 + (float(area) / 5000.0))
+                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
             return candidates
 
-        def _normalize_candidates(self, raw_candidates) -> list[dict]:
-            normalized: list[dict] = []
-            for candidate in raw_candidates:
-                if isinstance(candidate, dict):
-                    centroid = candidate.get("centroid")
-                    confidence = candidate.get("confidence")
-                    source = candidate.get("source", "unknown")
-                elif isinstance(candidate, (tuple, list)) and len(candidate) >= 2:
-                    centroid = candidate[0]
-                    confidence = candidate[1]
-                    source = "legacy"
-                else:
+        def _yolo_candidates(self, frame) -> list[tuple[tuple[float, float], float]]:
+            if self._yolo_model is None:
+                return []
+            try:
+                results = self._yolo_model.predict(
+                    source=frame,
+                    verbose=False,
+                    conf=float(self.confidence_threshold),
+                )
+            except Exception as exc:
+                self.get_logger().warning(f"YOLO inference failed: {exc}")
+                return []
+            if not results:
+                return []
+            boxes = getattr(results[0], "boxes", None)
+            if boxes is None:
+                return []
+            candidates: list[tuple[tuple[float, float], float]] = []
+            for box in boxes:
+                conf_values = box.conf.tolist() if box.conf is not None else []
+                if not conf_values:
                     continue
-                if (
-                    not isinstance(centroid, (tuple, list))
-                    or len(centroid) != 2
-                    or confidence is None
-                ):
+                confidence = float(conf_values[0])
+                coords = box.xyxy.tolist()[0] if box.xyxy is not None else []
+                if len(coords) != 4:
                     continue
-                try:
-                    normalized.append(
-                        {
-                            "centroid": (float(centroid[0]), float(centroid[1])),
-                            "confidence": float(confidence),
-                            "source": str(source),
-                        }
-                    )
-                except (TypeError, ValueError):
-                    continue
-            return normalized
+                x1, y1, x2, y2 = coords
+                centroid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+                candidates.append((centroid, confidence))
+            return candidates
 
         def image_callback(self, msg: Image, topic: str):
             """Process an incoming camera image."""
@@ -531,39 +423,29 @@ if ROS2_AVAILABLE:
                 self.get_logger().warning(f"Failed to decode frame from {topic}: {exc}")
                 return
 
-            self._frames_seen += 1
-            candidates = self._normalize_candidates(self._yolo_candidates(frame))
-            if candidates:
-                self._yolo_candidate_frames += 1
+            candidates = self._yolo_candidates(frame)
             if not candidates and self.fallback_to_motion_tracking:
-                candidates = self._normalize_candidates(
-                    self._motion_candidates(frame, subtractor)
-                )
-                if candidates:
-                    self._motion_candidate_frames += 1
-            centroids = [candidate["centroid"] for candidate in candidates]
+                candidates = self._motion_candidates(frame, subtractor)
+            centroids = [centroid for centroid, _confidence in candidates]
 
             tracked = tracker.update(centroids)
             for object_id, state in tracked.items():
                 if state.disappeared != 0:
                     continue
                 confidence = self.confidence_threshold
-                detection_source = "yolo" if self._yolo_model is not None else "motion"
                 if candidates:
                     distances = [
                         (
                             idx,
                             np.hypot(
-                                state.centroid[0] - candidate["centroid"][0],
-                                state.centroid[1] - candidate["centroid"][1],
+                                state.centroid[0] - candidate[0][0],
+                                state.centroid[1] - candidate[0][1],
                             ),
                         )
                         for idx, candidate in enumerate(candidates)
                     ]
                     nearest_idx = min(distances, key=lambda item: item[1])[0]
-                    nearest_candidate = candidates[nearest_idx]
-                    confidence = float(nearest_candidate["confidence"])
-                    detection_source = str(nearest_candidate["source"])
+                    confidence = float(candidates[nearest_idx][1])
                 if confidence < self.confidence_threshold:
                     continue
                 detection = {

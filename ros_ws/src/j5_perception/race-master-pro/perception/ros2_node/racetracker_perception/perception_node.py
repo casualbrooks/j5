@@ -14,6 +14,7 @@ import time
 import queue
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
 try:
     import rclpy
@@ -42,6 +43,11 @@ if ROS2_AVAILABLE:
         cv2 = None  # type: ignore
         np = None  # type: ignore
         CvBridge = None  # type: ignore
+
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        YOLO = None  # type: ignore
 
     @dataclass
     class TrackerState:
@@ -301,6 +307,64 @@ if ROS2_AVAILABLE:
                     )
                     await asyncio.sleep(3.0)
 
+        def _motion_candidates(
+            self, frame, subtractor
+        ) -> list[tuple[tuple[float, float], float]]:
+            if cv2 is None or np is None:
+                return []
+            mask = subtractor.apply(frame)
+            mask = cv2.GaussianBlur(mask, (5, 5), 0)
+            _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
+            kernel = np.ones((3, 3), dtype=np.uint8)
+            cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+            cleaned = cv2.dilate(cleaned, kernel, iterations=2)
+
+            contours, _ = cv2.findContours(
+                cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            candidates: list[tuple[tuple[float, float], float]] = []
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < 250:
+                    continue
+                x, y, w, h = cv2.boundingRect(contour)
+                if w < 10 or h < 10:
+                    continue
+                confidence = min(0.99, 0.5 + (float(area) / 5000.0))
+                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
+            return candidates
+
+        def _yolo_candidates(self, frame) -> list[tuple[tuple[float, float], float]]:
+            if self._yolo_model is None:
+                return []
+            try:
+                results = self._yolo_model.predict(
+                    source=frame,
+                    verbose=False,
+                    conf=float(self.confidence_threshold),
+                )
+            except Exception as exc:
+                self.get_logger().warning(f"YOLO inference failed: {exc}")
+                return []
+            if not results:
+                return []
+            boxes = getattr(results[0], "boxes", None)
+            if boxes is None:
+                return []
+            candidates: list[tuple[tuple[float, float], float]] = []
+            for box in boxes:
+                conf_values = box.conf.tolist() if box.conf is not None else []
+                if not conf_values:
+                    continue
+                confidence = float(conf_values[0])
+                coords = box.xyxy.tolist()[0] if box.xyxy is not None else []
+                if len(coords) != 4:
+                    continue
+                x1, y1, x2, y2 = coords
+                centroid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+                candidates.append((centroid, confidence))
+            return candidates
+
         def image_callback(self, msg: Image, topic: str):
             """Process an incoming camera image."""
             if self._bridger is None or cv2 is None or np is None:
@@ -316,46 +380,29 @@ if ROS2_AVAILABLE:
                 self.get_logger().warning(f"Failed to decode frame from {topic}: {exc}")
                 return
 
-            mask = subtractor.apply(frame)
-            mask = cv2.GaussianBlur(mask, (5, 5), 0)
-            _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
-            kernel = np.ones((3, 3), dtype=np.uint8)
-            cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
-            cleaned = cv2.dilate(cleaned, kernel, iterations=2)
-
-            contours, _ = cv2.findContours(
-                cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            centroids: list[tuple[float, float]] = []
-            contour_areas: list[float] = []
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area < 250:
-                    continue
-                x, y, w, h = cv2.boundingRect(contour)
-                if w < 10 or h < 10:
-                    continue
-                centroids.append((x + (w / 2.0), y + (h / 2.0)))
-                contour_areas.append(float(area))
+            candidates = self._yolo_candidates(frame)
+            if not candidates and self.fallback_to_motion_tracking:
+                candidates = self._motion_candidates(frame, subtractor)
+            centroids = [centroid for centroid, _confidence in candidates]
 
             tracked = tracker.update(centroids)
             for object_id, state in tracked.items():
                 if state.disappeared != 0:
                     continue
-                confidence = 0.5
-                if centroids:
+                confidence = self.confidence_threshold
+                if candidates:
                     distances = [
                         (
                             idx,
                             np.hypot(
-                                state.centroid[0] - c[0], state.centroid[1] - c[1]
+                                state.centroid[0] - candidate[0][0],
+                                state.centroid[1] - candidate[0][1],
                             ),
                         )
-                        for idx, c in enumerate(centroids)
+                        for idx, candidate in enumerate(candidates)
                     ]
                     nearest_idx = min(distances, key=lambda item: item[1])[0]
-                    area = contour_areas[nearest_idx]
-                    confidence = min(0.99, 0.5 + (area / 5000.0))
+                    confidence = float(candidates[nearest_idx][1])
                 if confidence < self.confidence_threshold:
                     continue
                 detection = {

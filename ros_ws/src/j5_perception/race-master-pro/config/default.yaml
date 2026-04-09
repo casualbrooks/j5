@@ -22,7 +22,7 @@ perception:
   # AI model configuration
   ai_model: "yolov8n"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, custom
   model_path: "perception/models/"
-  confidence_threshold: 0.7
+  confidence_threshold: 0.5
   tracker: "deepsort"  # Options: deepsort, bytetrack
 
   # Camera sources (for standalone mode)

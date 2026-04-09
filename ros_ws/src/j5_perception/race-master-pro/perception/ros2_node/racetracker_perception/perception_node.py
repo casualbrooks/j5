@@ -133,7 +133,7 @@ if ROS2_AVAILABLE:
             # Declare parameters
             self.declare_parameter("camera_topics", ["/camera/cam1/image_raw"])
             self.declare_parameter("model_path", "perception/models/yolov8n.pt")
-            self.declare_parameter("confidence_threshold", 0.7)
+            self.declare_parameter("confidence_threshold", 0.5)
             self.declare_parameter(
                 "ws_url", "ws://localhost:8080/ws?client_type=cv_system"
             )

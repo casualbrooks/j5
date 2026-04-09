@@ -14,6 +14,7 @@ import time
 import queue
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
 try:
     import rclpy
@@ -42,6 +43,11 @@ if ROS2_AVAILABLE:
         cv2 = None  # type: ignore
         np = None  # type: ignore
         CvBridge = None  # type: ignore
+
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        YOLO = None  # type: ignore
 
     @dataclass
     class TrackerState:
@@ -132,6 +138,9 @@ if ROS2_AVAILABLE:
 
             # Declare parameters
             self.declare_parameter("camera_topics", ["/camera/cam1/image_raw"])
+            self.declare_parameter("auto_discover_camera_topics", True)
+            self.declare_parameter("use_yolo", True)
+            self.declare_parameter("fallback_to_motion_tracking", True)
             self.declare_parameter("model_path", "perception/models/yolov8n.pt")
             self.declare_parameter("confidence_threshold", 0.5)
             self.declare_parameter(
@@ -143,6 +152,19 @@ if ROS2_AVAILABLE:
                 self.get_parameter("camera_topics")
                 .get_parameter_value()
                 .string_array_value
+            )
+            self.auto_discover_camera_topics = (
+                self.get_parameter("auto_discover_camera_topics")
+                .get_parameter_value()
+                .bool_value
+            )
+            self.use_yolo = (
+                self.get_parameter("use_yolo").get_parameter_value().bool_value
+            )
+            self.fallback_to_motion_tracking = (
+                self.get_parameter("fallback_to_motion_tracking")
+                .get_parameter_value()
+                .bool_value
             )
             self.model_path = (
                 self.get_parameter("model_path").get_parameter_value().string_value
@@ -161,28 +183,32 @@ if ROS2_AVAILABLE:
             self._bridger = CvBridge() if CvBridge is not None else None
             self._trackers: dict[str, SimpleCentroidTracker] = {}
             self._background_models: dict[str, object] = {}
+            self._image_subscription_topics: set[str] = set()
+            self._configured_camera_topics: set[str] = {
+                topic.strip() for topic in camera_topics if topic.strip()
+            }
+            self._yolo_model = None
+            self._load_yolo_model()
 
-            # Create subscribers for each camera topic
+            # Create subscribers for each configured camera topic
             self.image_subscriptions = []
             for topic in camera_topics:
-                sub = self.create_subscription(
-                    Image,
-                    topic,
-                    lambda msg, t=topic: self.image_callback(msg, t),
-                    10,
-                )
-                self.image_subscriptions.append(sub)
-                self._trackers[topic] = SimpleCentroidTracker()
-                if cv2 is not None:
-                    self._background_models[topic] = cv2.createBackgroundSubtractorMOG2(
-                        history=500, varThreshold=24, detectShadows=False
-                    )
-                self.get_logger().info(f"Subscribed to camera topic: {topic}")
+                self._subscribe_to_camera_topic(topic, announce_reason="configured")
+            self._topic_refresh_timer = self.create_timer(
+                5.0, self._refresh_camera_subscriptions
+            )
 
             self.get_logger().info("Race Master Pro — Perception Node started")
             self.get_logger().info(f"Model: {self.model_path}")
             self.get_logger().info(f"Confidence threshold: {self.confidence_threshold}")
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
+            self.get_logger().info(
+                f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
+            )
+            self.get_logger().info(f"YOLO enabled: {self.use_yolo}")
+            self.get_logger().info(
+                f"Motion fallback enabled: {self.fallback_to_motion_tracking}"
+            )
             if cv2 is None or np is None:
                 self.get_logger().warning(
                     "OpenCV/Numpy not available. Install python3-opencv + numpy for motion tracking detections."
@@ -192,6 +218,82 @@ if ROS2_AVAILABLE:
                     "cv_bridge not available. Install ROS cv_bridge to convert Image frames."
                 )
             self._start_ws_bridge()
+            self._refresh_camera_subscriptions()
+
+        def _load_yolo_model(self):
+            if not self.use_yolo:
+                return
+            if YOLO is None:
+                self.get_logger().warning(
+                    "ultralytics is not installed; YOLO inference disabled."
+                )
+                return
+            model_path = Path(self.model_path)
+            if not model_path.exists():
+                self.get_logger().warning(
+                    f"YOLO model file not found at '{self.model_path}'; "
+                    "falling back to motion tracking."
+                )
+                return
+            try:
+                self._yolo_model = YOLO(str(model_path))
+                self.get_logger().info(f"YOLO model loaded from {model_path}")
+            except Exception as exc:
+                self.get_logger().warning(
+                    f"Failed to load YOLO model '{self.model_path}': {exc}"
+                )
+                self._yolo_model = None
+
+        def _subscribe_to_camera_topic(
+            self, topic: str, announce_reason: str = "auto-discovered"
+        ):
+            clean_topic = topic.strip()
+            if not clean_topic or clean_topic in self._image_subscription_topics:
+                return
+            sub = self.create_subscription(
+                Image,
+                clean_topic,
+                lambda msg, t=clean_topic: self.image_callback(msg, t),
+                10,
+            )
+            self.image_subscriptions.append(sub)
+            self._image_subscription_topics.add(clean_topic)
+            self._trackers[clean_topic] = SimpleCentroidTracker()
+            if cv2 is not None:
+                self._background_models[clean_topic] = (
+                    cv2.createBackgroundSubtractorMOG2(
+                        history=500, varThreshold=24, detectShadows=False
+                    )
+                )
+            self.get_logger().info(
+                f"Subscribed to camera topic: {clean_topic} ({announce_reason})"
+            )
+
+        def _refresh_camera_subscriptions(self):
+            active_topics = {
+                name
+                for name, topic_types in self.get_topic_names_and_types()
+                if "sensor_msgs/msg/Image" in topic_types
+            }
+            if self.auto_discover_camera_topics:
+                known_topics = set(self._image_subscription_topics)
+                for topic in sorted(active_topics - known_topics):
+                    self._subscribe_to_camera_topic(
+                        topic, announce_reason="auto-discovered"
+                    )
+            configured_with_publishers = self._configured_camera_topics & active_topics
+            if (
+                self._configured_camera_topics
+                and active_topics
+                and not configured_with_publishers
+            ):
+                sample_topics = ", ".join(sorted(active_topics)[:5])
+                configured_topics = ", ".join(sorted(self._configured_camera_topics))
+                self.get_logger().warning(
+                    "No active image publishers on configured perception camera topics. "
+                    f"Configured topics: {configured_topics}. "
+                    f"Available image topics: {sample_topics}"
+                )
 
         def _start_ws_bridge(self):
             if websockets is None:
@@ -245,6 +347,64 @@ if ROS2_AVAILABLE:
                     )
                     await asyncio.sleep(3.0)
 
+        def _motion_candidates(
+            self, frame, subtractor
+        ) -> list[tuple[tuple[float, float], float]]:
+            if cv2 is None or np is None:
+                return []
+            mask = subtractor.apply(frame)
+            mask = cv2.GaussianBlur(mask, (5, 5), 0)
+            _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
+            kernel = np.ones((3, 3), dtype=np.uint8)
+            cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+            cleaned = cv2.dilate(cleaned, kernel, iterations=2)
+
+            contours, _ = cv2.findContours(
+                cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            candidates: list[tuple[tuple[float, float], float]] = []
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < 250:
+                    continue
+                x, y, w, h = cv2.boundingRect(contour)
+                if w < 10 or h < 10:
+                    continue
+                confidence = min(0.99, 0.5 + (float(area) / 5000.0))
+                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
+            return candidates
+
+        def _yolo_candidates(self, frame) -> list[tuple[tuple[float, float], float]]:
+            if self._yolo_model is None:
+                return []
+            try:
+                results = self._yolo_model.predict(
+                    source=frame,
+                    verbose=False,
+                    conf=float(self.confidence_threshold),
+                )
+            except Exception as exc:
+                self.get_logger().warning(f"YOLO inference failed: {exc}")
+                return []
+            if not results:
+                return []
+            boxes = getattr(results[0], "boxes", None)
+            if boxes is None:
+                return []
+            candidates: list[tuple[tuple[float, float], float]] = []
+            for box in boxes:
+                conf_values = box.conf.tolist() if box.conf is not None else []
+                if not conf_values:
+                    continue
+                confidence = float(conf_values[0])
+                coords = box.xyxy.tolist()[0] if box.xyxy is not None else []
+                if len(coords) != 4:
+                    continue
+                x1, y1, x2, y2 = coords
+                centroid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+                candidates.append((centroid, confidence))
+            return candidates
+
         def image_callback(self, msg: Image, topic: str):
             """Process an incoming camera image."""
             if self._bridger is None or cv2 is None or np is None:
@@ -260,46 +420,29 @@ if ROS2_AVAILABLE:
                 self.get_logger().warning(f"Failed to decode frame from {topic}: {exc}")
                 return
 
-            mask = subtractor.apply(frame)
-            mask = cv2.GaussianBlur(mask, (5, 5), 0)
-            _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
-            kernel = np.ones((3, 3), dtype=np.uint8)
-            cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
-            cleaned = cv2.dilate(cleaned, kernel, iterations=2)
-
-            contours, _ = cv2.findContours(
-                cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            centroids: list[tuple[float, float]] = []
-            contour_areas: list[float] = []
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area < 250:
-                    continue
-                x, y, w, h = cv2.boundingRect(contour)
-                if w < 10 or h < 10:
-                    continue
-                centroids.append((x + (w / 2.0), y + (h / 2.0)))
-                contour_areas.append(float(area))
+            candidates = self._yolo_candidates(frame)
+            if not candidates and self.fallback_to_motion_tracking:
+                candidates = self._motion_candidates(frame, subtractor)
+            centroids = [centroid for centroid, _confidence in candidates]
 
             tracked = tracker.update(centroids)
             for object_id, state in tracked.items():
                 if state.disappeared != 0:
                     continue
-                confidence = 0.5
-                if centroids:
+                confidence = self.confidence_threshold
+                if candidates:
                     distances = [
                         (
                             idx,
                             np.hypot(
-                                state.centroid[0] - c[0], state.centroid[1] - c[1]
+                                state.centroid[0] - candidate[0][0],
+                                state.centroid[1] - candidate[0][1],
                             ),
                         )
-                        for idx, c in enumerate(centroids)
+                        for idx, candidate in enumerate(candidates)
                     ]
                     nearest_idx = min(distances, key=lambda item: item[1])[0]
-                    area = contour_areas[nearest_idx]
-                    confidence = min(0.99, 0.5 + (area / 5000.0))
+                    confidence = float(candidates[nearest_idx][1])
                 if confidence < self.confidence_threshold:
                     continue
                 detection = {

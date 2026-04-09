@@ -168,6 +168,9 @@ if ROS2_AVAILABLE:
             self._trackers: dict[str, SimpleCentroidTracker] = {}
             self._background_models: dict[str, object] = {}
             self._image_subscription_topics: set[str] = set()
+            self._configured_camera_topics: set[str] = {
+                topic.strip() for topic in camera_topics if topic.strip()
+            }
 
             # Create subscribers for each configured camera topic
             self.image_subscriptions = []
@@ -221,21 +224,28 @@ if ROS2_AVAILABLE:
             )
 
         def _refresh_camera_subscriptions(self):
-            known_topics = set(self._image_subscription_topics)
             active_topics = {
                 name
                 for name, topic_types in self.get_topic_names_and_types()
                 if "sensor_msgs/msg/Image" in topic_types
             }
             if self.auto_discover_camera_topics:
+                known_topics = set(self._image_subscription_topics)
                 for topic in sorted(active_topics - known_topics):
                     self._subscribe_to_camera_topic(
                         topic, announce_reason="auto-discovered"
                     )
-            if active_topics and not (known_topics & active_topics):
+            configured_with_publishers = self._configured_camera_topics & active_topics
+            if (
+                self._configured_camera_topics
+                and active_topics
+                and not configured_with_publishers
+            ):
                 sample_topics = ", ".join(sorted(active_topics)[:5])
+                configured_topics = ", ".join(sorted(self._configured_camera_topics))
                 self.get_logger().warning(
                     "No active image publishers on configured perception camera topics. "
+                    f"Configured topics: {configured_topics}. "
                     f"Available image topics: {sample_topics}"
                 )
 

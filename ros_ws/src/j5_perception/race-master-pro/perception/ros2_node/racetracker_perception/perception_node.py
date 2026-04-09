@@ -132,6 +132,7 @@ if ROS2_AVAILABLE:
 
             # Declare parameters
             self.declare_parameter("camera_topics", ["/camera/cam1/image_raw"])
+            self.declare_parameter("auto_discover_camera_topics", True)
             self.declare_parameter("model_path", "perception/models/yolov8n.pt")
             self.declare_parameter("confidence_threshold", 0.5)
             self.declare_parameter(
@@ -143,6 +144,11 @@ if ROS2_AVAILABLE:
                 self.get_parameter("camera_topics")
                 .get_parameter_value()
                 .string_array_value
+            )
+            self.auto_discover_camera_topics = (
+                self.get_parameter("auto_discover_camera_topics")
+                .get_parameter_value()
+                .bool_value
             )
             self.model_path = (
                 self.get_parameter("model_path").get_parameter_value().string_value
@@ -161,28 +167,26 @@ if ROS2_AVAILABLE:
             self._bridger = CvBridge() if CvBridge is not None else None
             self._trackers: dict[str, SimpleCentroidTracker] = {}
             self._background_models: dict[str, object] = {}
+            self._image_subscription_topics: set[str] = set()
+            self._configured_camera_topics: set[str] = {
+                topic.strip() for topic in camera_topics if topic.strip()
+            }
 
-            # Create subscribers for each camera topic
+            # Create subscribers for each configured camera topic
             self.image_subscriptions = []
             for topic in camera_topics:
-                sub = self.create_subscription(
-                    Image,
-                    topic,
-                    lambda msg, t=topic: self.image_callback(msg, t),
-                    10,
-                )
-                self.image_subscriptions.append(sub)
-                self._trackers[topic] = SimpleCentroidTracker()
-                if cv2 is not None:
-                    self._background_models[topic] = cv2.createBackgroundSubtractorMOG2(
-                        history=500, varThreshold=24, detectShadows=False
-                    )
-                self.get_logger().info(f"Subscribed to camera topic: {topic}")
+                self._subscribe_to_camera_topic(topic, announce_reason="configured")
+            self._topic_refresh_timer = self.create_timer(
+                5.0, self._refresh_camera_subscriptions
+            )
 
             self.get_logger().info("Race Master Pro — Perception Node started")
             self.get_logger().info(f"Model: {self.model_path}")
             self.get_logger().info(f"Confidence threshold: {self.confidence_threshold}")
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
+            self.get_logger().info(
+                f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
+            )
             if cv2 is None or np is None:
                 self.get_logger().warning(
                     "OpenCV/Numpy not available. Install python3-opencv + numpy for motion tracking detections."
@@ -192,6 +196,58 @@ if ROS2_AVAILABLE:
                     "cv_bridge not available. Install ROS cv_bridge to convert Image frames."
                 )
             self._start_ws_bridge()
+            self._refresh_camera_subscriptions()
+
+        def _subscribe_to_camera_topic(
+            self, topic: str, announce_reason: str = "auto-discovered"
+        ):
+            clean_topic = topic.strip()
+            if not clean_topic or clean_topic in self._image_subscription_topics:
+                return
+            sub = self.create_subscription(
+                Image,
+                clean_topic,
+                lambda msg, t=clean_topic: self.image_callback(msg, t),
+                10,
+            )
+            self.image_subscriptions.append(sub)
+            self._image_subscription_topics.add(clean_topic)
+            self._trackers[clean_topic] = SimpleCentroidTracker()
+            if cv2 is not None:
+                self._background_models[clean_topic] = (
+                    cv2.createBackgroundSubtractorMOG2(
+                        history=500, varThreshold=24, detectShadows=False
+                    )
+                )
+            self.get_logger().info(
+                f"Subscribed to camera topic: {clean_topic} ({announce_reason})"
+            )
+
+        def _refresh_camera_subscriptions(self):
+            active_topics = {
+                name
+                for name, topic_types in self.get_topic_names_and_types()
+                if "sensor_msgs/msg/Image" in topic_types
+            }
+            if self.auto_discover_camera_topics:
+                known_topics = set(self._image_subscription_topics)
+                for topic in sorted(active_topics - known_topics):
+                    self._subscribe_to_camera_topic(
+                        topic, announce_reason="auto-discovered"
+                    )
+            configured_with_publishers = self._configured_camera_topics & active_topics
+            if (
+                self._configured_camera_topics
+                and active_topics
+                and not configured_with_publishers
+            ):
+                sample_topics = ", ".join(sorted(active_topics)[:5])
+                configured_topics = ", ".join(sorted(self._configured_camera_topics))
+                self.get_logger().warning(
+                    "No active image publishers on configured perception camera topics. "
+                    f"Configured topics: {configured_topics}. "
+                    f"Available image topics: {sample_topics}"
+                )
 
         def _start_ws_bridge(self):
             if websockets is None:

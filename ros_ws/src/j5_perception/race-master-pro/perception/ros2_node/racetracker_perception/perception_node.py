@@ -139,8 +139,6 @@ if ROS2_AVAILABLE:
             # Declare parameters
             self.declare_parameter("camera_topics", ["/camera/cam1/image_raw"])
             self.declare_parameter("auto_discover_camera_topics", True)
-            self.declare_parameter("use_yolo", True)
-            self.declare_parameter("fallback_to_motion_tracking", True)
             self.declare_parameter("model_path", "perception/models/yolov8n.pt")
             self.declare_parameter("confidence_threshold", 0.5)
             self.declare_parameter(
@@ -155,14 +153,6 @@ if ROS2_AVAILABLE:
             )
             self.auto_discover_camera_topics = (
                 self.get_parameter("auto_discover_camera_topics")
-                .get_parameter_value()
-                .bool_value
-            )
-            self.use_yolo = (
-                self.get_parameter("use_yolo").get_parameter_value().bool_value
-            )
-            self.fallback_to_motion_tracking = (
-                self.get_parameter("fallback_to_motion_tracking")
                 .get_parameter_value()
                 .bool_value
             )
@@ -187,8 +177,6 @@ if ROS2_AVAILABLE:
             self._configured_camera_topics: set[str] = {
                 topic.strip() for topic in camera_topics if topic.strip()
             }
-            self._yolo_model = None
-            self._load_yolo_model()
 
             # Create subscribers for each configured camera topic
             self.image_subscriptions = []
@@ -205,10 +193,6 @@ if ROS2_AVAILABLE:
             self.get_logger().info(
                 f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
             )
-            self.get_logger().info(f"YOLO enabled: {self.use_yolo}")
-            self.get_logger().info(
-                f"Motion fallback enabled: {self.fallback_to_motion_tracking}"
-            )
             if cv2 is None or np is None:
                 self.get_logger().warning(
                     "OpenCV/Numpy not available. Install python3-opencv + numpy for motion tracking detections."
@@ -219,30 +203,6 @@ if ROS2_AVAILABLE:
                 )
             self._start_ws_bridge()
             self._refresh_camera_subscriptions()
-
-        def _load_yolo_model(self):
-            if not self.use_yolo:
-                return
-            if YOLO is None:
-                self.get_logger().warning(
-                    "ultralytics is not installed; YOLO inference disabled."
-                )
-                return
-            model_path = Path(self.model_path)
-            if not model_path.exists():
-                self.get_logger().warning(
-                    f"YOLO model file not found at '{self.model_path}'; "
-                    "falling back to motion tracking."
-                )
-                return
-            try:
-                self._yolo_model = YOLO(str(model_path))
-                self.get_logger().info(f"YOLO model loaded from {model_path}")
-            except Exception as exc:
-                self.get_logger().warning(
-                    f"Failed to load YOLO model '{self.model_path}': {exc}"
-                )
-                self._yolo_model = None
 
         def _subscribe_to_camera_topic(
             self, topic: str, announce_reason: str = "auto-discovered"

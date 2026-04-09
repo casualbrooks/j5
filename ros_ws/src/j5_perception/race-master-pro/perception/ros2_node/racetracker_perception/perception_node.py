@@ -325,10 +325,53 @@ if ROS2_AVAILABLE:
             candidates: list[tuple[tuple[float, float], float]] = []
             for contour in contours:
                 area = cv2.contourArea(contour)
-                if area < 250:
+                if area < self.motion_min_area:
                     continue
                 x, y, w, h = cv2.boundingRect(contour)
-                if w < 10 or h < 10:
+                if w < self.motion_min_box_size or h < self.motion_min_box_size:
+                    continue
+                confidence = min(0.99, 0.5 + (float(area) / 5000.0))
+                candidates.append(
+                    {
+                        "centroid": (x + (w / 2.0), y + (h / 2.0)),
+                        "confidence": confidence,
+                        "source": "motion",
+                    }
+                )
+            return candidates
+
+        def _yolo_candidates(self, frame) -> list[dict]:
+            if self._yolo_model is None:
+                return []
+            try:
+                results = self._yolo_model.predict(
+                    source=frame,
+                    verbose=False,
+                    conf=float(self.confidence_threshold),
+                )
+            except Exception as exc:
+                self.get_logger().warning(f"YOLO inference failed: {exc}")
+                return []
+            if not results:
+                return []
+            boxes = getattr(results[0], "boxes", None)
+            if boxes is None:
+                return []
+            candidates: list[dict] = []
+            for box in boxes:
+                conf_values = box.conf.tolist() if box.conf is not None else []
+                if not conf_values:
+                    continue
+                confidence = float(conf_values[0])
+                cls_values = box.cls.tolist() if box.cls is not None else []
+                class_id = int(cls_values[0]) if cls_values else -1
+                if (
+                    self.yolo_target_classes
+                    and class_id not in self.yolo_target_classes
+                ):
+                    continue
+                coords = box.xyxy.tolist()[0] if box.xyxy is not None else []
+                if len(coords) != 4:
                     continue
                 confidence = min(0.99, 0.5 + (float(area) / 5000.0))
                 candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
@@ -411,9 +454,11 @@ if ROS2_AVAILABLE:
                     "position_x": round(state.centroid[0], 1),
                     "position_y": round(state.centroid[1], 1),
                     "confidence": round(confidence, 3),
+                    "detection_source": detection_source,
                 }
                 try:
                     self._detection_queue.put_nowait(detection)
+                    self._detections_sent += 1
                 except queue.Full:
                     self.get_logger().debug(
                         "Detection queue full; dropping frame detections."

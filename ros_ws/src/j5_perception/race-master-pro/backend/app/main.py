@@ -717,6 +717,22 @@ async def update_result(result_id: str, data: RaceResultCreate):
 
 @app.post("/api/laps")
 async def record_lap(data: LapRecordCreate):
+    race = await get_row("races", data.race_id)
+    if not race:
+        raise HTTPException(404, "Race not found")
+    if race.get("status") != "active":
+        raise HTTPException(
+            409,
+            f"Cannot record lap while race status is '{race.get('status')}'. Start or resume the race first.",
+        )
+
+    context = await _get_state_json("race_context", {})
+    if not context.get("tracking_enabled", False):
+        raise HTTPException(
+            409,
+            "Cannot record lap while object tracking is disabled. Start tracking first.",
+        )
+
     row = {"id": str(uuid.uuid4()), **data.model_dump()}
     result = await insert_row("lap_records", row)
     # Broadcast lap complete

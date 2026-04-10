@@ -204,6 +204,10 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const evaluateCheckpointProgress = useCallback(async (racerProfileId: string, position: TrackPoint) => {
         const race = liveRaceRef.current
         if (!race) return
+        if (race.status !== 'active') {
+            checkpointStateRef.current.delete(racerProfileId)
+            return
+        }
         const markers = checkpointsRef.current
         if (markers.length === 0) return
 
@@ -231,10 +235,28 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                     if (expected?.id === marker.id) {
                         state.touchedCheckpointIds.add(marker.id)
                         state.nextCheckpointIndex += 1
+                        await apiFetch(`/api/races/${race.race_id}/logs`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} crossed checkpoint ${state.nextCheckpointIndex}/${orderedCheckpoints.length}` }),
+                        })
                     } else if (orderedCheckpoints[0]?.id === marker.id) {
                         state.touchedCheckpointIds.clear()
                         state.touchedCheckpointIds.add(marker.id)
                         state.nextCheckpointIndex = 1
+                        await apiFetch(`/api/races/${race.race_id}/logs`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} restarted checkpoint sequence (crossed checkpoint 1/${orderedCheckpoints.length})` }),
+                        })
+                    } else {
+                        await apiFetch(`/api/races/${race.race_id}/logs`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} crossed checkpoint out of order; lap sequence reset` }),
+                        })
+                        state.touchedCheckpointIds.clear()
+                        state.nextCheckpointIndex = 0
                     }
                 } else if (marker.type === 'finish') {
                     const nowMs = Date.now()

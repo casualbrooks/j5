@@ -201,13 +201,10 @@ export function RaceProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
-    const evaluateCheckpointProgress = useCallback(async (racerProfileId: string, position: TrackPoint) => {
+    const evaluateCheckpointProgress = useCallback((racerProfileId: string, position: TrackPoint) => {
         const race = liveRaceRef.current
         if (!race) return
-        if (race.status !== 'active') {
-            checkpointStateRef.current.delete(racerProfileId)
-            return
-        }
+        if (race.status !== 'active') return
         const markers = checkpointsRef.current
         if (markers.length === 0) return
 
@@ -223,6 +220,13 @@ export function RaceProvider({ children }: { children: ReactNode }) {
         const orderedCheckpoints = markers
             .filter(marker => marker.type === 'checkpoint')
             .sort((a, b) => a.sort_order - b.sort_order)
+        const queueLogEntry = (entry: string) => {
+            void apiFetch(`/api/races/${race.race_id}/logs`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entry }),
+            })
+        }
 
         for (const marker of markers) {
             const isInside = pointDistance(position, marker.position) <= CHECKPOINT_CAPTURE_RADIUS
@@ -235,28 +239,19 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                     if (expected?.id === marker.id) {
                         state.touchedCheckpointIds.add(marker.id)
                         state.nextCheckpointIndex += 1
-                        await apiFetch(`/api/races/${race.race_id}/logs`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} crossed checkpoint ${state.nextCheckpointIndex}/${orderedCheckpoints.length}` }),
-                        })
+                        checkpointStateRef.current.set(racerProfileId, state)
+                        queueLogEntry(`${new Date().toISOString()} ${racer.name} crossed checkpoint ${state.nextCheckpointIndex}/${orderedCheckpoints.length}`)
                     } else if (orderedCheckpoints[0]?.id === marker.id) {
                         state.touchedCheckpointIds.clear()
                         state.touchedCheckpointIds.add(marker.id)
                         state.nextCheckpointIndex = 1
-                        await apiFetch(`/api/races/${race.race_id}/logs`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} restarted checkpoint sequence (crossed checkpoint 1/${orderedCheckpoints.length})` }),
-                        })
+                        checkpointStateRef.current.set(racerProfileId, state)
+                        queueLogEntry(`${new Date().toISOString()} ${racer.name} restarted checkpoint sequence (crossed checkpoint 1/${orderedCheckpoints.length})`)
                     } else {
-                        await apiFetch(`/api/races/${race.race_id}/logs`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} crossed checkpoint out of order; lap sequence reset` }),
-                        })
                         state.touchedCheckpointIds.clear()
                         state.nextCheckpointIndex = 0
+                        checkpointStateRef.current.set(racerProfileId, state)
+                        queueLogEntry(`${new Date().toISOString()} ${racer.name} crossed checkpoint out of order; lap sequence reset`)
                     }
                 } else if (marker.type === 'finish') {
                     const nowMs = Date.now()
@@ -267,32 +262,31 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                                 && [...required].every(id => state.touchedCheckpointIds.has(id)))
                         if (touchedAll) {
                             const lapNumber = racer.current_lap + 1
-                            await apiFetch('/api/laps', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    race_id: race.race_id,
-                                    racer_profile_id: racerProfileId,
-                                    lap_number: lapNumber,
-                                    lap_time: Math.max(racer.current_lap_time, 1),
-                                }),
-                            })
-                            await apiFetch(`/api/races/${race.race_id}/logs`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} completed lap ${lapNumber}` }),
-                            })
+                            state.touchedCheckpointIds.clear()
+                            state.nextCheckpointIndex = 0
+                            state.lastFinishAtMs = nowMs
+                            checkpointStateRef.current.set(racerProfileId, state)
+                            void (async () => {
+                                await apiFetch('/api/laps', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        race_id: race.race_id,
+                                        racer_profile_id: racerProfileId,
+                                        lap_number: lapNumber,
+                                        lap_time: Math.max(racer.current_lap_time, 1),
+                                    }),
+                                })
+                                queueLogEntry(`${new Date().toISOString()} ${racer.name} completed lap ${lapNumber}`)
+                                void refreshRaceState(race.race_id)
+                            })()
                         } else {
-                            await apiFetch(`/api/races/${race.race_id}/logs`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ entry: `${new Date().toISOString()} ${racer.name} hit finish without all checkpoints (shortcut detected)` }),
-                            })
+                            queueLogEntry(`${new Date().toISOString()} ${racer.name} hit finish without all checkpoints (shortcut detected)`)
+                            state.touchedCheckpointIds.clear()
+                            state.nextCheckpointIndex = 0
+                            state.lastFinishAtMs = nowMs
+                            checkpointStateRef.current.set(racerProfileId, state)
                         }
-                        state.touchedCheckpointIds.clear()
-                        state.nextCheckpointIndex = 0
-                        state.lastFinishAtMs = nowMs
-                        void refreshRaceState(race.race_id)
                     }
                 }
             } else if (!isInside && wasInside) {

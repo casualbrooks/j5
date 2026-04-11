@@ -21,7 +21,7 @@ function normalizePreviewBaseUrl(value: string): string {
 }
 
 export default function VisionPanel() {
-    const { liveRace, recentObjectDetections } = useRaceContext()
+    const { liveRace, recentObjectDetections, recentVisionObjects } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
@@ -139,6 +139,7 @@ export default function VisionPanel() {
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
+    const hasRecentVisionObjects = recentVisionObjects.length > 0
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')
@@ -170,6 +171,22 @@ export default function VisionPanel() {
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Computer Vision</h2>
 
             <div className="race-card p-4 space-y-3">
+                <div className="rounded border border-cyan-900/70 bg-cyan-950/30 p-3 text-xs text-cyan-100 space-y-2">
+                    <p className="font-semibold text-cyan-200">Tracking bring-up quick start</p>
+                    <p>Run these commands on the Pi / perception host before pressing <strong>Start Tracking</strong>:</p>
+                    <p><strong>1) Camera preview server</strong></p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15
+                    </code>
+                    <p><strong>2) Perception node (choose one)</strong></p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        python -m perception.standalone.standalone_runner --camera-source /dev/video0 --camera-id cam1
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        ros2 run racetracker_perception perception_node
+                    </code>
+                    <p>Then in this tab: <strong>Show Live Preview</strong> → <strong>Capture Track Photo</strong> → <strong>Start Tracking</strong>.</p>
+                </div>
                 <label className="block text-sm text-[var(--color-text-secondary)]">
                     Preview server URL
                     <input
@@ -222,11 +239,26 @@ export default function VisionPanel() {
                     <p className="text-xs text-[var(--color-text-secondary)]">Use this only while capturing the track image, then hide it before opening other camera consumers.</p>
                 </div>
                 {previewEnabled ? (
-                    <img
-                        src={streamUrl}
-                        alt="Live camera preview"
-                        className="w-full rounded border border-slate-700 bg-black"
-                    />
+                    <div className="relative">
+                        <img
+                            src={streamUrl}
+                            alt="Live camera preview"
+                            className="w-full rounded border border-slate-700 bg-black"
+                        />
+                        <div className="pointer-events-none absolute left-2 top-2 max-w-[65%] space-y-1">
+                            {recentVisionObjects.slice(0, 6).map((item) => (
+                                <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                    {item.objectId}
+                                    {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                </p>
+                            ))}
+                            {!hasRecentVisionObjects ? (
+                                <p className="rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                    No tracking objects yet. Start perception node, then click Start Tracking.
+                                </p>
+                            ) : null}
+                        </div>
+                    </div>
                 ) : (
                     <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
                         Live preview is paused to avoid multiple stream consumers.

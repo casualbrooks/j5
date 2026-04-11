@@ -176,8 +176,9 @@ export default function VisionPanel() {
         setStatusError(true)
     }
 
-    return (
-        <div className="fade-in space-y-4">
+    try {
+        return (
+            <div className="fade-in space-y-4">
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Computer Vision</h2>
 
             <div className="race-card p-4 space-y-3">
@@ -348,6 +349,19 @@ export default function VisionPanel() {
                     ))}
                 </div>
             </div>
-        </div>
-    )
+            </div>
+        )
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return (
+            <div className="fade-in space-y-4">
+                <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Computer Vision</h2>
+                <div className="race-card p-4 space-y-2">
+                    <p className="text-sm text-red-300">Vision panel rendering failed, but the app recovered.</p>
+                    <p className="text-xs text-[var(--color-text-secondary)]">Please refresh this tab and restart the frontend dev server if the error persists.</p>
+                    <p className="text-xs text-amber-300 break-all">Error: {message}</p>
+                </div>
+            </div>
+        )
+    }
 }

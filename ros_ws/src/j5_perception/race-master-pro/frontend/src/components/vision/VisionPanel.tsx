@@ -31,6 +31,7 @@ export default function VisionPanel() {
     const [capturing, setCapturing] = useState(false)
     const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
     const [activeTrackName, setActiveTrackName] = useState('')
+    const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
 
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
@@ -92,6 +93,15 @@ export default function VisionPanel() {
         void refreshTrackLabel()
     }, [])
 
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setStatusNowMs(Date.now())
+        }, 1000)
+        return () => {
+            window.clearInterval(timer)
+        }
+    }, [])
+
     const onCapture = async (event: FormEvent) => {
         event.preventDefault()
         setCapturing(true)
@@ -143,7 +153,7 @@ export default function VisionPanel() {
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const hasRecentVisionObjects = recentVisionObjects.length > 0
     const latestVisionSeenAt = recentVisionObjects[0]?.seenAt ?? 0
-    const visionFresh = latestVisionSeenAt > 0 && (Date.now() - latestVisionSeenAt) < 4000
+    const visionFresh = latestVisionSeenAt > 0 && (statusNowMs - latestVisionSeenAt) < 4000
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')

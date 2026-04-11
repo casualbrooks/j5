@@ -29,6 +29,7 @@ export default function VisionPanel() {
     const [capturing, setCapturing] = useState(false)
     const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
     const [activeTrackName, setActiveTrackName] = useState('')
+    const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
 
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
@@ -88,6 +89,15 @@ export default function VisionPanel() {
     useEffect(() => {
         void refreshWizardContext()
         void refreshTrackLabel()
+    }, [])
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setStatusNowMs(Date.now())
+        }, 1000)
+        return () => {
+            window.clearInterval(timer)
+        }
     }, [])
 
     const onCapture = async (event: FormEvent) => {

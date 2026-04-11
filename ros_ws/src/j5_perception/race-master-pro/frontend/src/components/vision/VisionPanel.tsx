@@ -26,7 +26,9 @@ function normalizePreviewBaseUrl(value: string): string {
 
 export default function VisionPanel() {
     const raceStore = useRaceContext()
-    const { liveRace, recentObjectDetections, recentVisionObjects } = raceStore
+    const liveRace = raceStore?.liveRace ?? null
+    const recentObjectDetections = Array.isArray(raceStore?.recentObjectDetections) ? raceStore.recentObjectDetections : []
+    const recentVisionObjects = Array.isArray(raceStore?.recentVisionObjects) ? raceStore.recentVisionObjects : []
     const wsConnectionStatus = raceStore?.connectionStatus ?? connectionStatus
     connectionStatus = wsConnectionStatus
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)

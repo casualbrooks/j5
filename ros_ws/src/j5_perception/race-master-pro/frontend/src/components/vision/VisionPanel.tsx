@@ -2,6 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { apiFetch, getSelectedTrackId, getTrackRacerAssignments, parseTrackRecord, setLatestSnapshotUrl, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 
+// Module-scope fallback to prevent runtime ReferenceError if a stale bundle references
+// `connectionStatus` without declaring it in component scope.
+let connectionStatus = 'disconnected'
+
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'

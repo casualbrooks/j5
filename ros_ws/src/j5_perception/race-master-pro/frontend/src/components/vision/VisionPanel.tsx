@@ -238,6 +238,16 @@ export default function VisionPanel() {
                     </button>
                     <p className="text-xs text-[var(--color-text-secondary)]">Use this only while capturing the track image, then hide it before opening other camera consumers.</p>
                 </div>
+                <div className="rounded border border-slate-700 bg-slate-950/50 px-3 py-2 text-xs text-slate-200">
+                    <p>
+                        Websocket: <span className={connectionStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>{connectionStatus}</span>
+                        {' · '}
+                        Detection stream: <span className={visionFresh ? 'text-emerald-300' : 'text-amber-300'}>{visionFresh ? 'receiving objects' : 'waiting for objects'}</span>
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-300">
+                        If your ROS2 node is running, this can still show waiting when camera frames are not on the expected topic, no objects are visible yet, or confidence filtering drops detections.
+                    </p>
+                </div>
                 {previewEnabled ? (
                     <div className="relative">
                         <img

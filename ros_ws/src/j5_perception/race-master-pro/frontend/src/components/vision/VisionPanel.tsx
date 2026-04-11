@@ -21,8 +21,7 @@ function normalizePreviewBaseUrl(value: string): string {
 }
 
 export default function VisionPanel() {
-    const raceStore = useRaceContext()
-    const { liveRace, recentObjectDetections, recentVisionObjects } = raceStore
+    const { liveRace, recentObjectDetections, recentVisionObjects } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
@@ -151,8 +150,6 @@ export default function VisionPanel() {
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const hasRecentVisionObjects = recentVisionObjects.length > 0
-    const latestVisionSeenAt = recentVisionObjects[0]?.seenAt ?? 0
-    const visionFresh = latestVisionSeenAt > 0 && (statusNowMs - latestVisionSeenAt) < 4000
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')
@@ -253,7 +250,7 @@ export default function VisionPanel() {
                 </div>
                 <div className="rounded border border-slate-700 bg-slate-950/50 px-3 py-2 text-xs text-slate-200">
                     <p>
-                        Websocket: <span className={(raceStore?.connectionStatus ?? 'disconnected') === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>{raceStore?.connectionStatus ?? 'disconnected'}</span>
+                        Websocket: <span className={connectionStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>{connectionStatus}</span>
                         {' · '}
                         Detection stream: <span className={visionFresh ? 'text-emerald-300' : 'text-amber-300'}>{visionFresh ? 'receiving objects' : 'waiting for objects'}</span>
                     </p>
@@ -277,7 +274,7 @@ export default function VisionPanel() {
                             ))}
                             {!hasRecentVisionObjects ? (
                                 <p className="rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
-                                    No objects received yet. If ROS2 perception is already running, verify active camera topic + visible cars in frame.
+                                    No tracking objects yet. Start perception node, then click Start Tracking.
                                 </p>
                             ) : null}
                         </div>

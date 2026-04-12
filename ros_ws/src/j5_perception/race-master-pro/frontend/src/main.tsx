@@ -4,6 +4,14 @@ import { Toaster } from 'sonner'
 import App from './App'
 import './index.css'
 
+const globalScope = globalThis as Record<string, unknown>
+if (typeof globalScope.connectionStatus === 'undefined') {
+    globalScope.connectionStatus = 'disconnected'
+}
+if (typeof globalScope.visionFresh === 'undefined') {
+    globalScope.visionFresh = false
+}
+
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
         <Toaster

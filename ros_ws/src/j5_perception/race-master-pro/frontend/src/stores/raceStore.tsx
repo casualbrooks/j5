@@ -327,10 +327,12 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             wsRef.current = ws
 
             ws.onopen = () => {
+                if (wsRef.current !== ws) return
                 setConnectionStatus('connected')
             }
 
             ws.onmessage = event => {
+                if (wsRef.current !== ws) return
                 try {
                     const msg = JSON.parse(event.data)
                     handleWsMessage(msg)
@@ -340,6 +342,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
 
             ws.onclose = () => {
+                if (wsRef.current !== ws) return
                 setConnectionStatus('disconnected')
                 wsRef.current = null
                 reconnectTimer = setTimeout(connect, 3000)

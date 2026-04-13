@@ -21,7 +21,11 @@ function normalizePreviewBaseUrl(value: string): string {
 }
 
 export default function VisionPanel() {
-    const { liveRace, recentObjectDetections } = useRaceContext()
+    const raceStore = useRaceContext()
+    const liveRace = raceStore?.liveRace ?? null
+    const recentObjectDetections = Array.isArray(raceStore?.recentObjectDetections) ? raceStore.recentObjectDetections : []
+    const recentVisionObjects = Array.isArray(raceStore?.recentVisionObjects) ? raceStore.recentVisionObjects : []
+    const wsConnectionStatus = raceStore?.connectionStatus ?? 'disconnected'
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
@@ -29,6 +33,7 @@ export default function VisionPanel() {
     const [capturing, setCapturing] = useState(false)
     const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
     const [activeTrackName, setActiveTrackName] = useState('')
+    const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
 
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
@@ -90,6 +95,15 @@ export default function VisionPanel() {
         void refreshTrackLabel()
     }, [])
 
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setStatusNowMs(Date.now())
+        }, 1000)
+        return () => {
+            window.clearInterval(timer)
+        }
+    }, [])
+
     const onCapture = async (event: FormEvent) => {
         event.preventDefault()
         setCapturing(true)
@@ -139,6 +153,11 @@ export default function VisionPanel() {
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
+    const freshVisionObjects = recentVisionObjects.filter((item) => (statusNowMs - item.seenAt) < 4000)
+    const hasRecentVisionObjects = freshVisionObjects.length > 0
+    const latestVisionSeenAt = recentVisionObjects[0]?.seenAt ?? 0
+    const isVisionFresh = latestVisionSeenAt > 0 && (statusNowMs - latestVisionSeenAt) < 4000
+    const visionFresh = isVisionFresh
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')
@@ -170,6 +189,34 @@ export default function VisionPanel() {
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Computer Vision</h2>
 
             <div className="race-card p-4 space-y-3">
+                <div className="rounded border border-cyan-900/70 bg-cyan-950/30 p-3 text-xs text-cyan-100 space-y-2">
+                    <p className="font-semibold text-cyan-200">Tracking bring-up quick start</p>
+                    <p>Run these commands on the Pi / perception host before pressing <strong>Start Tracking</strong>:</p>
+                    <p><strong>1) Camera preview server</strong></p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15
+                    </code>
+                    <p><strong>2) Perception node (choose one)</strong></p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        python -m perception.standalone.standalone_runner --camera-source /dev/video0 --camera-id cam1
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
+                        ros2 run racetracker_perception perception_node
+                    </code>
+                    <p>Then in this tab: <strong>Show Live Preview</strong> → <strong>Capture Track Photo</strong> → <strong>Start Tracking</strong>.</p>
+                </div>
+                <div className="rounded border border-indigo-900/70 bg-indigo-950/30 p-3 text-xs text-indigo-100 space-y-2">
+                    <p className="font-semibold text-indigo-200">Computer Vision step-by-step (camera → tracking → lap checks)</p>
+                    <ol className="list-decimal space-y-1 pl-4">
+                        <li>Start camera preview on the Pi (command above), then click <strong>Show Live Preview</strong> in this tab.</li>
+                        <li>Click <strong>Capture Track Photo</strong> so Settings can load the same image for spline + checkpoints.</li>
+                        <li>Start perception (<code>standalone_runner</code> or <code>ros2 run racetracker_perception perception_node</code>), then click <strong>Start Tracking</strong>.</li>
+                        <li>Confirm live object IDs appear in the preview overlay and in <strong>Recent object detections</strong>.</li>
+                        <li>Open <strong>Settings → Racer tracking assignments</strong>, map each racer to an object ID, and save assignments.</li>
+                        <li>Drive a test lap crossing the configured finish gate and confirm entries in <strong>Lap / Tracking Logs</strong> before race start.</li>
+                    </ol>
+                    <p className="text-[11px] text-indigo-200/90">After this passes, return to Settings to initialize/start the race lifecycle controls.</p>
+                </div>
                 <label className="block text-sm text-[var(--color-text-secondary)]">
                     Preview server URL
                     <input
@@ -221,12 +268,37 @@ export default function VisionPanel() {
                     </button>
                     <p className="text-xs text-[var(--color-text-secondary)]">Use this only while capturing the track image, then hide it before opening other camera consumers.</p>
                 </div>
+                <div className="rounded border border-slate-700 bg-slate-950/50 px-3 py-2 text-xs text-slate-200">
+                    <p>
+                        Websocket: <span className={wsConnectionStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>{wsConnectionStatus}</span>
+                        {' · '}
+                        Detection stream: <span className={isVisionFresh ? 'text-emerald-300' : 'text-amber-300'}>{isVisionFresh ? 'receiving objects' : 'waiting for objects'}</span>
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-300">
+                        If your ROS2 node is running, this can still show waiting when camera frames are not on the expected topic, no objects are visible yet, or confidence filtering drops detections.
+                    </p>
+                </div>
                 {previewEnabled ? (
-                    <img
-                        src={streamUrl}
-                        alt="Live camera preview"
-                        className="w-full rounded border border-slate-700 bg-black"
-                    />
+                    <div className="relative">
+                        <img
+                            src={streamUrl}
+                            alt="Live camera preview"
+                            className="w-full rounded border border-slate-700 bg-black"
+                        />
+                        <div className="pointer-events-none absolute left-2 top-2 max-w-[65%] space-y-1">
+                            {freshVisionObjects.slice(0, 6).map((item) => (
+                                <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                    {item.objectId}
+                                    {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                </p>
+                            ))}
+                            {!hasRecentVisionObjects ? (
+                                <p className="rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                    No objects received yet. If ROS2 perception is already running, verify active camera topic + visible cars in frame.
+                                </p>
+                            ) : null}
+                        </div>
+                    </div>
                 ) : (
                     <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
                         Live preview is paused to avoid multiple stream consumers.

@@ -1,4 +1,4 @@
-import { LayoutDashboard, BarChart3, Trophy, Users, Camera, Settings } from 'lucide-react'
+import { LayoutDashboard, BarChart3, Trophy, Users, Camera, Settings, FlaskConical } from 'lucide-react'
 import type { ViewTab } from '@/types'
 
 interface VerticalTabsProps {
@@ -12,6 +12,7 @@ const tabs: { id: ViewTab; icon: typeof LayoutDashboard; label: string }[] = [
     { id: 'championship', icon: Trophy, label: 'Championship' },
     { id: 'racers', icon: Users, label: 'Racers' },
     { id: 'vision', icon: Camera, label: 'Vision' },
+    { id: 'integration', icon: FlaskConical, label: 'Integration' },
     { id: 'settings', icon: Settings, label: 'Settings' },
 ]
 

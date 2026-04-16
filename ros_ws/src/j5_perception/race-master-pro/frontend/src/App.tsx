@@ -9,6 +9,7 @@ import ChampionshipView from '@/components/championship/ChampionshipView'
 import RacerManager from '@/components/racers/RacerManager'
 import VisionPanel from '@/components/vision/VisionPanel'
 import SettingsPanel from '@/components/settings/SettingsPanel'
+import IntegrationCheckPanel from '@/components/vision/IntegrationCheckPanel'
 import { RaceProvider, useRaceContext } from '@/stores/raceStore'
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; message: string }> {
@@ -52,6 +53,8 @@ function AppContent() {
                 return <RacerManager />
             case 'vision':
                 return <VisionPanel />
+            case 'integration':
+                return <IntegrationCheckPanel />
             case 'settings':
                 return <SettingsPanel />
             default:

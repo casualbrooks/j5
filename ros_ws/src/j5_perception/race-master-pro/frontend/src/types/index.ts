@@ -205,6 +205,7 @@ export type ViewTab =
     | 'championship'
     | 'racers'
     | 'vision'
+    | 'integration'
     | 'settings'
 
 // ── Config ─────────────────────────────────────────────────

@@ -2,10 +2,6 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { apiFetch, getSelectedTrackId, getTrackRacerAssignments, parseTrackRecord, setLatestSnapshotUrl, setSelectedTrackId, setTrackPhotoUrl } from '@/lib/utils'
 import { useRaceContext } from '@/stores/raceStore'
 
-// Module-scope fallback to prevent runtime ReferenceError if a stale bundle references
-// `connectionStatus` without declaring it in component scope.
-let connectionStatus = 'disconnected'
-
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
@@ -25,7 +21,7 @@ function normalizePreviewBaseUrl(value: string): string {
 }
 
 export default function VisionPanel() {
-    const { liveRace, recentObjectDetections, recentVisionObjects } = useRaceContext()
+    const { liveRace, recentObjectDetections, recentVisionObjects, connectionStatus } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
@@ -154,6 +150,8 @@ export default function VisionPanel() {
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const hasRecentVisionObjects = recentVisionObjects.length > 0
+    const latestVisionObject = recentVisionObjects[0]
+    const visionFresh = Boolean(latestVisionObject && statusNowMs - latestVisionObject.seenAt <= 3000)
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')

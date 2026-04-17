@@ -22,11 +22,16 @@ function normalizePreviewBaseUrl(value: string): string {
 export default function IntegrationCheckPanel() {
     const { connectionStatus, recentVisionObjects, recentObjectDetections, liveRace } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
+    const [previewEnabled, setPreviewEnabled] = useState(true)
+    const [copiedCommand, setCopiedCommand] = useState('')
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
+    const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
     const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
     const raceStatus = liveRace?.status || 'setup'
+    const hasRecentVisionObjects = recentVisionObjects.length > 0
+    const visionIsFresh = secondsSinceVision !== null && secondsSinceVision <= 3
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -37,13 +42,30 @@ export default function IntegrationCheckPanel() {
         }
     }, [])
 
+    const topicListCommand = 'ros2 topic list | grep -E "image|vision|detection|tracked"'
+    const topicHzCommand = 'ros2 topic hz /camera/image_raw'
+    const topicEchoCommand = 'ros2 topic echo /vision/objects --once'
+    const autodiscoverCommand = 'ros2 param set /perception_node auto_discover_camera_topics true'
+    const cameraTopicCommand = "ros2 param set /perception_node camera_topics \"['/camera/image_raw']\""
+
+    const copyCommand = async (label: string, command: string) => {
+        try {
+            await navigator.clipboard.writeText(command)
+            setCopiedCommand(`${label} copied`)
+            window.setTimeout(() => setCopiedCommand(''), 1800)
+        } catch {
+            setCopiedCommand('Clipboard blocked (copy manually)')
+            window.setTimeout(() => setCopiedCommand(''), 1800)
+        }
+    }
+
     return (
         <div className="fade-in space-y-4">
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Perception Integration Check</h2>
 
             <div className="race-card p-4 space-y-3 text-sm">
                 <p className="text-[var(--color-text-secondary)]">
-                    Use this page to verify camera preview, ROS2 perception, and websocket updates without running the full race flow.
+                    Use this page to verify camera video, ROS2 perception, and websocket updates without running the full race flow.
                 </p>
 
                 <div className="rounded border border-slate-700 bg-slate-950/70 p-3 space-y-2 text-xs text-slate-200">
@@ -57,6 +79,16 @@ export default function IntegrationCheckPanel() {
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         ros2 run racetracker_perception perception_node
+                    </code>
+                    <p><strong>3) Validate perception topics (quick checks)</strong></p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {topicListCommand}
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {topicHzCommand}
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {topicEchoCommand}
                     </code>
                 </div>
             </div>
@@ -83,14 +115,29 @@ export default function IntegrationCheckPanel() {
                         </span>
                     </li>
                     <li>
+                        Tracking health:{' '}
+                        <span className={visionIsFresh && recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                            {visionIsFresh && recentObjectDetections.length > 0 ? 'active detections' : 'camera up but no confirmed detections yet'}
+                        </span>
+                    </li>
+                    <li>
                         Race runtime status:{' '}
                         <span className={raceStatus === 'active' ? 'text-emerald-300' : 'text-slate-300'}>{raceStatus}</span>
                     </li>
                 </ul>
             </div>
 
-            <div className="race-card p-4 space-y-2">
-                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Quick links</h3>
+            <div className="race-card p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Live camera + object activity</h3>
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => setPreviewEnabled(prev => !prev)}
+                    >
+                        {previewEnabled ? 'Hide embedded camera' : 'Show embedded camera'}
+                    </button>
+                </div>
                 <label className="block text-sm text-[var(--color-text-secondary)]">
                     Preview server URL
                     <input
@@ -100,24 +147,105 @@ export default function IntegrationCheckPanel() {
                         placeholder="http://192.168.1.134:8091"
                     />
                 </label>
-                <div className="flex flex-wrap gap-2 text-xs">
-                    <a
-                        className="rounded bg-slate-700 px-3 py-2 font-semibold text-white hover:bg-slate-600"
-                        href={`${normalizedBaseUrl}/stream.mjpg`}
-                        target="_blank"
-                        rel="noreferrer"
-                    >
-                        Open camera stream
-                    </a>
-                    <a
-                        className="rounded bg-slate-700 px-3 py-2 font-semibold text-white hover:bg-slate-600"
-                        href={`${normalizedBaseUrl}/snapshot.jpg`}
-                        target="_blank"
-                        rel="noreferrer"
-                    >
-                        Open latest snapshot
-                    </a>
+                {previewEnabled ? (
+                    <div className="relative">
+                        <img
+                            src={streamUrl}
+                            alt="Embedded camera stream"
+                            className="w-full rounded border border-slate-700 bg-black"
+                        />
+                        <div className="pointer-events-none absolute left-2 top-2 max-w-[70%] space-y-1">
+                            {recentVisionObjects.slice(0, 6).map((item) => (
+                                <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                    {item.objectId}
+                                    {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                </p>
+                            ))}
+                            {!hasRecentVisionObjects ? (
+                                <p className="rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                    No object IDs yet. Move an object through frame and verify ROS2 topics below.
+                                </p>
+                            ) : null}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
+                        Embedded camera preview is paused.
+                    </div>
+                )}
+                <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
+                    <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
+                    <p>• Camera stream loads in this panel and updates continuously.</p>
+                    <p>• <code>ros2 topic hz /camera/image_raw</code> reports a steady frame rate.</p>
+                    <p>• <code>ros2 topic echo /vision/objects --once</code> returns at least one object while moving something in frame.</p>
+                    <p>• Detection count in this tab increases from 0 and “seconds since last object” stays low.</p>
                 </div>
+            </div>
+
+            <div className="race-card p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Quick calibration helpers</h3>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                    The browser cannot run ROS2 commands directly, but these buttons copy common calibration/topic commands so you can paste them into your robot terminal quickly.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => void copyCommand('topic list', topicListCommand)}
+                    >
+                        Copy topic list command
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => void copyCommand('topic hz', topicHzCommand)}
+                    >
+                        Copy image FPS command
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => void copyCommand('topic echo', topicEchoCommand)}
+                    >
+                        Copy object echo command
+                    </button>
+                </div>
+                <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-2">
+                    <p className="font-semibold text-slate-100">Common ROS2 topic adjustments</p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {autodiscoverCommand}
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {cameraTopicCommand}
+                    </code>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                            onClick={() => void copyCommand('auto-discover', autodiscoverCommand)}
+                        >
+                            Copy auto-discover command
+                        </button>
+                        <button
+                            type="button"
+                            className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                            onClick={() => void copyCommand('camera topic', cameraTopicCommand)}
+                        >
+                            Copy camera topic command
+                        </button>
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                        If your node name is not <code>/perception_node</code>, replace it with your running node name from <code>ros2 node list</code>.
+                    </p>
+                </div>
+                {copiedCommand ? <p className="text-xs text-emerald-300">{copiedCommand}</p> : null}
+            </div>
+
+            <div className="race-card p-4 space-y-2 text-xs text-slate-200">
+                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">How IDs flow into race tracking</h3>
+                <p>1) Object IDs that appear here are the same IDs suggested in the Settings tab assignment fields.</p>
+                <p>2) Saved assignments are reused by tracking logic to map object IDs → racer IDs.</p>
+                <p>3) During an active race, mapped detections update racer position, trigger checkpoint/finish events, and write lap records/log entries.</p>
             </div>
         </div>
     )

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRaceContext } from '@/stores/raceStore'
 
 function defaultPreviewBaseUrl(): string {
@@ -23,9 +23,19 @@ export default function IntegrationCheckPanel() {
     const { connectionStatus, recentVisionObjects, recentObjectDetections, liveRace } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
+    const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
-    const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((Date.now() - lastVisionSeenAt) / 1000)) : null
+    const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
     const raceStatus = liveRace?.status || 'setup'
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setStatusNowMs(Date.now())
+        }, 1000)
+        return () => {
+            window.clearInterval(timer)
+        }
+    }, [])
 
     return (
         <div className="fade-in space-y-4">

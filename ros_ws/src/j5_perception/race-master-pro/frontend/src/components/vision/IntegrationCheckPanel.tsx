@@ -42,11 +42,11 @@ export default function IntegrationCheckPanel() {
         }
     }, [])
 
-    const topicListCommand = 'ros2 topic list | grep -E "image|vision|detection|tracked"'
-    const topicHzCommand = 'ros2 topic hz /camera/image_raw'
-    const topicEchoCommand = 'ros2 topic echo /vision/objects --once'
-    const autodiscoverCommand = 'ros2 param set /perception_node auto_discover_camera_topics true'
-    const cameraTopicCommand = "ros2 param set /perception_node camera_topics \"['/camera/image_raw']\""
+    const topicListCommand = 'ros2 topic list | grep -E "camera|image"'
+    const topicHzCommand = 'ros2 topic hz /camera/cam1/image_raw'
+    const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
+    const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
+    const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
 
     const copyCommand = async (label: string, command: string) => {
         try {
@@ -90,6 +90,9 @@ export default function IntegrationCheckPanel() {
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {topicEchoCommand}
                     </code>
+                    <p className="text-[11px] text-slate-300">
+                        Use the camera topic name shown by the topic list command if your stream is not on <code>/camera/cam1/image_raw</code>.
+                    </p>
                 </div>
             </div>
 
@@ -176,8 +179,8 @@ export default function IntegrationCheckPanel() {
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
                     <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
                     <p>• Camera stream loads in this panel and updates continuously.</p>
-                    <p>• <code>ros2 topic hz /camera/image_raw</code> reports a steady frame rate.</p>
-                    <p>• <code>ros2 topic echo /vision/objects --once</code> returns at least one object while moving something in frame.</p>
+                    <p>• <code>ros2 topic hz /camera/cam1/image_raw</code> reports a steady frame rate.</p>
+                    <p>• <code>ros2 topic echo /camera/cam1/image_raw --once</code> returns a frame message (update topic if needed).</p>
                     <p>• Detection count in this tab increases from 0 and “seconds since last object” stays low.</p>
                 </div>
             </div>
@@ -235,7 +238,7 @@ export default function IntegrationCheckPanel() {
                         </button>
                     </div>
                     <p className="text-[11px] text-slate-300">
-                        If your node name is not <code>/perception_node</code>, replace it with your running node name from <code>ros2 node list</code>.
+                        If your node name differs, replace <code>/racetracker_perception</code> with the value from <code>ros2 node list</code>.
                     </p>
                 </div>
                 {copiedCommand ? <p className="text-xs text-emerald-300">{copiedCommand}</p> : null}

@@ -5,7 +5,7 @@ function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `http://${window.location.hostname}:8091`
+    return `${window.location.protocol}//${window.location.hostname}:8091`
 }
 
 function normalizePreviewBaseUrl(value: string): string {
@@ -29,6 +29,8 @@ export default function IntegrationCheckPanel() {
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
     const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
+    const lastDetectionSeenAt = recentObjectDetections[0]?.seenAt || 0
+    const secondsSinceDetection = lastDetectionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastDetectionSeenAt) / 1000)) : null
     const raceStatus = liveRace?.status || 'setup'
     const hasRecentVisionObjects = recentVisionObjects.length > 0
     const visionIsFresh = secondsSinceVision !== null && secondsSinceVision <= 3

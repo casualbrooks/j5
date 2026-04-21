@@ -34,10 +34,6 @@ export default function IntegrationCheckPanel() {
     const raceStatus = liveRace?.status || 'setup'
     const hasRecentVisionObjects = recentVisionObjects.length > 0
     const visionIsFresh = secondsSinceVision !== null && secondsSinceVision <= 3
-    const detectionsAreFresh = secondsSinceDetection !== null && secondsSinceDetection <= 3
-    const insecurePreviewFromSecurePage = typeof window !== 'undefined'
-        && window.location.protocol === 'https:'
-        && normalizedBaseUrl.startsWith('http://')
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -48,11 +44,11 @@ export default function IntegrationCheckPanel() {
         }
     }, [])
 
-    const topicListCommand = 'ros2 topic list'
+    const topicListCommand = 'ros2 topic list | grep -E "camera|image"'
     const topicHzCommand = 'ros2 topic hz /camera/cam1/image_raw'
     const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
-    const rerunPerceptionAutodiscoverCommand = 'ros2 run racetracker_perception perception_node --ros-args -p auto_discover_camera_topics:=true'
-    const rerunPerceptionTopicCommand = "ros2 run racetracker_perception perception_node --ros-args -p camera_topics:=\"['/camera/cam1/image_raw']\""
+    const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
+    const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
 
     const copyCommand = async (label: string, command: string) => {
         try {
@@ -125,8 +121,8 @@ export default function IntegrationCheckPanel() {
                     </li>
                     <li>
                         Tracking health:{' '}
-                        <span className={visionIsFresh && detectionsAreFresh ? 'text-emerald-300' : 'text-amber-300'}>
-                            {visionIsFresh && detectionsAreFresh ? 'active detections' : 'camera up but no confirmed detections yet'}
+                        <span className={visionIsFresh && recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                            {visionIsFresh && recentObjectDetections.length > 0 ? 'active detections' : 'camera up but no confirmed detections yet'}
                         </span>
                     </li>
                     <li>
@@ -156,12 +152,6 @@ export default function IntegrationCheckPanel() {
                         placeholder="http://192.168.1.134:8091"
                     />
                 </label>
-                {insecurePreviewFromSecurePage ? (
-                    <p className="text-xs text-amber-300">
-                        This page is HTTPS, but preview URL is HTTP. Embedded preview may be blocked by browser mixed-content policy.
-                        Use the open-stream fallback link below or switch preview URL to HTTPS if available.
-                    </p>
-                ) : null}
                 {previewEnabled ? (
                     <div className="relative">
                         <img
@@ -188,16 +178,6 @@ export default function IntegrationCheckPanel() {
                         Embedded camera preview is paused.
                     </div>
                 )}
-                <div className="flex flex-wrap gap-2 text-xs">
-                    <a
-                        className="rounded bg-slate-700 px-3 py-2 font-semibold text-white hover:bg-slate-600"
-                        href={streamUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                    >
-                        Open stream in new tab (fallback)
-                    </a>
-                </div>
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
                     <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
                     <p>• Camera stream loads in this panel and updates continuously.</p>
@@ -236,31 +216,31 @@ export default function IntegrationCheckPanel() {
                     </button>
                 </div>
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-2">
-                    <p className="font-semibold text-slate-100">Common ROS2 perception restart commands</p>
+                    <p className="font-semibold text-slate-100">Common ROS2 topic adjustments</p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
-                        {rerunPerceptionAutodiscoverCommand}
+                        {autodiscoverCommand}
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
-                        {rerunPerceptionTopicCommand}
+                        {cameraTopicCommand}
                     </code>
                     <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
                             className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                            onClick={() => void copyCommand('auto-discover restart', rerunPerceptionAutodiscoverCommand)}
+                            onClick={() => void copyCommand('auto-discover', autodiscoverCommand)}
                         >
-                            Copy auto-discover restart
+                            Copy auto-discover command
                         </button>
                         <button
                             type="button"
                             className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                            onClick={() => void copyCommand('camera topic restart', rerunPerceptionTopicCommand)}
+                            onClick={() => void copyCommand('camera topic', cameraTopicCommand)}
                         >
-                            Copy camera topic restart
+                            Copy camera topic command
                         </button>
                     </div>
                     <p className="text-[11px] text-slate-300">
-                        These commands restart the perception node with explicit parameters and avoid relying on optional <code>ros2 param</code> CLI support.
+                        If your node name differs, replace <code>/racetracker_perception</code> with the value from <code>ros2 node list</code>.
                     </p>
                 </div>
                 {copiedCommand ? <p className="text-xs text-emerald-300">{copiedCommand}</p> : null}

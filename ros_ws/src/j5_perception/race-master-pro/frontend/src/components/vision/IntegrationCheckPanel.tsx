@@ -5,7 +5,7 @@ function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `http://${window.location.hostname}:8091`
+    return `${window.location.protocol}//${window.location.hostname}:8091`
 }
 
 function normalizePreviewBaseUrl(value: string): string {
@@ -29,9 +29,15 @@ export default function IntegrationCheckPanel() {
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
     const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
+    const lastDetectionSeenAt = recentObjectDetections[0]?.seenAt || 0
+    const secondsSinceDetection = lastDetectionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastDetectionSeenAt) / 1000)) : null
     const raceStatus = liveRace?.status || 'setup'
     const hasRecentVisionObjects = recentVisionObjects.length > 0
     const visionIsFresh = secondsSinceVision !== null && secondsSinceVision <= 3
+    const detectionsAreFresh = secondsSinceDetection !== null && secondsSinceDetection <= 3
+    const insecurePreviewFromSecurePage = typeof window !== 'undefined'
+        && window.location.protocol === 'https:'
+        && normalizedBaseUrl.startsWith('http://')
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -119,8 +125,8 @@ export default function IntegrationCheckPanel() {
                     </li>
                     <li>
                         Tracking health:{' '}
-                        <span className={visionIsFresh && recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
-                            {visionIsFresh && recentObjectDetections.length > 0 ? 'active detections' : 'camera up but no confirmed detections yet'}
+                        <span className={visionIsFresh && detectionsAreFresh ? 'text-emerald-300' : 'text-amber-300'}>
+                            {visionIsFresh && detectionsAreFresh ? 'active detections' : 'camera up but no confirmed detections yet'}
                         </span>
                     </li>
                     <li>
@@ -150,6 +156,12 @@ export default function IntegrationCheckPanel() {
                         placeholder="http://192.168.1.134:8091"
                     />
                 </label>
+                {insecurePreviewFromSecurePage ? (
+                    <p className="text-xs text-amber-300">
+                        This page is HTTPS, but preview URL is HTTP. Embedded preview may be blocked by browser mixed-content policy.
+                        Use the open-stream fallback link below or switch preview URL to HTTPS if available.
+                    </p>
+                ) : null}
                 {previewEnabled ? (
                     <div className="relative">
                         <img
@@ -176,6 +188,16 @@ export default function IntegrationCheckPanel() {
                         Embedded camera preview is paused.
                     </div>
                 )}
+                <div className="flex flex-wrap gap-2 text-xs">
+                    <a
+                        className="rounded bg-slate-700 px-3 py-2 font-semibold text-white hover:bg-slate-600"
+                        href={streamUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                    >
+                        Open stream in new tab (fallback)
+                    </a>
+                </div>
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
                     <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
                     <p>• Camera stream loads in this panel and updates continuously.</p>

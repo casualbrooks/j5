@@ -47,6 +47,8 @@ export default function IntegrationCheckPanel() {
     const topicListCommand = 'ros2 topic list | grep -E "camera|image"'
     const topicHzCommand = 'ros2 topic hz /camera/cam1/image_raw'
     const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
+    const ros2CliCheckCommand = 'ros2 node -h && ros2 param -h'
+    const ros2SourceCommand = 'source /opt/ros/iron/setup.bash && source ~/alive/j5/ros_ws/install/setup.bash'
     const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
     const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
 
@@ -95,6 +97,15 @@ export default function IntegrationCheckPanel() {
                     <p className="text-[11px] text-slate-300">
                         Use the camera topic name shown by the topic list command if your stream is not on <code>/camera/cam1/image_raw</code>.
                     </p>
+                    <p className="text-[11px] text-slate-300">
+                        If <code>ros2 node</code> / <code>ros2 param</code> are reported as invalid commands, your ROS2 CLI environment is incomplete. Re-source and verify extensions:
+                    </p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {ros2SourceCommand}
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {ros2CliCheckCommand}
+                    </code>
                 </div>
             </div>
 
@@ -213,6 +224,20 @@ export default function IntegrationCheckPanel() {
                         onClick={() => void copyCommand('topic echo', topicEchoCommand)}
                     >
                         Copy object echo command
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => void copyCommand('source ROS2 env', ros2SourceCommand)}
+                    >
+                        Copy ROS2 source command
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
+                        onClick={() => void copyCommand('ros2 CLI check', ros2CliCheckCommand)}
+                    >
+                        Copy ROS2 CLI check
                     </button>
                 </div>
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-2">

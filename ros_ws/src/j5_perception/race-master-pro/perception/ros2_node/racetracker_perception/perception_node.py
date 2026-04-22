@@ -167,6 +167,26 @@ if ROS2_AVAILABLE:
             self.ws_url = (
                 self.get_parameter("ws_url").get_parameter_value().string_value
             )
+            self.motion_min_area = 180.0
+            self.motion_min_box_size = 10
+            self.yolo_target_classes: set[int] = set()
+            self.fallback_to_motion_tracking = True
+            self._yolo_model = None
+            self._detections_sent = 0
+            if YOLO is not None:
+                try:
+                    self._yolo_model = YOLO(self.model_path)
+                    self.get_logger().info(
+                        f"Loaded YOLO model from {Path(self.model_path).resolve()}"
+                    )
+                except Exception as exc:
+                    self.get_logger().warning(
+                        f"Failed to load YOLO model '{self.model_path}': {exc}. Falling back to motion detection only."
+                    )
+            else:
+                self.get_logger().warning(
+                    "ultralytics not available; running motion detection only."
+                )
             self._ws_stop = threading.Event()
             self._ws_thread = None
             self._detection_queue: queue.Queue[dict] = queue.Queue(maxsize=128)
@@ -424,8 +444,12 @@ if ROS2_AVAILABLE:
                 return
 
             candidates = self._yolo_candidates(frame)
+            detection_source = "yolo"
             if not candidates and self.fallback_to_motion_tracking:
                 candidates = self._motion_candidates(frame, subtractor)
+                detection_source = "motion"
+            if not candidates:
+                return
             centroids = [centroid for centroid, _confidence in candidates]
 
             tracked = tracker.update(centroids)

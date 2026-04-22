@@ -442,8 +442,10 @@ if ROS2_AVAILABLE:
                 return
 
             candidates = self._yolo_candidates(frame)
+            detection_source = "yolo"
             if not candidates and self.fallback_to_motion_tracking:
                 candidates = self._motion_candidates(frame, subtractor)
+                detection_source = "motion"
             centroids = [centroid for centroid, _confidence in candidates]
 
             tracked = tracker.update(centroids)

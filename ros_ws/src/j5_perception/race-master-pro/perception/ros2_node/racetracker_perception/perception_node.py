@@ -167,6 +167,24 @@ if ROS2_AVAILABLE:
             self.ws_url = (
                 self.get_parameter("ws_url").get_parameter_value().string_value
             )
+            self.motion_min_area = 180.0
+            self.motion_min_box_size = 10
+            self.yolo_target_classes: set[int] = set()
+            self._yolo_model = None
+            if YOLO is not None:
+                try:
+                    self._yolo_model = YOLO(self.model_path)
+                    self.get_logger().info(
+                        f"Loaded YOLO model from {Path(self.model_path).resolve()}"
+                    )
+                except Exception as exc:
+                    self.get_logger().warning(
+                        f"Failed to load YOLO model '{self.model_path}': {exc}. Falling back to motion detection only."
+                    )
+            else:
+                self.get_logger().warning(
+                    "ultralytics not available; running motion detection only."
+                )
             self._ws_stop = threading.Event()
             self._ws_thread = None
             self._detection_queue: queue.Queue[dict] = queue.Queue(maxsize=128)

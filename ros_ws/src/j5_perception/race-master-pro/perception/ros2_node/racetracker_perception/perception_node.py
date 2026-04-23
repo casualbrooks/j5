@@ -141,6 +141,7 @@ if ROS2_AVAILABLE:
             self.declare_parameter("auto_discover_camera_topics", True)
             self.declare_parameter("model_path", "perception/models/yolov8n.pt")
             self.declare_parameter("confidence_threshold", 0.5)
+            self.declare_parameter("fallback_to_motion_tracking", True)
             self.declare_parameter(
                 "ws_url", "ws://localhost:8080/ws?client_type=cv_system"
             )
@@ -163,6 +164,11 @@ if ROS2_AVAILABLE:
                 self.get_parameter("confidence_threshold")
                 .get_parameter_value()
                 .double_value
+            )
+            self.fallback_to_motion_tracking = (
+                self.get_parameter("fallback_to_motion_tracking")
+                .get_parameter_value()
+                .bool_value
             )
             self.ws_url = (
                 self.get_parameter("ws_url").get_parameter_value().string_value
@@ -192,6 +198,7 @@ if ROS2_AVAILABLE:
             self._trackers: dict[str, SimpleCentroidTracker] = {}
             self._background_models: dict[str, object] = {}
             self._image_subscription_topics: set[str] = set()
+            self._detections_sent = 0
             self._configured_camera_topics: set[str] = {
                 topic.strip() for topic in camera_topics if topic.strip()
             }
@@ -207,6 +214,9 @@ if ROS2_AVAILABLE:
             self.get_logger().info("Race Master Pro — Perception Node started")
             self.get_logger().info(f"Model: {self.model_path}")
             self.get_logger().info(f"Confidence threshold: {self.confidence_threshold}")
+            self.get_logger().info(
+                f"Fallback to motion tracking: {self.fallback_to_motion_tracking}"
+            )
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
             self.get_logger().info(
                 f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
@@ -349,44 +359,6 @@ if ROS2_AVAILABLE:
                     continue
                 x, y, w, h = cv2.boundingRect(contour)
                 if w < motion_min_box_size or h < motion_min_box_size:
-                    continue
-                confidence = min(0.99, 0.5 + (float(area) / 5000.0))
-                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
-            return candidates
-
-        def _yolo_candidates(self, frame) -> list[dict]:
-            yolo_model = getattr(self, "_yolo_model", None)
-            if yolo_model is None:
-                return []
-            try:
-                results = yolo_model.predict(
-                    source=frame,
-                    verbose=False,
-                    conf=float(self.confidence_threshold),
-                )
-            except Exception as exc:
-                self.get_logger().warning(f"YOLO inference failed: {exc}")
-                return []
-            if not results:
-                return []
-            boxes = getattr(results[0], "boxes", None)
-            if boxes is None:
-                return []
-            candidates: list[dict] = []
-            for box in boxes:
-                conf_values = box.conf.tolist() if box.conf is not None else []
-                if not conf_values:
-                    continue
-                confidence = float(conf_values[0])
-                cls_values = box.cls.tolist() if box.cls is not None else []
-                class_id = int(cls_values[0]) if cls_values else -1
-                if (
-                    self.yolo_target_classes
-                    and class_id not in self.yolo_target_classes
-                ):
-                    continue
-                coords = box.xyxy.tolist()[0] if box.xyxy is not None else []
-                if len(coords) != 4:
                     continue
                 confidence = min(0.99, 0.5 + (float(area) / 5000.0))
                 candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))

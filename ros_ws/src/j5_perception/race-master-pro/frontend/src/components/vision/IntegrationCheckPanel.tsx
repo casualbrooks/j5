@@ -53,7 +53,7 @@ export default function IntegrationCheckPanel() {
     const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
     const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
     const lapEventPublishCommand =
-        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once"
+        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once -w 0"
 
     return (
         <div className="fade-in space-y-4">
@@ -103,6 +103,10 @@ export default function IntegrationCheckPanel() {
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {lapEventPublishCommand}
                     </code>
+                    <p className="text-[11px] text-slate-300">
+                        This command only validates the ROS lap-event bridge path. It does <strong>not</strong> create Computer Vision detections by itself.
+                        If it waits for subscribers, either start your bridge subscriber first or keep <code>-w 0</code> to publish without waiting.
+                    </p>
                 </div>
             </div>
 

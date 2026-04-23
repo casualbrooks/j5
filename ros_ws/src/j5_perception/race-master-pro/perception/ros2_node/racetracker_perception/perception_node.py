@@ -167,6 +167,26 @@ if ROS2_AVAILABLE:
             self.ws_url = (
                 self.get_parameter("ws_url").get_parameter_value().string_value
             )
+            self.motion_min_area = 180.0
+            self.motion_min_box_size = 10
+            self.yolo_target_classes: set[int] = set()
+            self.fallback_to_motion_tracking = True
+            self._yolo_model = None
+            self._detections_sent = 0
+            if YOLO is not None:
+                try:
+                    self._yolo_model = YOLO(self.model_path)
+                    self.get_logger().info(
+                        f"Loaded YOLO model from {Path(self.model_path).resolve()}"
+                    )
+                except Exception as exc:
+                    self.get_logger().warning(
+                        f"Failed to load YOLO model '{self.model_path}': {exc}. Falling back to motion detection only."
+                    )
+            else:
+                self.get_logger().warning(
+                    "ultralytics not available; running motion detection only."
+                )
             self._ws_stop = threading.Event()
             self._ws_thread = None
             self._detection_queue: queue.Queue[dict] = queue.Queue(maxsize=128)
@@ -312,6 +332,8 @@ if ROS2_AVAILABLE:
         ) -> list[tuple[tuple[float, float], float]]:
             if cv2 is None or np is None:
                 return []
+            motion_min_area = float(getattr(self, "motion_min_area", 180.0))
+            motion_min_box_size = int(getattr(self, "motion_min_box_size", 10))
             mask = subtractor.apply(frame)
             mask = cv2.GaussianBlur(mask, (5, 5), 0)
             _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
@@ -325,10 +347,10 @@ if ROS2_AVAILABLE:
             candidates: list[tuple[tuple[float, float], float]] = []
             for contour in contours:
                 area = cv2.contourArea(contour)
-                if area < self.motion_min_area:
+                if area < motion_min_area:
                     continue
                 x, y, w, h = cv2.boundingRect(contour)
-                if w < self.motion_min_box_size or h < self.motion_min_box_size:
+                if w < motion_min_box_size or h < motion_min_box_size:
                     continue
                 confidence = min(0.99, 0.5 + (float(area) / 5000.0))
                 candidates.append(
@@ -341,10 +363,11 @@ if ROS2_AVAILABLE:
             return candidates
 
         def _yolo_candidates(self, frame) -> list[dict]:
-            if self._yolo_model is None:
+            yolo_model = getattr(self, "_yolo_model", None)
+            if yolo_model is None:
                 return []
             try:
-                results = self._yolo_model.predict(
+                results = yolo_model.predict(
                     source=frame,
                     verbose=False,
                     conf=float(self.confidence_threshold),
@@ -378,10 +401,11 @@ if ROS2_AVAILABLE:
             return candidates
 
         def _yolo_candidates(self, frame) -> list[tuple[tuple[float, float], float]]:
-            if self._yolo_model is None:
+            yolo_model = getattr(self, "_yolo_model", None)
+            if yolo_model is None:
                 return []
             try:
-                results = self._yolo_model.predict(
+                results = yolo_model.predict(
                     source=frame,
                     verbose=False,
                     conf=float(self.confidence_threshold),
@@ -424,8 +448,10 @@ if ROS2_AVAILABLE:
                 return
 
             candidates = self._yolo_candidates(frame)
-            if not candidates and self.fallback_to_motion_tracking:
+            detection_source = "yolo"
+            if not candidates and getattr(self, "fallback_to_motion_tracking", True):
                 candidates = self._motion_candidates(frame, subtractor)
+                detection_source = "motion"
             centroids = [centroid for centroid, _confidence in candidates]
 
             tracked = tracker.update(centroids)

@@ -174,7 +174,18 @@ export default function VisionPanel() {
             setStatusError(false)
             return
         }
-        setStatusMessage(start ? 'Unable to start object tracking.' : 'Unable to stop object tracking.')
+        let failureMessage = start ? 'Unable to start object tracking.' : 'Unable to stop object tracking.'
+        try {
+            const payload = await response.json() as { detail?: string | { message?: string } }
+            if (typeof payload.detail === 'string' && payload.detail.trim()) {
+                failureMessage = payload.detail
+            } else if (payload.detail && typeof payload.detail.message === 'string' && payload.detail.message.trim()) {
+                failureMessage = payload.detail.message
+            }
+        } catch {
+            // keep default fallback message
+        }
+        setStatusMessage(failureMessage)
         setStatusError(true)
     }
 

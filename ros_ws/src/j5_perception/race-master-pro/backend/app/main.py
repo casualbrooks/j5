@@ -1171,26 +1171,33 @@ async def resume_race_from_snapshot(race_id: str):
 @app.post("/api/races/{race_id}/tracking/start")
 async def start_tracking(race_id: str):
     context = await _get_state_json("race_context", {})
-    context["tracking_enabled"] = True
     cv_system_connections = len(manager.active_connections.get("cv_system", []))
-    warning = None
     if cv_system_connections == 0:
         warning = (
-            "Tracking enabled, but no cv_system websocket clients are connected. "
-            "Start the perception runner/ROS2 perception node so detections can be produced."
+            "Cannot start tracking because no cv_system websocket clients are connected. "
+            "Start the perception runner/ROS2 perception node so detections can be produced, then retry."
         )
-    context.setdefault("log_stream", []).append(
-        f"{datetime.now().isoformat()} Tracking started for race {race_id}"
-    )
-    if warning:
+        context["tracking_enabled"] = False
         context.setdefault("log_stream", []).append(
             f"{datetime.now().isoformat()} WARNING: {warning}"
         )
+        await _set_state_json("race_context", context)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": warning,
+                "cv_system_connections": cv_system_connections,
+            },
+        )
+    context["tracking_enabled"] = True
+    context.setdefault("log_stream", []).append(
+        f"{datetime.now().isoformat()} Tracking started for race {race_id}"
+    )
     await _set_state_json("race_context", context)
     return {
         "context": context,
         "cv_system_connections": cv_system_connections,
-        "warning": warning,
+        "warning": None,
     }
 
 

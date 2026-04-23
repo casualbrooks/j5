@@ -23,7 +23,6 @@ export default function IntegrationCheckPanel() {
     const { connectionStatus, recentVisionObjects, recentObjectDetections, liveRace } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(true)
-    const [copiedCommand, setCopiedCommand] = useState('')
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
     const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
@@ -45,23 +44,16 @@ export default function IntegrationCheckPanel() {
     }, [])
 
     const topicListCommand = 'ros2 topic list | grep -E "camera|image"'
+    const topicTypeCommand = 'ros2 topic type /camera/cam1/image_raw'
     const topicHzCommand = 'ros2 topic hz /camera/cam1/image_raw'
     const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
-    const ros2CliCheckCommand = 'ros2 node -h && ros2 param -h'
-    const ros2SourceCommand = 'source /opt/ros/iron/setup.bash && source ~/alive/j5/ros_ws/install/setup.bash'
+    const ros2CliCheckCommand = 'ros2 node -h && ros2 topic -h && ros2 param -h'
+    const ros2SourceCommand =
+        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; fi && source ~/alive/j5/ros_ws/install/setup.bash'
     const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
     const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
-
-    const copyCommand = async (label: string, command: string) => {
-        try {
-            await navigator.clipboard.writeText(command)
-            setCopiedCommand(`${label} copied`)
-            window.setTimeout(() => setCopiedCommand(''), 1800)
-        } catch {
-            setCopiedCommand('Clipboard blocked (copy manually)')
-            window.setTimeout(() => setCopiedCommand(''), 1800)
-        }
-    }
+    const lapEventPublishCommand =
+        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once"
 
     return (
         <div className="fade-in space-y-4">
@@ -73,20 +65,30 @@ export default function IntegrationCheckPanel() {
                 </p>
 
                 <div className="rounded border border-slate-700 bg-slate-950/70 p-3 space-y-2 text-xs text-slate-200">
-                    <p><strong>1) Camera preview process</strong></p>
+                    <p><strong>1) Source your ROS2 workspaces (source-build flow)</strong></p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {ros2SourceCommand}
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {ros2CliCheckCommand}
+                    </code>
+                    <p><strong>2) Start camera preview process</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15
                     </code>
-                    <p><strong>2) Perception process (choose one)</strong></p>
+                    <p><strong>3) Start perception process (choose one)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         python -m perception.standalone.standalone_runner --camera-source /dev/video0 --camera-id cam1
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         ros2 run racetracker_perception perception_node
                     </code>
-                    <p><strong>3) Validate perception topics (quick checks)</strong></p>
+                    <p><strong>4) Validate perception topics (quick checks)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {topicListCommand}
+                    </code>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {topicTypeCommand}
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {topicHzCommand}
@@ -97,14 +99,9 @@ export default function IntegrationCheckPanel() {
                     <p className="text-[11px] text-slate-300">
                         Use the camera topic name shown by the topic list command if your stream is not on <code>/camera/cam1/image_raw</code>.
                     </p>
-                    <p className="text-[11px] text-slate-300">
-                        If <code>ros2 node</code> / <code>ros2 param</code> are reported as invalid commands, your ROS2 CLI environment is incomplete. Re-source and verify extensions:
-                    </p>
+                    <p><strong>5) Optional bridge smoke test (publish one lap event)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
-                        {ros2SourceCommand}
-                    </code>
-                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
-                        {ros2CliCheckCommand}
+                        {lapEventPublishCommand}
                     </code>
                 </div>
             </div>
@@ -201,45 +198,8 @@ export default function IntegrationCheckPanel() {
             <div className="race-card p-4 space-y-3">
                 <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Quick calibration helpers</h3>
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                    The browser cannot run ROS2 commands directly, but these buttons copy common calibration/topic commands so you can paste them into your robot terminal quickly.
+                    The browser cannot run ROS2 commands directly. Copy/paste the commands below into your robot terminal.
                 </p>
-                <div className="flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => void copyCommand('topic list', topicListCommand)}
-                    >
-                        Copy topic list command
-                    </button>
-                    <button
-                        type="button"
-                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => void copyCommand('topic hz', topicHzCommand)}
-                    >
-                        Copy image FPS command
-                    </button>
-                    <button
-                        type="button"
-                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => void copyCommand('topic echo', topicEchoCommand)}
-                    >
-                        Copy object echo command
-                    </button>
-                    <button
-                        type="button"
-                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => void copyCommand('source ROS2 env', ros2SourceCommand)}
-                    >
-                        Copy ROS2 source command
-                    </button>
-                    <button
-                        type="button"
-                        className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => void copyCommand('ros2 CLI check', ros2CliCheckCommand)}
-                    >
-                        Copy ROS2 CLI check
-                    </button>
-                </div>
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-2">
                     <p className="font-semibold text-slate-100">Common ROS2 topic adjustments</p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
@@ -248,27 +208,10 @@ export default function IntegrationCheckPanel() {
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {cameraTopicCommand}
                     </code>
-                    <div className="flex flex-wrap gap-2">
-                        <button
-                            type="button"
-                            className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                            onClick={() => void copyCommand('auto-discover', autodiscoverCommand)}
-                        >
-                            Copy auto-discover command
-                        </button>
-                        <button
-                            type="button"
-                            className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                            onClick={() => void copyCommand('camera topic', cameraTopicCommand)}
-                        >
-                            Copy camera topic command
-                        </button>
-                    </div>
                     <p className="text-[11px] text-slate-300">
                         If your node name differs, replace <code>/racetracker_perception</code> with the value from <code>ros2 node list</code>.
                     </p>
                 </div>
-                {copiedCommand ? <p className="text-xs text-emerald-300">{copiedCommand}</p> : null}
             </div>
 
             <div className="race-card p-4 space-y-2 text-xs text-slate-200">

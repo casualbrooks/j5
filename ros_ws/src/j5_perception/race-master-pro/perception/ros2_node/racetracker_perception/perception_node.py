@@ -353,13 +353,7 @@ if ROS2_AVAILABLE:
                 if w < motion_min_box_size or h < motion_min_box_size:
                     continue
                 confidence = min(0.99, 0.5 + (float(area) / 5000.0))
-                candidates.append(
-                    {
-                        "centroid": (x + (w / 2.0), y + (h / 2.0)),
-                        "confidence": confidence,
-                        "source": "motion",
-                    }
-                )
+                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
             return candidates
 
         def _yolo_candidates(self, frame) -> list[dict]:

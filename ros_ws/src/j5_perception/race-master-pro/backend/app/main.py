@@ -1177,7 +1177,6 @@ async def start_tracking(race_id: str):
             "Cannot start tracking because no cv_system websocket clients are connected. "
             "Start the perception runner/ROS2 perception node so detections can be produced, then retry."
         )
-        context["tracking_enabled"] = False
         context.setdefault("log_stream", []).append(
             f"{datetime.now().isoformat()} WARNING: {warning}"
         )

@@ -330,6 +330,8 @@ if ROS2_AVAILABLE:
         ) -> list[tuple[tuple[float, float], float]]:
             if cv2 is None or np is None:
                 return []
+            motion_min_area = float(getattr(self, "motion_min_area", 180.0))
+            motion_min_box_size = int(getattr(self, "motion_min_box_size", 10))
             mask = subtractor.apply(frame)
             mask = cv2.GaussianBlur(mask, (5, 5), 0)
             _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
@@ -343,26 +345,21 @@ if ROS2_AVAILABLE:
             candidates: list[tuple[tuple[float, float], float]] = []
             for contour in contours:
                 area = cv2.contourArea(contour)
-                if area < self.motion_min_area:
+                if area < motion_min_area:
                     continue
                 x, y, w, h = cv2.boundingRect(contour)
-                if w < self.motion_min_box_size or h < self.motion_min_box_size:
+                if w < motion_min_box_size or h < motion_min_box_size:
                     continue
                 confidence = min(0.99, 0.5 + (float(area) / 5000.0))
-                candidates.append(
-                    {
-                        "centroid": (x + (w / 2.0), y + (h / 2.0)),
-                        "confidence": confidence,
-                        "source": "motion",
-                    }
-                )
+                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
             return candidates
 
         def _yolo_candidates(self, frame) -> list[dict]:
-            if self._yolo_model is None:
+            yolo_model = getattr(self, "_yolo_model", None)
+            if yolo_model is None:
                 return []
             try:
-                results = self._yolo_model.predict(
+                results = yolo_model.predict(
                     source=frame,
                     verbose=False,
                     conf=float(self.confidence_threshold),
@@ -396,10 +393,11 @@ if ROS2_AVAILABLE:
             return candidates
 
         def _yolo_candidates(self, frame) -> list[tuple[tuple[float, float], float]]:
-            if self._yolo_model is None:
+            yolo_model = getattr(self, "_yolo_model", None)
+            if yolo_model is None:
                 return []
             try:
-                results = self._yolo_model.predict(
+                results = yolo_model.predict(
                     source=frame,
                     verbose=False,
                     conf=float(self.confidence_threshold),

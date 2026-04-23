@@ -170,9 +170,7 @@ if ROS2_AVAILABLE:
             self.motion_min_area = 180.0
             self.motion_min_box_size = 10
             self.yolo_target_classes: set[int] = set()
-            self.fallback_to_motion_tracking = True
             self._yolo_model = None
-            self._detections_sent = 0
             if YOLO is not None:
                 try:
                     self._yolo_model = YOLO(self.model_path)
@@ -443,7 +441,7 @@ if ROS2_AVAILABLE:
 
             candidates = self._yolo_candidates(frame)
             detection_source = "yolo"
-            if not candidates and getattr(self, "fallback_to_motion_tracking", True):
+            if not candidates and self.fallback_to_motion_tracking:
                 candidates = self._motion_candidates(frame, subtractor)
                 detection_source = "motion"
             centroids = [centroid for centroid, _confidence in candidates]

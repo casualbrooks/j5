@@ -50,7 +50,7 @@ export default function IntegrationCheckPanel() {
     const perceptionLogsCommand = 'ros2 run racetracker_perception perception_node --ros-args --log-level info'
     const ros2CliCheckCommand = 'ros2 node -h && ros2 topic -h && ros2 param -h'
     const ros2SourceCommand =
-        'if [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; fi && if [ -f ~/alive/j5/ros_ws/install/setup.bash ]; then source ~/alive/j5/ros_ws/install/setup.bash; elif [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; fi'
+        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; fi && if [ -f ~/alive/j5/ros_ws/install/setup.bash ]; then source ~/alive/j5/ros_ws/install/setup.bash; elif [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; fi'
     const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
     const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
     const lapEventPublishCommand =

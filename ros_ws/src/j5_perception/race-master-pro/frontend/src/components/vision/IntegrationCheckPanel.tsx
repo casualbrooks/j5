@@ -45,11 +45,12 @@ export default function IntegrationCheckPanel() {
 
     const topicListCommand = 'ros2 topic list | grep -E "camera|image"'
     const topicTypeCommand = 'ros2 topic type /camera/cam1/image_raw'
-    const topicHzCommand = 'ros2 topic hz /camera/cam1/image_raw'
-    const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
+    const topicInfoCommand = 'ros2 topic info /camera/cam1/image_raw -v'
+    const nodeListCommand = 'ros2 node list'
+    const perceptionLogsCommand = 'ros2 run racetracker_perception perception_node --ros-args --log-level info'
     const ros2CliCheckCommand = 'ros2 node -h && ros2 topic -h && ros2 param -h'
     const ros2SourceCommand =
-        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; fi && source ~/alive/j5/ros_ws/install/setup.bash'
+        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; fi && if [ -f ~/alive/j5/ros_ws/install/setup.bash ]; then source ~/alive/j5/ros_ws/install/setup.bash; elif [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; fi'
     const autodiscoverCommand = 'ros2 param set /racetracker_perception auto_discover_camera_topics true'
     const cameraTopicCommand = "ros2 param set /racetracker_perception camera_topics \"['/camera/cam1/image_raw']\""
     const lapEventPublishCommand =
@@ -83,7 +84,7 @@ export default function IntegrationCheckPanel() {
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         ros2 run racetracker_perception perception_node
                     </code>
-                    <p><strong>4) Validate perception topics (quick checks)</strong></p>
+                    <p><strong>4) Validate perception topics (safe checks)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {topicListCommand}
                     </code>
@@ -91,11 +92,14 @@ export default function IntegrationCheckPanel() {
                         {topicTypeCommand}
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
-                        {topicHzCommand}
+                        {topicInfoCommand}
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
-                        {topicEchoCommand}
+                        {nodeListCommand}
                     </code>
+                    <p className="text-[11px] text-amber-200">
+                        If <code>ros2 topic hz</code> or <code>ros2 topic echo</code> crashes with <code>Segmentation fault</code> / <code>double free</code>, your ROS2 shell environment is likely mixed. Open a fresh shell and source only ROS Iron + this workspace, then retry.
+                    </p>
                     <p className="text-[11px] text-slate-300">
                         Use the camera topic name shown by the topic list command if your stream is not on <code>/camera/cam1/image_raw</code>.
                     </p>
@@ -193,8 +197,12 @@ export default function IntegrationCheckPanel() {
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
                     <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
                     <p>• Camera stream loads in this panel and updates continuously.</p>
-                    <p>• <code>ros2 topic hz /camera/cam1/image_raw</code> reports a steady frame rate.</p>
-                    <p>• <code>ros2 topic echo /camera/cam1/image_raw --once</code> returns a frame message (update topic if needed).</p>
+                    <p>• <code>{nodeListCommand}</code> includes <code>/racetracker_perception</code> (or your perception node name).</p>
+                    <p>• <code>{topicInfoCommand}</code> shows at least one publisher and one subscriber.</p>
+                    <p>• Keep the perception process running in a dedicated terminal and watch logs for frame decode or websocket errors:</p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        {perceptionLogsCommand}
+                    </code>
                     <p>• Detection count in this tab increases from 0 and “seconds since last object” stays low.</p>
                 </div>
             </div>

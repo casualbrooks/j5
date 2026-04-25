@@ -44,16 +44,16 @@ export default function IntegrationCheckPanel() {
     }, [])
 
     const topicListCommand = 'ros2 topic list -t | rg -n "Image|CompressedImage|camera|video"'
-    const topicHzCommand = 'ros2 topic hz /camera/cam1/image_raw'
-    const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
-    const topicInfoCommand = 'ros2 topic info /camera/cam1/image_raw -v'
+    const topicHzCommand = 'ros2 topic hz <camera_topic_from_step_1>'
+    const topicEchoCommand = 'ros2 topic echo <camera_topic_from_step_1> --once'
+    const topicInfoCommand = 'ros2 topic info <camera_topic_from_step_1> -v'
     const nodeListCommand = 'ros2 node list'
     const ros2SourceCommand =
-        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; else echo "Missing ROS underlay setup.bash"; fi; if [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; elif [ -f ~/alive/j5/ros_ws/install/setup.bash ]; then source ~/alive/j5/ros_ws/install/setup.bash; else echo "Missing j5 workspace setup.bash"; fi'
+        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; else echo "Missing ROS underlay setup.bash"; fi; if [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; else echo "Missing j5 workspace setup.bash"; fi'
     const perceptionRunCommand =
-        'ros2 run racetracker_perception perception_node --ros-args --log-level info -p camera_topics:=[/camera/cam1/image_raw] -p auto_discover_camera_topics:=true'
+        'ros2 run racetracker_perception perception_node --ros-args --log-level info -p camera_topics:=[<camera_topic_from_step_1>] -p auto_discover_camera_topics:=true'
     const lapEventPublishCommand =
-        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once -w 0"
+        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once"
 
     return (
         <div className="fade-in space-y-4">
@@ -73,6 +73,9 @@ export default function IntegrationCheckPanel() {
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {topicListCommand}
                     </code>
+                    <p className="text-[11px] text-slate-300">
+                        Pick the real topic from step 1 (for example <code>/actual/image/topic</code>) and use it in steps 1, 4, and 5.
+                    </p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
                         {topicHzCommand}
                     </code>
@@ -102,7 +105,7 @@ export default function IntegrationCheckPanel() {
                         If <code>ros2 topic hz</code>, <code>ros2 topic echo</code>, or <code>ros2 param</code> crashes with <code>Segmentation fault</code> / <code>double free</code>, open a fresh shell and run only the two <code>source</code> commands shown above.
                     </p>
                     <p className="text-[11px] text-slate-300">
-                        If your camera topic is different, replace <code>/camera/cam1/image_raw</code> in steps 1, 4, and 5 with the topic shown by step 1.
+                        Use the same real camera topic in steps 1, 4, and 5 so the perception node subscribes to the stream that is actually publishing.
                     </p>
                     <p><strong>6) Optional bridge smoke test (publish one lap event)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
@@ -110,7 +113,7 @@ export default function IntegrationCheckPanel() {
                     </code>
                     <p className="text-[11px] text-slate-300">
                         This command only validates the ROS lap-event bridge path. It does <strong>not</strong> create Computer Vision detections by itself.
-                        If it waits for subscribers, either start your bridge subscriber first or keep <code>-w 0</code> to publish without waiting.
+                        If your ROS CLI crashes when using wait flags, run the command exactly as shown (<code>--once</code> only).
                     </p>
                 </div>
             </div>

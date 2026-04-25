@@ -48,7 +48,8 @@ export default function IntegrationCheckPanel() {
     const topicEchoCommand = 'ros2 topic echo /camera/cam1/image_raw --once'
     const topicInfoCommand = 'ros2 topic info /camera/cam1/image_raw -v'
     const nodeListCommand = 'ros2 node list'
-    const ros2SourceCommand = 'source ~/ros2_kilted/install/setup.bash && source ~/j5/ros_ws/install/setup.bash'
+    const ros2SourceCommand =
+        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; else echo "Missing ROS underlay setup.bash"; fi; if [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; elif [ -f ~/alive/j5/ros_ws/install/setup.bash ]; then source ~/alive/j5/ros_ws/install/setup.bash; else echo "Missing j5 workspace setup.bash"; fi'
     const perceptionRunCommand =
         'ros2 run racetracker_perception perception_node --ros-args --log-level info -p camera_topics:=[/camera/cam1/image_raw] -p auto_discover_camera_topics:=true'
     const lapEventPublishCommand =

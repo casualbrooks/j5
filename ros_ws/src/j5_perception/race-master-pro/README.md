@@ -374,6 +374,21 @@ python3 scripts/pi_preflight.py \
 Then open `http://<pi-ip>:8091/` from another device. Use **Capture Track Photo**
 to write the snapshot to `track_snapshot.jpg` on the Pi.
 
+If you need a lightweight ROS image publisher that also serves `/stream.mjpg`
+for the Integration/Computer Vision tabs, run:
+
+```bash
+python3 scripts/camera_ros_publisher.py \
+  --device /dev/video0 \
+  --topic /camera/cam1/image_raw \
+  --width 1280 --height 720 --fps 15 \
+  --pixel-format MJPG \
+  --serve-preview --preview-host 0.0.0.0 --preview-port 8091
+```
+
+This is useful when `usb_cam` is unavailable in the current source-built
+environment.
+
 You can also use Race Manager Pro UI from another machine at
 `http://<pi-ip>:5173` -> **Computer Vision** tab:
 - set **Preview server URL** to `http://<pi-ip>:8091`

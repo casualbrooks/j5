@@ -13,7 +13,6 @@ import argparse
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from socketserver import ThreadingMixIn
 
 import cv2
 import rclpy
@@ -22,7 +21,7 @@ from rclpy.qos import QoSProfile
 from sensor_msgs.msg import Image
 
 
-class _ThreadedHTTPServer(ThreadingMixIn, ThreadingHTTPServer):
+class _ThreadedHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
 

@@ -49,11 +49,11 @@ export default function IntegrationCheckPanel() {
     const topicInfoCommand = 'ros2 topic info <camera_topic_from_step_1> -v'
     const nodeListCommand = 'ros2 node list'
     const ros2SourceCommand =
-        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; else echo "Missing ROS underlay setup.bash"; fi; if [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; else echo "Missing j5 workspace setup.bash"; fi'
+        'if [ -f ~/ros2_kilted/install/setup.bash ]; then source ~/ros2_kilted/install/setup.bash; elif [ -f /opt/ros/iron/setup.bash ]; then source /opt/ros/iron/setup.bash; else echo "Missing ROS underlay setup.bash"; fi; if [ -f ~/j5/ros_ws/install/setup.bash ]; then source ~/j5/ros_ws/install/setup.bash; elif [ -f ~/alive/j5/ros_ws/install/setup.bash ]; then source ~/alive/j5/ros_ws/install/setup.bash; else echo "Missing j5 workspace setup.bash"; fi'
     const perceptionRunCommand =
         'ros2 run racetracker_perception perception_node --ros-args --log-level info -p camera_topics:=[<camera_topic_from_step_1>] -p auto_discover_camera_topics:=true'
     const lapEventPublishCommand =
-        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once"
+        "ros2 topic pub /race/lap_event std_msgs/msg/String '{data: \"{\\\"raceId\\\":\\\"demo-race\\\",\\\"carId\\\":\\\"car-7\\\",\\\"sessionLap\\\":1,\\\"lapTimeMs\\\":70000,\\\"trackDistanceM\\\":350.0,\\\"validity\\\":{\\\"onTrack\\\":true,\\\"directionOk\\\":true,\\\"minLapTimeOk\\\":true}}\"}' --once -w 0"
 
     return (
         <div className="fade-in space-y-4">
@@ -113,7 +113,7 @@ export default function IntegrationCheckPanel() {
                     </code>
                     <p className="text-[11px] text-slate-300">
                         This command only validates the ROS lap-event bridge path. It does <strong>not</strong> create Computer Vision detections by itself.
-                        If your ROS CLI crashes when using wait flags, run the command exactly as shown (<code>--once</code> only).
+                        It publishes immediately even if no subscribers are active. If your ROS CLI crashes when using wait flags, retry in a fresh shell with <code>--once</code> only.
                     </p>
                 </div>
             </div>

@@ -9,6 +9,16 @@ function defaultPreviewBaseUrl(): string {
     return `http://${window.location.hostname}:8091`
 }
 
+
+function extractObjectNumber(objectId: string): string {
+    const match = objectId.match(/(\d+)(?!.*\d)/)
+    return match ? match[1] : objectId
+}
+
+function parseNumber(value: unknown): number | null {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : null
+}
 function normalizePreviewBaseUrl(value: string): string {
     const raw = value.trim()
     if (!raw) return ''
@@ -81,6 +91,10 @@ export default function VisionPanel() {
             if (!response.ok) return
             const payload = await response.json()
             setRaceContext(payload.race_context || {})
+            const previewUrl = String(payload?.config?.preview_url || '').trim()
+            if (previewUrl) {
+                setPreviewBaseUrl(previewUrl)
+            }
         } catch {
             // ignore for panel resilience
         }
@@ -107,10 +121,18 @@ export default function VisionPanel() {
         setStatusError(false)
 
         try {
+            if (!normalizedBaseUrl) {
+                throw new Error('Set a valid Preview server URL before capturing a track photo.')
+            }
             const response = await fetch(`${normalizedBaseUrl}/capture`, {
                 method: 'POST',
             })
-            const payload = await response.json()
+            let payload: { ok?: boolean, message?: string } = {}
+            try {
+                payload = await response.json() as { ok?: boolean, message?: string }
+            } catch {
+                payload = { ok: response.ok, message: response.ok ? 'Capture request completed.' : 'Capture request failed.' }
+            }
 
             if (!response.ok || !payload.ok) {
                 throw new Error(payload.message || 'Capture failed')
@@ -150,6 +172,32 @@ export default function VisionPanel() {
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const hasRecentVisionObjects = recentVisionObjects.length > 0
+    const drawableVisionObjects = recentVisionObjects
+        .slice(0, 12)
+        .map((item) => {
+            const x = parseNumber(item.bbox?.x)
+            const y = parseNumber(item.bbox?.y)
+            const width = parseNumber(item.bbox?.width)
+            const height = parseNumber(item.bbox?.height)
+            const frameWidth = parseNumber(item.frameSize?.width)
+            const frameHeight = parseNumber(item.frameSize?.height)
+            if (x == null || y == null || width == null || height == null || frameWidth == null || frameHeight == null) return null
+            return {
+                item,
+                leftPct: (x / frameWidth) * 100,
+                topPct: (y / frameHeight) * 100,
+                widthPct: (width / frameWidth) * 100,
+                heightPct: (height / frameHeight) * 100,
+            }
+        })
+        .filter((entry): entry is {
+            item: typeof recentVisionObjects[number]
+            leftPct: number
+            topPct: number
+            widthPct: number
+            heightPct: number
+        } => entry !== null)
+    const hasDrawableVisionObjects = drawableVisionObjects.length > 0
     const latestVisionObject = recentVisionObjects[0]
     const visionFresh = Boolean(latestVisionObject && statusNowMs - latestVisionObject.seenAt <= 3000)
 
@@ -225,7 +273,7 @@ export default function VisionPanel() {
                     captured, return here to start object tracking and monitor lap-count logs.
                 </p>
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                    The preview stream is raw camera video. Object IDs are shown as badges (no bounding boxes yet). Use the detection table below to map object IDs to racers; dashboard overlay updates when mapped IDs are seen.
+                    The preview stream shows live object bounding boxes when detection payloads include bbox coordinates. Object labels show only the numeric ID so it is easier to match racers.
                 </p>
                 <p className="text-xs text-amber-300">
                     Keep the camera stream open in only one viewer at a time. Viewing <code>/stream.mjpg</code> in multiple places can drop the camera connection.
@@ -279,16 +327,32 @@ export default function VisionPanel() {
                             alt="Live camera preview"
                             className="w-full rounded border border-slate-700 bg-black"
                         />
-                        <div className="pointer-events-none absolute left-2 top-2 max-w-[65%] space-y-1">
-                            {recentVisionObjects.slice(0, 6).map((item) => (
-                                <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
-                                    {item.objectId}
-                                    {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
-                                    {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
-                                </p>
-                            ))}
+                        <div className="pointer-events-none absolute inset-0">
+                            {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => {
+                                return (
+                                    <div
+                                        key={`${item.objectId}-${item.seenAt}`}
+                                        className="absolute border border-emerald-400/90"
+                                        style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                                    >
+                                        <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+                                            {extractObjectNumber(item.objectId)}
+                                        </span>
+                                    </div>
+                                )
+                            })}
+                            {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
+                                <div className="absolute left-2 top-2 max-w-[65%] space-y-1">
+                                    {recentVisionObjects.slice(0, 8).map((item) => (
+                                        <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                            {extractObjectNumber(item.objectId)}
+                                            {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
+                                        </p>
+                                    ))}
+                                </div>
+                            ) : null}
                             {!hasRecentVisionObjects ? (
-                                <p className="rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
                                     No tracking objects yet. Start perception node, then click Start Tracking.
                                 </p>
                             ) : null}

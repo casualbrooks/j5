@@ -53,6 +53,35 @@ function normalizeBaseUrl(value: string): string {
     }
 }
 
+
+
+function deriveObjectIdPrefix(objectIds: string[]): string {
+    for (const objectId of objectIds) {
+        const match = objectId.match(/^(.*?)(\d+)$/)
+        if (match && match[1]) return match[1]
+    }
+    return 'cv--camera-cam1-image_raw-track-'
+}
+
+function toFullObjectId(prefix: string, numericValue: string): string {
+    const digits = numericValue.replace(/\D+/g, '')
+    if (!digits) return ''
+    return `${prefix}${digits}`
+}
+
+function extractPrefixFromObjectId(objectId: string): string | null {
+    const match = objectId.match(/^(.*?)(\d+)$/)
+    return match?.[1] || null
+}
+
+function toNumericObjectId(prefix: string, fullObjectId: string): string {
+    if (!fullObjectId) return ''
+    if (fullObjectId.startsWith(prefix)) {
+        return fullObjectId.slice(prefix.length).replace(/\D+/g, '')
+    }
+    const match = fullObjectId.match(/(\d+)(?!.*\d)/)
+    return match ? match[1] : ''
+}
 function withCacheBust(url: string): string {
     if (!url) return ''
     const separator = url.includes('?') ? '&' : '?'
@@ -97,6 +126,7 @@ export default function SettingsPanelView() {
     const [markerNotice, setMarkerNotice] = useState('')
     const [trackingBackend, setTrackingBackendState] = useState<TrackingBackend>(getTrackingBackend())
     const [assignmentDraft, setAssignmentDraft] = useState<Record<string, string>>({})
+    const [assignmentPrefix, setAssignmentPrefix] = useState('cv--camera-cam1-image_raw-track-')
     const wizardSteps = Array.isArray(wizard?.steps) ? wizard.steps : []
 
     const selectedTrack = useMemo(
@@ -200,6 +230,15 @@ export default function SettingsPanelView() {
         if (!selectedTrackId) return
         setTrackRacerAssignments(selectedTrackId, assignmentDraft)
     }, [assignmentDraft, selectedTrackId])
+
+
+    useEffect(() => {
+        if (safeRecentVisionObjects.length === 0) return
+        const prefix = deriveObjectIdPrefix(safeRecentVisionObjects.map(item => item.objectId))
+        if (prefix) {
+            setAssignmentPrefix(prefix)
+        }
+    }, [safeRecentVisionObjects])
 
     const frontendApiUrl = configuredApiBaseUrl() ?? `same-origin /api → fallback ${backendBaseUrl()}`
     const frontendWsUrl = backendWsUrl('organizer')
@@ -591,48 +630,31 @@ export default function SettingsPanelView() {
                         <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-2">
                             <p><strong>Racer object assignment</strong></p>
                             <p>Assign the tracker object id for each racer. During race tracking, only assigned objects are annotated and lap-checked.</p>
+                            <div className="rounded border border-slate-700 bg-slate-900/60 p-2 text-[11px] text-slate-300">
+                                Object ID prefix: <code>{assignmentPrefix}</code>
+                            </div>
                             {liveRacers.map(racer => (
                                 <label key={racer.racer_profile_id} className="block">
                                     <span className="text-slate-200">{racer.name} (#{racer.number || '?'})</span>
                                     <input
-                                        list={`object-id-options-${racer.racer_profile_id}`}
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white"
-                                        value={assignmentDraft[racer.racer_profile_id] || ''}
-                                        onChange={event => setAssignmentDraft(prev => ({ ...prev, [racer.racer_profile_id]: event.target.value }))}
-                                        placeholder="tracker object id (e.g. yolo-track-17)"
+                                        value={toNumericObjectId(assignmentPrefix, assignmentDraft[racer.racer_profile_id] || '')}
+                                        onChange={event => {
+                                            const existingValue = assignmentDraft[racer.racer_profile_id] || ''
+                                            const existingPrefix = extractPrefixFromObjectId(existingValue)
+                                            const nextPrefix = existingPrefix || assignmentPrefix
+                                            const fullId = toFullObjectId(nextPrefix, event.target.value)
+                                            setAssignmentDraft(prev => ({ ...prev, [racer.racer_profile_id]: fullId }))
+                                        }}
+                                        placeholder="numeric object id (e.g. 403)"
                                     />
-                                    <datalist id={`object-id-options-${racer.racer_profile_id}`}>
-                                        {safeRecentVisionObjects.map(item => (
-                                            <option key={item.objectId} value={item.objectId} />
-                                        ))}
-                                    </datalist>
                                 </label>
                             ))}
-                            {safeRecentVisionObjects.length > 0 ? (
-                                <div className="rounded border border-slate-700 bg-slate-900/60 p-2 text-[11px] text-slate-300 space-y-1">
-                                    <p className="font-semibold text-slate-200">Live object IDs (from Vision tracking):</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {safeRecentVisionObjects.map(item => (
-                                            <button
-                                                key={item.objectId}
-                                                type="button"
-                                                className="rounded bg-slate-800 px-2 py-0.5 text-[11px] hover:bg-slate-700"
-                                                onClick={() => {
-                                                    const firstUnassigned = liveRacers
-                                                        .find(racer => !(assignmentDraft[racer.racer_profile_id] || '').trim())
-                                                    if (!firstUnassigned) return
-                                                    setAssignmentDraft(prev => ({ ...prev, [firstUnassigned.racer_profile_id]: item.objectId }))
-                                                }}
-                                                title="Click to assign this ID to the first unassigned racer"
-                                            >
-                                                {item.objectId}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ) : (
+                            {safeRecentVisionObjects.length === 0 ? (
                                 <p className="text-[11px] text-amber-300">No object IDs seen yet. In Computer Vision: enable preview, start tracking, then move cars through frame.</p>
-                            )}
+                            ) : null}
                             <button className="rounded bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-500" type="button" onClick={saveAssignments}>Save Assignments</button>
                         </div>
                     </div>

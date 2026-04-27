@@ -75,6 +75,25 @@ function readFiniteNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
 }
 
+function normalizeObjectIdToken(value: string): string {
+    return value.trim().toLowerCase()
+}
+
+function extractObjectIdNumber(value: string): string {
+    const match = value.match(/(\d+)(?!.*\d)/)
+    return match ? match[1] : ''
+}
+
+function objectIdsLikelyMatch(assignedId: string, incomingId: string): boolean {
+    const assigned = normalizeObjectIdToken(assignedId)
+    const incoming = normalizeObjectIdToken(incomingId)
+    if (!assigned || !incoming) return false
+    if (assigned === incoming) return true
+    const assignedNumber = extractObjectIdNumber(assigned)
+    const incomingNumber = extractObjectIdNumber(incoming)
+    return Boolean(assignedNumber && incomingNumber && assignedNumber === incomingNumber)
+}
+
 function extractBoundingBox(payload: Record<string, unknown>): { x: number, y: number, width: number, height: number } | null {
     const bboxX = readFiniteNumber(payload.bbox_x)
     const bboxY = readFiniteNumber(payload.bbox_y)
@@ -447,7 +466,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
             let racerId = String(data.racer_profile_id || '').trim()
             if (incomingObjectId) {
-                const match = Object.entries(assignments).find(([, objectId]) => objectId === incomingObjectId)
+                const match = Object.entries(assignments).find(([, objectId]) => objectIdsLikelyMatch(String(objectId || ''), incomingObjectId))
                 racerId = match?.[0] || ''
             }
             if (!racerId) return

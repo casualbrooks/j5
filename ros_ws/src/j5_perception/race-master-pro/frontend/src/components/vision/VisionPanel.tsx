@@ -172,6 +172,32 @@ export default function VisionPanel() {
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const hasRecentVisionObjects = recentVisionObjects.length > 0
+    const drawableVisionObjects = recentVisionObjects
+        .slice(0, 12)
+        .map((item) => {
+            const x = parseNumber(item.bbox?.x)
+            const y = parseNumber(item.bbox?.y)
+            const width = parseNumber(item.bbox?.width)
+            const height = parseNumber(item.bbox?.height)
+            const frameWidth = parseNumber(item.frameSize?.width)
+            const frameHeight = parseNumber(item.frameSize?.height)
+            if (x == null || y == null || width == null || height == null || frameWidth == null || frameHeight == null) return null
+            return {
+                item,
+                leftPct: (x / frameWidth) * 100,
+                topPct: (y / frameHeight) * 100,
+                widthPct: (width / frameWidth) * 100,
+                heightPct: (height / frameHeight) * 100,
+            }
+        })
+        .filter((entry): entry is {
+            item: typeof recentVisionObjects[number]
+            leftPct: number
+            topPct: number
+            widthPct: number
+            heightPct: number
+        } => entry !== null)
+    const hasDrawableVisionObjects = drawableVisionObjects.length > 0
     const latestVisionObject = recentVisionObjects[0]
     const visionFresh = Boolean(latestVisionObject && statusNowMs - latestVisionObject.seenAt <= 3000)
 
@@ -302,18 +328,7 @@ export default function VisionPanel() {
                             className="w-full rounded border border-slate-700 bg-black"
                         />
                         <div className="pointer-events-none absolute inset-0">
-                            {recentVisionObjects.slice(0, 12).map((item) => {
-                                const x = parseNumber(item.bbox?.x)
-                                const y = parseNumber(item.bbox?.y)
-                                const width = parseNumber(item.bbox?.width)
-                                const height = parseNumber(item.bbox?.height)
-                                const frameWidth = parseNumber(item.frameSize?.width)
-                                const frameHeight = parseNumber(item.frameSize?.height)
-                                if (x == null || y == null || width == null || height == null || frameWidth == null || frameHeight == null) return null
-                                const leftPct = (x / frameWidth) * 100
-                                const topPct = (y / frameHeight) * 100
-                                const widthPct = (width / frameWidth) * 100
-                                const heightPct = (height / frameHeight) * 100
+                            {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => {
                                 return (
                                     <div
                                         key={`${item.objectId}-${item.seenAt}`}
@@ -326,6 +341,16 @@ export default function VisionPanel() {
                                     </div>
                                 )
                             })}
+                            {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
+                                <div className="absolute left-2 top-2 max-w-[65%] space-y-1">
+                                    {recentVisionObjects.slice(0, 8).map((item) => (
+                                        <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                            {extractObjectNumber(item.objectId)}
+                                            {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
+                                        </p>
+                                    ))}
+                                </div>
+                            ) : null}
                             {!hasRecentVisionObjects ? (
                                 <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
                                     No tracking objects yet. Start perception node, then click Start Tracking.

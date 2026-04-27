@@ -10,9 +10,12 @@ when enabled, serves a browser preview at:
 from __future__ import annotations
 
 import argparse
+import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
 
 import cv2
 import rclpy
@@ -48,6 +51,7 @@ class CameraPublisher(Node):
         self._latest_frame = None
         self._latest_jpeg = None
         self._frame_lock = threading.Lock()
+        self._snapshot_file = Path(args.snapshot_file).expanduser().resolve()
         self._frames_published = 0
         self._start_time = time.time()
 
@@ -103,6 +107,20 @@ class CameraPublisher(Node):
         publisher = self
 
         class Handler(BaseHTTPRequestHandler):
+            def _send_cors_headers(self):
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+            def _write_json(self, status_code: int, payload: dict):
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(status_code)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def _send_index(self):
                 body = (
                     "<html><body style='background:#111;color:#eee;font-family:sans-serif'>"
@@ -111,6 +129,7 @@ class CameraPublisher(Node):
                     "</body></html>"
                 ).encode("utf-8")
                 self.send_response(200)
+                self._send_cors_headers()
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -119,6 +138,7 @@ class CameraPublisher(Node):
             def _send_stream(self):
                 boundary = b"frame"
                 self.send_response(200)
+                self._send_cors_headers()
                 self.send_header("Age", "0")
                 self.send_header("Cache-Control", "no-cache, private")
                 self.send_header("Pragma", "no-cache")
@@ -147,14 +167,104 @@ class CameraPublisher(Node):
                     except ConnectionResetError:
                         return
 
-            def do_GET(self):  # noqa: N802
-                if self.path == "/" or self.path.startswith("/index"):
-                    self._send_index()
-                elif self.path.startswith("/stream.mjpg"):
-                    self._send_stream()
+            def _send_snapshot(self):
+                with publisher._frame_lock:
+                    latest_jpeg = publisher._latest_jpeg
+                if latest_jpeg is not None:
+                    payload = latest_jpeg
+                elif publisher._snapshot_file.exists():
+                    payload = publisher._snapshot_file.read_bytes()
                 else:
                     self.send_response(404)
+                    self._send_cors_headers()
                     self.end_headers()
+                    return
+                self.send_response(200)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_OPTIONS(self):  # noqa: N802
+                self.send_response(204)
+                self._send_cors_headers()
+                self.end_headers()
+
+            def do_GET(self):  # noqa: N802
+                request_path = urlparse(self.path).path
+                if request_path == "/" or request_path.startswith("/index"):
+                    self._send_index()
+                elif request_path.startswith("/stream.mjpg"):
+                    self._send_stream()
+                elif request_path == "/ready":
+                    with publisher._frame_lock:
+                        has_frame = publisher._latest_jpeg is not None
+                    if has_frame or publisher._snapshot_file.exists():
+                        self._write_json(
+                            200,
+                            {
+                                "ok": True,
+                                "message": "frame available",
+                                "snapshot_file": str(publisher._snapshot_file),
+                            },
+                        )
+                    else:
+                        self._write_json(
+                            503,
+                            {"ok": False, "message": "no frame buffered yet"},
+                        )
+                elif request_path == "/snapshot.jpg":
+                    self._send_snapshot()
+                else:
+                    self.send_response(404)
+                    self._send_cors_headers()
+                    self.end_headers()
+
+            def do_POST(self):  # noqa: N802
+                request_path = urlparse(self.path).path
+                if request_path != "/capture":
+                    self.send_response(404)
+                    self._send_cors_headers()
+                    self.end_headers()
+                    return
+
+                with publisher._frame_lock:
+                    latest_frame = (
+                        None
+                        if publisher._latest_frame is None
+                        else publisher._latest_frame.copy()
+                    )
+
+                if latest_frame is None:
+                    self._write_json(
+                        503,
+                        {
+                            "ok": False,
+                            "message": "No frame available yet; open preview and retry.",
+                        },
+                    )
+                    return
+
+                publisher._snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+                saved = cv2.imwrite(str(publisher._snapshot_file), latest_frame)
+                if not saved:
+                    self._write_json(
+                        500,
+                        {
+                            "ok": False,
+                            "message": f"Failed to write snapshot to {publisher._snapshot_file}",
+                        },
+                    )
+                    return
+                self._write_json(
+                    200,
+                    {
+                        "ok": True,
+                        "message": f"Snapshot saved to {publisher._snapshot_file}",
+                    },
+                )
 
             def log_message(self, fmt, *args):
                 return
@@ -196,6 +306,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preview-port", type=int, default=8091)
     parser.add_argument("--preview-fps", type=float, default=12.0)
     parser.add_argument("--jpeg-quality", type=int, default=70)
+    parser.add_argument("--snapshot-file", default="track_snapshot.jpg")
 
     return parser.parse_args()
 

@@ -248,8 +248,7 @@ class StandaloneRunner:
         contours, _ = cv2.findContours(
             cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        centroids: list[tuple[float, float]] = []
-        bounds: list[tuple[int, int, int, int]] = []
+        candidates: list[tuple[tuple[float, float], tuple[int, int, int, int]]] = []
         for contour in contours:
             area = cv2.contourArea(contour)
             if area < 250:
@@ -257,14 +256,24 @@ class StandaloneRunner:
             x, y, w, h = cv2.boundingRect(contour)
             if w < 10 or h < 10:
                 continue
-            centroids.append((x + (w / 2.0), y + (h / 2.0)))
-            bounds.append((x, y, w, h))
+            candidates.append(((x + (w / 2.0), y + (h / 2.0)), (x, y, w, h)))
 
-        tracked = tracker.update(centroids)
+        tracked = tracker.update([centroid for centroid, _bbox in candidates])
         detections: list[dict] = []
+        frame_height, frame_width = frame.shape[:2]
         for object_id, state in tracked.items():
             if state.disappeared != 0:
                 continue
+            closest_bbox = None
+            if candidates:
+                closest_bbox = min(
+                    candidates,
+                    key=lambda item: (item[0][0] - state.centroid[0]) ** 2
+                    + (item[0][1] - state.centroid[1]) ** 2,
+                )[1]
+            bbox_x, bbox_y, bbox_w, bbox_h = (
+                closest_bbox if closest_bbox else (None, None, None, None)
+            )
             detections.append(
                 {
                     "object_id": f"cv-{cam_id}-track-{object_id}",
@@ -272,7 +281,12 @@ class StandaloneRunner:
                     "position_x": round(state.centroid[0], 1),
                     "position_y": round(state.centroid[1], 1),
                     "confidence": 0.95,
-                    "bbox_count": len(bounds),
+                    "bbox_x": bbox_x,
+                    "bbox_y": bbox_y,
+                    "bbox_width": bbox_w,
+                    "bbox_height": bbox_h,
+                    "frame_width": frame_width,
+                    "frame_height": frame_height,
                 }
             )
         return detections

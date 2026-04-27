@@ -337,7 +337,7 @@ if ROS2_AVAILABLE:
 
         def _motion_candidates(
             self, frame, subtractor
-        ) -> list[tuple[tuple[float, float], float]]:
+        ) -> list[dict[str, float | tuple[float, float]]]:
             if cv2 is None or np is None:
                 return []
             motion_min_area = float(getattr(self, "motion_min_area", 180.0))
@@ -352,7 +352,7 @@ if ROS2_AVAILABLE:
             contours, _ = cv2.findContours(
                 cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
-            candidates: list[tuple[tuple[float, float], float]] = []
+            candidates: list[dict[str, float | tuple[float, float]]] = []
             for contour in contours:
                 area = cv2.contourArea(contour)
                 if area < motion_min_area:
@@ -361,10 +361,18 @@ if ROS2_AVAILABLE:
                 if w < motion_min_box_size or h < motion_min_box_size:
                     continue
                 confidence = min(0.99, 0.5 + (float(area) / 5000.0))
-                candidates.append(((x + (w / 2.0), y + (h / 2.0)), confidence))
+                candidates.append(
+                    {
+                        "centroid": (x + (w / 2.0), y + (h / 2.0)),
+                        "confidence": confidence,
+                        "bbox": (float(x), float(y), float(w), float(h)),
+                    }
+                )
             return candidates
 
-        def _yolo_candidates(self, frame) -> list[tuple[tuple[float, float], float]]:
+        def _yolo_candidates(
+            self, frame
+        ) -> list[dict[str, float | tuple[float, float]]]:
             yolo_model = getattr(self, "_yolo_model", None)
             if yolo_model is None:
                 return []
@@ -382,7 +390,7 @@ if ROS2_AVAILABLE:
             boxes = getattr(results[0], "boxes", None)
             if boxes is None:
                 return []
-            candidates: list[tuple[tuple[float, float], float]] = []
+            candidates: list[dict[str, float | tuple[float, float]]] = []
             for box in boxes:
                 conf_values = box.conf.tolist() if box.conf is not None else []
                 if not conf_values:
@@ -393,7 +401,13 @@ if ROS2_AVAILABLE:
                     continue
                 x1, y1, x2, y2 = coords
                 centroid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-                candidates.append((centroid, confidence))
+                candidates.append(
+                    {
+                        "centroid": centroid,
+                        "confidence": confidence,
+                        "bbox": (float(x1), float(y1), float(x2 - x1), float(y2 - y1)),
+                    }
+                )
             return candidates
 
         def image_callback(self, msg: Image, topic: str):
@@ -416,28 +430,35 @@ if ROS2_AVAILABLE:
             if not candidates and self.fallback_to_motion_tracking:
                 candidates = self._motion_candidates(frame, subtractor)
                 detection_source = "motion"
-            centroids = [centroid for centroid, _confidence in candidates]
+            centroids = [candidate["centroid"] for candidate in candidates]
 
             tracked = tracker.update(centroids)
             for object_id, state in tracked.items():
                 if state.disappeared != 0:
                     continue
                 confidence = self.confidence_threshold
+                nearest_idx = -1
                 if candidates:
                     distances = [
                         (
                             idx,
                             np.hypot(
-                                state.centroid[0] - candidate[0][0],
-                                state.centroid[1] - candidate[0][1],
+                                state.centroid[0] - float(candidate["centroid"][0]),
+                                state.centroid[1] - float(candidate["centroid"][1]),
                             ),
                         )
                         for idx, candidate in enumerate(candidates)
                     ]
                     nearest_idx = min(distances, key=lambda item: item[1])[0]
-                    confidence = float(candidates[nearest_idx][1])
+                    confidence = float(candidates[nearest_idx]["confidence"])
                 if confidence < self.confidence_threshold:
                     continue
+                frame_height, frame_width = frame.shape[:2]
+                bbox_x = bbox_y = bbox_w = bbox_h = None
+                if nearest_idx >= 0:
+                    bbox = candidates[nearest_idx].get("bbox")
+                    if bbox is not None:
+                        bbox_x, bbox_y, bbox_w, bbox_h = bbox
                 detection = {
                     "object_id": f"cv-{topic.replace('/', '-')}-track-{object_id}",
                     "camera_topic": topic,
@@ -445,6 +466,16 @@ if ROS2_AVAILABLE:
                     "position_y": round(state.centroid[1], 1),
                     "confidence": round(confidence, 3),
                     "detection_source": detection_source,
+                    "bbox_x": round(float(bbox_x), 1) if bbox_x is not None else None,
+                    "bbox_y": round(float(bbox_y), 1) if bbox_y is not None else None,
+                    "bbox_width": (
+                        round(float(bbox_w), 1) if bbox_w is not None else None
+                    ),
+                    "bbox_height": (
+                        round(float(bbox_h), 1) if bbox_h is not None else None
+                    ),
+                    "frame_width": int(frame_width),
+                    "frame_height": int(frame_height),
                 }
                 try:
                     self._detection_queue.put_nowait(detection)

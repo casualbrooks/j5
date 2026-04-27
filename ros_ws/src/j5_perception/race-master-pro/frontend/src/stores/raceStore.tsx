@@ -22,6 +22,8 @@ interface RaceContextValue {
         cameraTopic: string
         detectionSource: string
         confidence: number | null
+        bbox: { x: number, y: number, width: number, height: number } | null
+        frameSize: { width: number, height: number } | null
     }>
     recentObjectDetections: Array<{ objectId: string, racerProfileId: string, seenAt: number }>
 }
@@ -65,6 +67,32 @@ function extractTrackPosition(payload: Record<string, unknown>): TrackPoint | nu
     const positionY = Number(payload.position_y)
     if (!Number.isFinite(positionX) || !Number.isFinite(positionY)) return null
     return { x: positionX, y: positionY }
+}
+
+
+function readFiniteNumber(value: unknown): number | null {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+function extractBoundingBox(payload: Record<string, unknown>): { x: number, y: number, width: number, height: number } | null {
+    const bboxX = readFiniteNumber(payload.bbox_x)
+    const bboxY = readFiniteNumber(payload.bbox_y)
+    const bboxWidth = readFiniteNumber(payload.bbox_width ?? payload.bbox_w)
+    const bboxHeight = readFiniteNumber(payload.bbox_height ?? payload.bbox_h)
+    if (bboxX != null && bboxY != null && bboxWidth != null && bboxHeight != null) {
+        return { x: bboxX, y: bboxY, width: bboxWidth, height: bboxHeight }
+    }
+
+    const x1 = readFiniteNumber(payload.bbox_x1)
+    const y1 = readFiniteNumber(payload.bbox_y1)
+    const x2 = readFiniteNumber(payload.bbox_x2)
+    const y2 = readFiniteNumber(payload.bbox_y2)
+    if (x1 != null && y1 != null && x2 != null && y2 != null && x2 > x1 && y2 > y1) {
+        return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 }
+    }
+
+    return null
 }
 
 function buildLiveRace(statePayload: RuntimeStateResponse, activeRaceId: string, laps: LapRecordResponse[]): LiveRaceState {
@@ -151,6 +179,8 @@ export function RaceProvider({ children }: { children: ReactNode }) {
         cameraTopic: string
         detectionSource: string
         confidence: number | null
+        bbox: { x: number, y: number, width: number, height: number } | null
+        frameSize: { width: number, height: number } | null
     }>>([])
     const [recentObjectDetections, setRecentObjectDetections] = useState<Array<{ objectId: string, racerProfileId: string, seenAt: number }>>([])
     const checkpointsRef = useRef<Checkpoint[]>([])
@@ -391,6 +421,12 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             const detectionSource = String(data.detection_source || '').trim()
             const confidence = Number(data.confidence)
             const normalizedConfidence = Number.isFinite(confidence) ? confidence : null
+            const bbox = extractBoundingBox(data)
+            const frameWidth = readFiniteNumber(data.frame_width)
+            const frameHeight = readFiniteNumber(data.frame_height)
+            const frameSize = frameWidth != null && frameHeight != null
+                ? { width: frameWidth, height: frameHeight }
+                : null
             if (incomingObjectId) {
                 setRecentVisionObjects(prev => {
                     const next = [
@@ -401,6 +437,8 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                             cameraTopic,
                             detectionSource,
                             confidence: normalizedConfidence,
+                            bbox,
+                            frameSize,
                         },
                         ...prev.filter(item => item.objectId !== incomingObjectId),
                     ]

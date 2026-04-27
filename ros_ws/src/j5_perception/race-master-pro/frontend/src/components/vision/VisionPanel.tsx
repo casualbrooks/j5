@@ -225,7 +225,7 @@ export default function VisionPanel() {
                     captured, return here to start object tracking and monitor lap-count logs.
                 </p>
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                    The preview stream is raw camera video. Use the detection table below to map object IDs to racers; dashboard overlay updates when mapped IDs are seen.
+                    The preview stream is raw camera video. Object IDs are shown as badges (no bounding boxes yet). Use the detection table below to map object IDs to racers; dashboard overlay updates when mapped IDs are seen.
                 </p>
                 <p className="text-xs text-amber-300">
                     Keep the camera stream open in only one viewer at a time. Viewing <code>/stream.mjpg</code> in multiple places can drop the camera connection.
@@ -284,6 +284,7 @@ export default function VisionPanel() {
                                 <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
                                     {item.objectId}
                                     {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                    {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
                                 </p>
                             ))}
                             {!hasRecentVisionObjects ? (

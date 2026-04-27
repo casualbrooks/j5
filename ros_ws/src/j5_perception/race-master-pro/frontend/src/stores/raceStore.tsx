@@ -15,7 +15,14 @@ interface RaceContextValue {
     wsRef: React.MutableRefObject<WebSocket | null>
     sendWsMessage: (msg: Record<string, unknown>) => void
     refreshRaceState: (raceId?: string | null) => Promise<void>
-    recentVisionObjects: Array<{ objectId: string, seenAt: number, position: TrackPoint | null }>
+    recentVisionObjects: Array<{
+        objectId: string
+        seenAt: number
+        position: TrackPoint | null
+        cameraTopic: string
+        detectionSource: string
+        confidence: number | null
+    }>
     recentObjectDetections: Array<{ objectId: string, racerProfileId: string, seenAt: number }>
 }
 
@@ -137,7 +144,14 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const wsRef = useRef<WebSocket | null>(null)
     const liveRaceRef = useRef<LiveRaceState | null>(null)
     const checkpointStateRef = useRef<Map<string, RacerCheckpointState>>(new Map())
-    const [recentVisionObjects, setRecentVisionObjects] = useState<Array<{ objectId: string, seenAt: number, position: TrackPoint | null }>>([])
+    const [recentVisionObjects, setRecentVisionObjects] = useState<Array<{
+        objectId: string
+        seenAt: number
+        position: TrackPoint | null
+        cameraTopic: string
+        detectionSource: string
+        confidence: number | null
+    }>>([])
     const [recentObjectDetections, setRecentObjectDetections] = useState<Array<{ objectId: string, racerProfileId: string, seenAt: number }>>([])
     const checkpointsRef = useRef<Checkpoint[]>([])
     const requiredCheckpointIdsRef = useRef<Set<string>>(new Set())
@@ -369,10 +383,25 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             const position = Number.isFinite(positionX) && Number.isFinite(positionY)
                 ? { x: positionX, y: positionY }
                 : null
+            const cameraTopic = String(
+                data.camera_topic
+                || data.camera_id
+                || '',
+            ).trim()
+            const detectionSource = String(data.detection_source || '').trim()
+            const confidence = Number(data.confidence)
+            const normalizedConfidence = Number.isFinite(confidence) ? confidence : null
             if (incomingObjectId) {
                 setRecentVisionObjects(prev => {
                     const next = [
-                        { objectId: incomingObjectId, seenAt: Date.now(), position },
+                        {
+                            objectId: incomingObjectId,
+                            seenAt: Date.now(),
+                            position,
+                            cameraTopic,
+                            detectionSource,
+                            confidence: normalizedConfidence,
+                        },
                         ...prev.filter(item => item.objectId !== incomingObjectId),
                     ]
                     return next.slice(0, 24)

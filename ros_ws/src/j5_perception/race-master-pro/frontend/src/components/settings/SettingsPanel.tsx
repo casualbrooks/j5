@@ -425,6 +425,10 @@ export default function SettingsPanelView() {
                         <button className="rounded bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600" type="button" onClick={() => controlRace('finish')}>Race Finish</button>
                     </div>
                 </form>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                    The <strong>Camera preview stream</strong> step is green only when the configured Preview URL responds to <code>/ready</code> or <code>/snapshot.jpg</code>.
+                    If it stays red, run <code>python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091</code> on the camera host and set Preview URL to that host (for example <code>http://192.168.1.134:8091</code>).
+                </p>
             </div>
 
             {error ? <p className="text-sm text-red-400">{error}</p> : null}

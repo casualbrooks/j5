@@ -33,6 +33,13 @@ export default function IntegrationCheckPanel() {
     const raceStatus = liveRace?.status || 'setup'
     const hasRecentVisionObjects = recentVisionObjects.length > 0
     const visionIsFresh = secondsSinceVision !== null && secondsSinceVision <= 3
+    const autoDetectedTopics = Array.from(
+        new Set(
+            recentVisionObjects
+                .map(item => item.cameraTopic)
+                .filter(topic => Boolean(topic)),
+        ),
+    )
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -62,6 +69,9 @@ export default function IntegrationCheckPanel() {
             <div className="race-card p-4 space-y-3 text-sm">
                 <p className="text-[var(--color-text-secondary)]">
                     Use this page to verify camera video, ROS2 perception, and websocket updates without running the full race flow.
+                </p>
+                <p className="text-xs text-amber-200">
+                    Note: the embedded camera image is a raw MJPEG preview. This UI currently overlays object-ID badges, not pixel bounding boxes.
                 </p>
 
                 <div className="rounded border border-slate-700 bg-slate-950/70 p-3 space-y-2 text-xs text-slate-200">
@@ -134,6 +144,12 @@ export default function IntegrationCheckPanel() {
                         </span>
                     </li>
                     <li>
+                        Auto-detected camera topics:{' '}
+                        <span className={autoDetectedTopics.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                            {autoDetectedTopics.length > 0 ? autoDetectedTopics.join(', ') : 'none detected yet'}
+                        </span>
+                    </li>
+                    <li>
                         Detection events in memory:{' '}
                         <span className={recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
                             {recentObjectDetections.length}
@@ -184,6 +200,7 @@ export default function IntegrationCheckPanel() {
                                 <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
                                     {item.objectId}
                                     {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                    {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
                                 </p>
                             ))}
                             {!hasRecentVisionObjects ? (
@@ -208,6 +225,14 @@ export default function IntegrationCheckPanel() {
                         {perceptionRunCommand}
                     </code>
                     <p>• Detection count in this tab increases from 0 and “seconds since last object” stays low.</p>
+                </div>
+                <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
+                    <p className="font-semibold text-slate-100">Camera publisher helper script</p>
+                    <p>If <code>usb_camera</code> is unavailable, publish camera frames with this script:</p>
+                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-emerald-300">
+                        python3 scripts/camera_ros_publisher.py --device /dev/video0 --topic /camera/image_raw --fps 30 --serve-preview --preview-host 0.0.0.0 --preview-port 8091
+                    </code>
+                    <p>Then set <code>camera_topics</code> on the perception node to the same topic (for example <code>/camera/image_raw</code>).</p>
                 </div>
             </div>
 

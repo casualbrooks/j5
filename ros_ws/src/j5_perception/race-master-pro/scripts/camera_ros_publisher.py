@@ -170,10 +170,10 @@ class CameraPublisher(Node):
             def _send_snapshot(self):
                 with publisher._frame_lock:
                     latest_jpeg = publisher._latest_jpeg
-                if latest_jpeg is not None:
-                    payload = latest_jpeg
-                elif publisher._snapshot_file.exists():
+                if publisher._snapshot_file.exists():
                     payload = publisher._snapshot_file.read_bytes()
+                elif latest_jpeg is not None:
+                    payload = latest_jpeg
                 else:
                     self.send_response(404)
                     self._send_cors_headers()

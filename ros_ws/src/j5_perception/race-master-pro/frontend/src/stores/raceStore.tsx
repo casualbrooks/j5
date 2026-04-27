@@ -383,7 +383,11 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             const position = Number.isFinite(positionX) && Number.isFinite(positionY)
                 ? { x: positionX, y: positionY }
                 : null
-            const cameraTopic = String(data.camera_topic || '').trim()
+            const cameraTopic = String(
+                data.camera_topic
+                || data.camera_id
+                || '',
+            ).trim()
             const detectionSource = String(data.detection_source || '').trim()
             const confidence = Number(data.confidence)
             const normalizedConfidence = Number.isFinite(confidence) ? confidence : null

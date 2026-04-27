@@ -69,6 +69,11 @@ function toFullObjectId(prefix: string, numericValue: string): string {
     return `${prefix}${digits}`
 }
 
+function extractPrefixFromObjectId(objectId: string): string | null {
+    const match = objectId.match(/^(.*?)(\d+)$/)
+    return match?.[1] || null
+}
+
 function toNumericObjectId(prefix: string, fullObjectId: string): string {
     if (!fullObjectId) return ''
     if (fullObjectId.startsWith(prefix)) {
@@ -637,7 +642,10 @@ export default function SettingsPanelView() {
                                         className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white"
                                         value={toNumericObjectId(assignmentPrefix, assignmentDraft[racer.racer_profile_id] || '')}
                                         onChange={event => {
-                                            const fullId = toFullObjectId(assignmentPrefix, event.target.value)
+                                            const existingValue = assignmentDraft[racer.racer_profile_id] || ''
+                                            const existingPrefix = extractPrefixFromObjectId(existingValue)
+                                            const nextPrefix = existingPrefix || assignmentPrefix
+                                            const fullId = toFullObjectId(nextPrefix, event.target.value)
                                             setAssignmentDraft(prev => ({ ...prev, [racer.racer_profile_id]: fullId }))
                                         }}
                                         placeholder="numeric object id (e.g. 403)"

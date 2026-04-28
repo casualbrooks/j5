@@ -19,6 +19,16 @@ function normalizePreviewBaseUrl(value: string): string {
     }
 }
 
+function parseNumber(value: unknown): number | null {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+function extractObjectNumber(objectId: string): string {
+    const match = objectId.match(/(\d+)(?!.*\d)/)
+    return match ? match[1] : objectId
+}
+
 export default function IntegrationCheckPanel() {
     const { connectionStatus, recentVisionObjects, recentObjectDetections, liveRace } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
@@ -32,6 +42,32 @@ export default function IntegrationCheckPanel() {
     const secondsSinceDetection = lastDetectionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastDetectionSeenAt) / 1000)) : null
     const raceStatus = liveRace?.status || 'setup'
     const hasRecentVisionObjects = recentVisionObjects.length > 0
+    const drawableVisionObjects = recentVisionObjects
+        .slice(0, 12)
+        .map((item) => {
+            const x = parseNumber(item.bbox?.x)
+            const y = parseNumber(item.bbox?.y)
+            const width = parseNumber(item.bbox?.width)
+            const height = parseNumber(item.bbox?.height)
+            const frameWidth = parseNumber(item.frameSize?.width)
+            const frameHeight = parseNumber(item.frameSize?.height)
+            if (x == null || y == null || width == null || height == null || frameWidth == null || frameHeight == null) return null
+            return {
+                item,
+                leftPct: (x / frameWidth) * 100,
+                topPct: (y / frameHeight) * 100,
+                widthPct: (width / frameWidth) * 100,
+                heightPct: (height / frameHeight) * 100,
+            }
+        })
+        .filter((entry): entry is {
+            item: typeof recentVisionObjects[number]
+            leftPct: number
+            topPct: number
+            widthPct: number
+            heightPct: number
+        } => entry !== null)
+    const hasDrawableVisionObjects = drawableVisionObjects.length > 0
     const visionIsFresh = secondsSinceVision !== null && secondsSinceVision <= 3
     const autoDetectedTopics = Array.from(
         new Set(
@@ -195,16 +231,31 @@ export default function IntegrationCheckPanel() {
                             alt="Embedded camera stream"
                             className="w-full rounded border border-slate-700 bg-black"
                         />
-                        <div className="pointer-events-none absolute left-2 top-2 max-w-[70%] space-y-1">
-                            {recentVisionObjects.slice(0, 6).map((item) => (
-                                <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
-                                    {item.objectId}
-                                    {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
-                                    {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
-                                </p>
+                        <div className="pointer-events-none absolute inset-0">
+                            {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => (
+                                <div
+                                    key={`${item.objectId}-${item.seenAt}`}
+                                    className="absolute border border-emerald-400/90"
+                                    style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                                >
+                                    <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+                                        {extractObjectNumber(item.objectId)}
+                                    </span>
+                                </div>
                             ))}
+                            {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
+                                <div className="absolute left-2 top-2 max-w-[70%] space-y-1">
+                                    {recentVisionObjects.slice(0, 6).map((item) => (
+                                        <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                            {extractObjectNumber(item.objectId)}
+                                            {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                            {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
+                                        </p>
+                                    ))}
+                                </div>
+                            ) : null}
                             {!hasRecentVisionObjects ? (
-                                <p className="rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
                                     No object IDs yet. Move an object through frame and verify ROS2 topics below.
                                 </p>
                             ) : null}

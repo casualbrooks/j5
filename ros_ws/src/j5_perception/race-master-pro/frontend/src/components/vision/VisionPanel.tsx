@@ -171,8 +171,9 @@ export default function VisionPanel() {
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
-    const hasRecentVisionObjects = recentVisionObjects.length > 0
-    const drawableVisionObjects = recentVisionObjects
+    const visibleVisionObjects = trackingEnabled ? recentVisionObjects : []
+    const hasRecentVisionObjects = visibleVisionObjects.length > 0
+    const drawableVisionObjects = visibleVisionObjects
         .slice(0, 12)
         .map((item) => {
             const x = parseNumber(item.bbox?.x)
@@ -198,7 +199,7 @@ export default function VisionPanel() {
             heightPct: number
         } => entry !== null)
     const hasDrawableVisionObjects = drawableVisionObjects.length > 0
-    const latestVisionObject = recentVisionObjects[0]
+    const latestVisionObject = visibleVisionObjects[0]
     const visionFresh = Boolean(latestVisionObject && statusNowMs - latestVisionObject.seenAt <= 3000)
 
     const toggleTracking = async (start: boolean) => {
@@ -343,7 +344,7 @@ export default function VisionPanel() {
                             })}
                             {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
                                 <div className="absolute left-2 top-2 max-w-[65%] space-y-1">
-                                    {recentVisionObjects.slice(0, 8).map((item) => (
+                                    {visibleVisionObjects.slice(0, 8).map((item) => (
                                         <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
                                             {extractObjectNumber(item.objectId)}
                                             {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
@@ -353,7 +354,9 @@ export default function VisionPanel() {
                             ) : null}
                             {!hasRecentVisionObjects ? (
                                 <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
-                                    No tracking objects yet. Start perception node, then click Start Tracking.
+                                    {trackingEnabled
+                                        ? 'No tracking objects yet. Move racers through the frame.'
+                                        : 'Tracking overlay is hidden until Start Tracking is pressed.'}
                                 </p>
                             ) : null}
                         </div>
@@ -399,8 +402,8 @@ export default function VisionPanel() {
 
             <div className="race-card p-4 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Recent object detections</h3>
-                {recentObjectDetections.length === 0 ? <p className="text-xs text-[var(--color-text-secondary)]">No detections yet. Start tracking and assign object IDs in Settings.</p> : null}
-                {recentObjectDetections.length > 0 ? (
+                {(!trackingEnabled || recentObjectDetections.length === 0) ? <p className="text-xs text-[var(--color-text-secondary)]">{trackingEnabled ? 'No detections yet. Start tracking and assign object IDs in Settings.' : 'Start tracking to show object IDs and annotation events.'}</p> : null}
+                {trackingEnabled && recentObjectDetections.length > 0 ? (
                     <div className="max-h-52 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200 space-y-1">
                         {recentObjectDetections.map(item => {
                             const racer = (liveRace?.racers || []).find(entry => entry.racer_profile_id === item.racerProfileId)

@@ -28,13 +28,14 @@ except ImportError:
 @dataclass
 class TrackerState:
     centroid: tuple[float, float]
+    velocity: tuple[float, float] = (0.0, 0.0)
     disappeared: int = 0
 
 
 class SimpleCentroidTracker:
     """Lightweight centroid tracker for moving objects."""
 
-    def __init__(self, max_disappeared: int = 10, max_distance: float = 80.0):
+    def __init__(self, max_disappeared: int = 20, max_distance: float = 140.0):
         self.max_disappeared = max_disappeared
         self.max_distance = max_distance
         self.next_object_id = 1
@@ -67,7 +68,16 @@ class SimpleCentroidTracker:
 
         object_items = list(self.objects.items())
         object_ids = [item[0] for item in object_items]
-        existing = np.array([item[1].centroid for item in object_items], dtype=float)
+        existing = np.array(
+            [
+                (
+                    item[1].centroid[0] + item[1].velocity[0],
+                    item[1].centroid[1] + item[1].velocity[1],
+                )
+                for item in object_items
+            ],
+            dtype=float,
+        )
         incoming = np.array(centroids, dtype=float)
         distances = np.linalg.norm(existing[:, None] - incoming[None, :], axis=2)
 
@@ -85,6 +95,13 @@ class SimpleCentroidTracker:
                 if float(distances[row, col]) > self.max_distance:
                     continue
                 object_id = object_ids[row]
+                prev_x, prev_y = self.objects[object_id].centroid
+                next_x, next_y = centroids[col]
+                velocity = (next_x - prev_x, next_y - prev_y)
+                self.objects[object_id].velocity = (
+                    (self.objects[object_id].velocity[0] * 0.4) + (velocity[0] * 0.6),
+                    (self.objects[object_id].velocity[1] * 0.4) + (velocity[1] * 0.6),
+                )
                 self.objects[object_id].centroid = centroids[col]
                 self.objects[object_id].disappeared = 0
                 used_rows.add(row)
@@ -103,6 +120,38 @@ class SimpleCentroidTracker:
                 self._register(centroid)
 
         return self.objects
+
+
+def merge_nearby_boxes(
+    boxes: list[tuple[int, int, int, int]], merge_distance: int = 24
+) -> list[tuple[int, int, int, int]]:
+    """Merge nearby or overlapping bounding boxes to reduce fragment detections."""
+    if not boxes:
+        return []
+    merged = boxes[:]
+    changed = True
+    while changed:
+        changed = False
+        next_boxes: list[tuple[int, int, int, int]] = []
+        while merged:
+            x, y, w, h = merged.pop(0)
+            x1, y1, x2, y2 = x, y, x + w, y + h
+            idx = 0
+            while idx < len(merged):
+                ox, oy, ow, oh = merged[idx]
+                ox1, oy1, ox2, oy2 = ox, oy, ox + ow, oy + oh
+                close_x = ox1 <= x2 + merge_distance and ox2 >= x1 - merge_distance
+                close_y = oy1 <= y2 + merge_distance and oy2 >= y1 - merge_distance
+                if close_x and close_y:
+                    x1, y1 = min(x1, ox1), min(y1, oy1)
+                    x2, y2 = max(x2, ox2), max(y2, oy2)
+                    merged.pop(idx)
+                    changed = True
+                else:
+                    idx += 1
+            next_boxes.append((x1, y1, x2 - x1, y2 - y1))
+        merged = next_boxes
+    return merged
 
 
 class StandaloneRunner:
@@ -180,7 +229,7 @@ class StandaloneRunner:
                     if cv2 is not None:
                         self._background_models[cam["id"]] = (
                             cv2.createBackgroundSubtractorMOG2(
-                                history=500, varThreshold=24, detectShadows=False
+                                history=700, varThreshold=32, detectShadows=False
                             )
                         )
                     print(f"Opened camera: {cam['name']} ({cam['source']})")
@@ -243,20 +292,30 @@ class StandaloneRunner:
         _, thresh = cv2.threshold(mask, 200, 255, cv2.THRESH_BINARY)
         kernel = np.ones((3, 3), dtype=np.uint8)
         cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=3)
         cleaned = cv2.dilate(cleaned, kernel, iterations=2)
 
         contours, _ = cv2.findContours(
             cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        candidates: list[tuple[tuple[float, float], tuple[int, int, int, int]]] = []
+        raw_boxes: list[tuple[int, int, int, int]] = []
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < 250:
+            if area < 550:
                 continue
             x, y, w, h = cv2.boundingRect(contour)
-            if w < 10 or h < 10:
+            if w < 16 or h < 16:
                 continue
-            candidates.append(((x + (w / 2.0), y + (h / 2.0)), (x, y, w, h)))
+            aspect = w / float(h)
+            if aspect < 0.25 or aspect > 4.0:
+                continue
+            raw_boxes.append((x, y, w, h))
+
+        merged_boxes = merge_nearby_boxes(raw_boxes)
+        candidates: list[tuple[tuple[float, float], tuple[int, int, int, int]]] = [
+            ((x + (w / 2.0), y + (h / 2.0)), (x, y, w, h))
+            for x, y, w, h in merged_boxes
+        ]
 
         tracked = tracker.update([centroid for centroid, _bbox in candidates])
         detections: list[dict] = []

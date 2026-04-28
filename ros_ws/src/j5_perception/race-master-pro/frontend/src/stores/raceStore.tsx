@@ -94,6 +94,21 @@ function objectIdsLikelyMatch(assignedId: string, incomingId: string): boolean {
     return Boolean(assignedNumber && incomingNumber && assignedNumber === incomingNumber)
 }
 
+function findAssignedRacerIdForObject(assignments: Record<string, string>, incomingObjectId: string): string {
+    const normalizedIncoming = normalizeObjectIdToken(incomingObjectId)
+    if (!normalizedIncoming) return ''
+
+    const exactMatch = Object.entries(assignments).find(([, objectId]) => (
+        normalizeObjectIdToken(String(objectId || '')) === normalizedIncoming
+    ))
+    if (exactMatch) return exactMatch[0]
+
+    const fallbackMatch = Object.entries(assignments).find(([, objectId]) => (
+        objectIdsLikelyMatch(String(objectId || ''), incomingObjectId)
+    ))
+    return fallbackMatch?.[0] || ''
+}
+
 function extractBoundingBox(payload: Record<string, unknown>): { x: number, y: number, width: number, height: number } | null {
     const bboxX = readFiniteNumber(payload.bbox_x)
     const bboxY = readFiniteNumber(payload.bbox_y)
@@ -466,8 +481,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
             let racerId = String(data.racer_profile_id || '').trim()
             if (incomingObjectId) {
-                const match = Object.entries(assignments).find(([, objectId]) => objectIdsLikelyMatch(String(objectId || ''), incomingObjectId))
-                racerId = match?.[0] || ''
+                racerId = findAssignedRacerIdForObject(assignments, incomingObjectId)
             }
             if (!racerId) return
             if (Object.keys(assignments).length > 0 && !assignments[racerId]) {

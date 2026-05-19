@@ -58,7 +58,7 @@ if ROS2_AVAILABLE:
     class SimpleCentroidTracker:
         """Lightweight centroid tracker for moving objects."""
 
-        def __init__(self, max_disappeared: int = 20, max_distance: float = 140.0):
+        def __init__(self, max_disappeared: int = 300, max_distance: float = 220.0):
             self.max_disappeared = max_disappeared
             self.max_distance = max_distance
             self.next_object_id = 1
@@ -193,6 +193,8 @@ if ROS2_AVAILABLE:
             self.declare_parameter(
                 "ws_url", "ws://localhost:8080/ws?client_type=cv_system"
             )
+            self.declare_parameter("tracker_max_disappeared", 300)
+            self.declare_parameter("tracker_max_distance", 220.0)
 
             # Get parameters
             camera_topics = (
@@ -220,6 +222,16 @@ if ROS2_AVAILABLE:
             )
             self.ws_url = (
                 self.get_parameter("ws_url").get_parameter_value().string_value
+            )
+            self.tracker_max_disappeared = (
+                self.get_parameter("tracker_max_disappeared")
+                .get_parameter_value()
+                .integer_value
+            )
+            self.tracker_max_distance = (
+                self.get_parameter("tracker_max_distance")
+                .get_parameter_value()
+                .double_value
             )
             self.motion_min_area = 550.0
             self.motion_min_box_size = 16
@@ -267,6 +279,11 @@ if ROS2_AVAILABLE:
             )
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
             self.get_logger().info(
+                "Tracker settings: "
+                f"max_disappeared={int(self.tracker_max_disappeared)}, "
+                f"max_distance={float(self.tracker_max_distance):.1f}"
+            )
+            self.get_logger().info(
                 f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
             )
             if cv2 is None or np is None:
@@ -294,7 +311,10 @@ if ROS2_AVAILABLE:
             )
             self.image_subscriptions.append(sub)
             self._image_subscription_topics.add(clean_topic)
-            self._trackers[clean_topic] = SimpleCentroidTracker()
+            self._trackers[clean_topic] = SimpleCentroidTracker(
+                max_disappeared=int(self.tracker_max_disappeared),
+                max_distance=float(self.tracker_max_distance),
+            )
             if cv2 is not None:
                 self._background_models[clean_topic] = (
                     cv2.createBackgroundSubtractorMOG2(

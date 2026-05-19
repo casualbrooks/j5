@@ -106,34 +106,49 @@ if ROS2_AVAILABLE:
             incoming = np.array(centroids, dtype=float)
             distances = np.linalg.norm(existing[:, None] - incoming[None, :], axis=2)
 
-            rows = distances.min(axis=1).argsort()
             used_rows: set[int] = set()
             used_cols: set[int] = set()
 
-            for row in rows:
-                if row in used_rows:
-                    continue
-                for col in np.argsort(distances[row]):
-                    col = int(col)
-                    if col in used_cols:
+            def _assign_rows(candidate_rows: list[int]):
+                for row in candidate_rows:
+                    if row in used_rows:
                         continue
-                    if float(distances[row, col]) > self.max_distance:
-                        continue
-                    object_id = object_ids[row]
-                    prev_x, prev_y = self.objects[object_id].centroid
-                    next_x, next_y = centroids[col]
-                    velocity = (next_x - prev_x, next_y - prev_y)
-                    self.objects[object_id].velocity = (
-                        (self.objects[object_id].velocity[0] * 0.4)
-                        + (velocity[0] * 0.6),
-                        (self.objects[object_id].velocity[1] * 0.4)
-                        + (velocity[1] * 0.6),
-                    )
-                    self.objects[object_id].centroid = centroids[col]
-                    self.objects[object_id].disappeared = 0
-                    used_rows.add(row)
-                    used_cols.add(col)
-                    break
+                    for col in np.argsort(distances[row]):
+                        col = int(col)
+                        if col in used_cols:
+                            continue
+                        if float(distances[row, col]) > self.max_distance:
+                            continue
+                        object_id = object_ids[row]
+                        prev_x, prev_y = self.objects[object_id].centroid
+                        next_x, next_y = centroids[col]
+                        velocity = (next_x - prev_x, next_y - prev_y)
+                        self.objects[object_id].velocity = (
+                            (self.objects[object_id].velocity[0] * 0.4)
+                            + (velocity[0] * 0.6),
+                            (self.objects[object_id].velocity[1] * 0.4)
+                            + (velocity[1] * 0.6),
+                        )
+                        self.objects[object_id].centroid = centroids[col]
+                        self.objects[object_id].disappeared = 0
+                        used_rows.add(row)
+                        used_cols.add(col)
+                        break
+
+            active_rows = [
+                row
+                for row, object_id in enumerate(object_ids)
+                if self.objects[object_id].disappeared == 0
+            ]
+            stale_rows = [
+                row
+                for row, object_id in enumerate(object_ids)
+                if self.objects[object_id].disappeared > 0
+            ]
+            active_rows.sort(key=lambda row: float(distances[row].min()))
+            stale_rows.sort(key=lambda row: float(distances[row].min()))
+            _assign_rows(active_rows)
+            _assign_rows(stale_rows)
 
             for row, object_id in enumerate(object_ids):
                 if row in used_rows:

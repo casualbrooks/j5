@@ -58,7 +58,7 @@ if ROS2_AVAILABLE:
     class SimpleCentroidTracker:
         """Lightweight centroid tracker for moving objects."""
 
-        def __init__(self, max_disappeared: int = 20, max_distance: float = 140.0):
+        def __init__(self, max_disappeared: int = 300, max_distance: float = 220.0):
             self.max_disappeared = max_disappeared
             self.max_distance = max_distance
             self.next_object_id = 1
@@ -106,34 +106,49 @@ if ROS2_AVAILABLE:
             incoming = np.array(centroids, dtype=float)
             distances = np.linalg.norm(existing[:, None] - incoming[None, :], axis=2)
 
-            rows = distances.min(axis=1).argsort()
             used_rows: set[int] = set()
             used_cols: set[int] = set()
 
-            for row in rows:
-                if row in used_rows:
-                    continue
-                for col in np.argsort(distances[row]):
-                    col = int(col)
-                    if col in used_cols:
+            def _assign_rows(candidate_rows: list[int]):
+                for row in candidate_rows:
+                    if row in used_rows:
                         continue
-                    if float(distances[row, col]) > self.max_distance:
-                        continue
-                    object_id = object_ids[row]
-                    prev_x, prev_y = self.objects[object_id].centroid
-                    next_x, next_y = centroids[col]
-                    velocity = (next_x - prev_x, next_y - prev_y)
-                    self.objects[object_id].velocity = (
-                        (self.objects[object_id].velocity[0] * 0.4)
-                        + (velocity[0] * 0.6),
-                        (self.objects[object_id].velocity[1] * 0.4)
-                        + (velocity[1] * 0.6),
-                    )
-                    self.objects[object_id].centroid = centroids[col]
-                    self.objects[object_id].disappeared = 0
-                    used_rows.add(row)
-                    used_cols.add(col)
-                    break
+                    for col in np.argsort(distances[row]):
+                        col = int(col)
+                        if col in used_cols:
+                            continue
+                        if float(distances[row, col]) > self.max_distance:
+                            continue
+                        object_id = object_ids[row]
+                        prev_x, prev_y = self.objects[object_id].centroid
+                        next_x, next_y = centroids[col]
+                        velocity = (next_x - prev_x, next_y - prev_y)
+                        self.objects[object_id].velocity = (
+                            (self.objects[object_id].velocity[0] * 0.4)
+                            + (velocity[0] * 0.6),
+                            (self.objects[object_id].velocity[1] * 0.4)
+                            + (velocity[1] * 0.6),
+                        )
+                        self.objects[object_id].centroid = centroids[col]
+                        self.objects[object_id].disappeared = 0
+                        used_rows.add(row)
+                        used_cols.add(col)
+                        break
+
+            active_rows = [
+                row
+                for row, object_id in enumerate(object_ids)
+                if self.objects[object_id].disappeared == 0
+            ]
+            stale_rows = [
+                row
+                for row, object_id in enumerate(object_ids)
+                if self.objects[object_id].disappeared > 0
+            ]
+            active_rows.sort(key=lambda row: float(distances[row].min()))
+            stale_rows.sort(key=lambda row: float(distances[row].min()))
+            _assign_rows(active_rows)
+            _assign_rows(stale_rows)
 
             for row, object_id in enumerate(object_ids):
                 if row in used_rows:
@@ -193,6 +208,8 @@ if ROS2_AVAILABLE:
             self.declare_parameter(
                 "ws_url", "ws://localhost:8080/ws?client_type=cv_system"
             )
+            self.declare_parameter("tracker_max_disappeared", 300)
+            self.declare_parameter("tracker_max_distance", 220.0)
 
             # Get parameters
             camera_topics = (
@@ -220,6 +237,16 @@ if ROS2_AVAILABLE:
             )
             self.ws_url = (
                 self.get_parameter("ws_url").get_parameter_value().string_value
+            )
+            self.tracker_max_disappeared = (
+                self.get_parameter("tracker_max_disappeared")
+                .get_parameter_value()
+                .integer_value
+            )
+            self.tracker_max_distance = (
+                self.get_parameter("tracker_max_distance")
+                .get_parameter_value()
+                .double_value
             )
             self.motion_min_area = 550.0
             self.motion_min_box_size = 16
@@ -267,6 +294,11 @@ if ROS2_AVAILABLE:
             )
             self.get_logger().info(f"WebSocket target: {self.ws_url}")
             self.get_logger().info(
+                "Tracker settings: "
+                f"max_disappeared={int(self.tracker_max_disappeared)}, "
+                f"max_distance={float(self.tracker_max_distance):.1f}"
+            )
+            self.get_logger().info(
                 f"Auto-discover camera topics: {self.auto_discover_camera_topics}"
             )
             if cv2 is None or np is None:
@@ -294,7 +326,10 @@ if ROS2_AVAILABLE:
             )
             self.image_subscriptions.append(sub)
             self._image_subscription_topics.add(clean_topic)
-            self._trackers[clean_topic] = SimpleCentroidTracker()
+            self._trackers[clean_topic] = SimpleCentroidTracker(
+                max_disappeared=int(self.tracker_max_disappeared),
+                max_distance=float(self.tracker_max_distance),
+            )
             if cv2 is not None:
                 self._background_models[clean_topic] = (
                     cv2.createBackgroundSubtractorMOG2(

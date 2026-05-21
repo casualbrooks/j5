@@ -81,23 +81,20 @@ export default function IntegrationCheckPanel() {
                 .filter(topic => Boolean(topic)),
         ),
     )
-    const previewContent = (() => {
-        if (!previewEnabled) {
-            return (
-                <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
-                    Embedded camera preview is paused.
-                </div>
-            )
-        }
-        if (!normalizedBaseUrl) {
-            return (
+    const previewContent = !previewEnabled
+        ? (
+            <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
+                Embedded camera preview is paused.
+            </div>
+        )
+        : !normalizedBaseUrl
+            ? (
                 <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
                     Set Preview server URL first, then show embedded camera.
                 </div>
             )
-        }
-        return (
-            <div className="relative">
+            : (
+                <div className="relative">
                     <img
                         src={streamUrl}
                         alt="Embedded camera stream"
@@ -132,9 +129,8 @@ export default function IntegrationCheckPanel() {
                             </p>
                         ) : null}
                     </div>
-            </div>
-        )
-    })()
+                </div>
+            )
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -301,7 +297,58 @@ export default function IntegrationCheckPanel() {
                         placeholder="http://192.168.1.134:8091"
                     />
                 </label>
-                {previewContent}
+                {previewEnabled ? (
+                    normalizedBaseUrl ? (
+                    <div className="relative">
+                        <img
+                            src={streamUrl}
+                            alt="Embedded camera stream"
+                            className="w-full rounded border border-slate-700 bg-black"
+                        />
+                        <div className="pointer-events-none absolute inset-0">
+                            {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => (
+                                <div
+                                    key={`${item.objectId}-${item.seenAt}`}
+                                    className="absolute border border-emerald-400/90"
+                                    style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                                >
+                                    <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+                                        {extractObjectNumber(item.objectId)}
+                                    </span>
+                                </div>
+                            ))}
+                            {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
+                                <div className="absolute left-2 top-2 max-w-[70%] space-y-1">
+                                    {recentVisionObjects.slice(0, 6).map((item) => (
+                                        <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                            {extractObjectNumber(item.objectId)}
+                                            {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                            {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
+                                        </p>
+                                    ))}
+                                </div>
+                            ) : null}
+                            {!hasRecentVisionObjects ? (
+                                <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                    No object IDs yet. Move an object through frame and verify ROS2 topics below.
+                                </p>
+                            ) : null}
+                        </div>
+                        </div>
+                    ) : (
+                        <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                            Set Preview server URL first, then show embedded camera.
+                        </div>
+                    )
+                ) : (
+                    <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                        Set Preview server URL first, then show embedded camera.
+                    </div>
+                ) : (
+                    <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
+                        Embedded camera preview is paused.
+                    </div>
+                )}
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
                     <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
                     <p>• Camera stream loads in this panel and updates continuously.</p>

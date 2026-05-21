@@ -6,7 +6,7 @@ function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `http://${window.location.hostname}:8091`
+    return ''
 }
 
 
@@ -18,6 +18,10 @@ function extractObjectNumber(objectId: string): string {
 function parseNumber(value: unknown): number | null {
     const n = Number(value)
     return Number.isFinite(n) ? n : null
+}
+
+function objectIdClass(mapped: boolean): string {
+    return mapped ? 'text-emerald-300' : 'text-amber-300'
 }
 function normalizePreviewBaseUrl(value: string): string {
     const raw = value.trim()
@@ -42,7 +46,7 @@ export default function VisionPanel() {
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
 
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
-    const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+    const streamUrl = normalizedBaseUrl ? `${normalizedBaseUrl}/stream.mjpg` : ''
 
     const ensureSelectedTrack = async () => {
         const existingTrackId = getSelectedTrackId()
@@ -170,6 +174,9 @@ export default function VisionPanel() {
 
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
+    const detectionEmptyMessage = trackingEnabled
+        ? 'No detections yet. Start tracking and assign object IDs in Settings.'
+        : 'Start tracking to show object IDs and annotation events.'
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const visibleVisionObjects = trackingEnabled ? recentVisionObjects : []
     const hasRecentVisionObjects = visibleVisionObjects.length > 0
@@ -201,6 +208,63 @@ export default function VisionPanel() {
     const hasDrawableVisionObjects = drawableVisionObjects.length > 0
     const latestVisionObject = visibleVisionObjects[0]
     const visionFresh = Boolean(latestVisionObject && statusNowMs - latestVisionObject.seenAt <= 3000)
+    const previewContent = (() => {
+        if (!previewEnabled) {
+            return (
+                <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
+                    Live preview is paused to avoid multiple stream consumers.
+                </div>
+            )
+        }
+        if (!normalizedBaseUrl) {
+            return (
+                <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                    Set Preview server URL first (for example <code>http://100.90.148.71:8091</code>), then click Show Live Preview.
+                </div>
+            )
+        }
+        return (
+            <div className="relative">
+                    <img
+                        src={streamUrl}
+                        alt="Live camera preview"
+                        className="w-full rounded border border-slate-700 bg-black"
+                    />
+                    <div className="pointer-events-none absolute inset-0">
+                        {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => {
+                            return (
+                                <div
+                                    key={`${item.objectId}-${item.seenAt}`}
+                                    className="absolute border border-emerald-400/90"
+                                    style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                                >
+                                    <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+                                        {extractObjectNumber(item.objectId)}
+                                    </span>
+                                </div>
+                            )
+                        })}
+                        {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
+                            <div className="absolute left-2 top-2 max-w-[65%] space-y-1">
+                                {visibleVisionObjects.slice(0, 8).map((item) => (
+                                    <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                        {extractObjectNumber(item.objectId)}
+                                        {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
+                                    </p>
+                                ))}
+                            </div>
+                        ) : null}
+                        {!hasRecentVisionObjects ? (
+                            <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                {trackingEnabled
+                                    ? 'No tracking objects yet. Move racers through the frame.'
+                                    : 'Tracking overlay is hidden until Start Tracking is pressed.'}
+                            </p>
+                        ) : null}
+                    </div>
+            </div>
+        )
+    })()
 
     const toggleTracking = async (start: boolean) => {
         const raceId = String(raceContext.race_id || '')
@@ -305,7 +369,12 @@ export default function VisionPanel() {
                     <button
                         type="button"
                         className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => setPreviewEnabled(prev => !prev)}
+                        onClick={async () => {
+                            if (!previewEnabled) {
+                                await refreshWizardContext()
+                            }
+                            setPreviewEnabled(prev => !prev)
+                        }}
                     >
                         {previewEnabled ? 'Hide Live Preview' : 'Show Live Preview'}
                     </button>
@@ -321,51 +390,7 @@ export default function VisionPanel() {
                         If your ROS2 node is running, this can still show waiting when camera frames are not on the expected topic, no objects are visible yet, or confidence filtering drops detections.
                     </p>
                 </div>
-                {previewEnabled ? (
-                    <div className="relative">
-                        <img
-                            src={streamUrl}
-                            alt="Live camera preview"
-                            className="w-full rounded border border-slate-700 bg-black"
-                        />
-                        <div className="pointer-events-none absolute inset-0">
-                            {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => {
-                                return (
-                                    <div
-                                        key={`${item.objectId}-${item.seenAt}`}
-                                        className="absolute border border-emerald-400/90"
-                                        style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
-                                    >
-                                        <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
-                                            {extractObjectNumber(item.objectId)}
-                                        </span>
-                                    </div>
-                                )
-                            })}
-                            {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
-                                <div className="absolute left-2 top-2 max-w-[65%] space-y-1">
-                                    {visibleVisionObjects.slice(0, 8).map((item) => (
-                                        <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
-                                            {extractObjectNumber(item.objectId)}
-                                            {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
-                                        </p>
-                                    ))}
-                                </div>
-                            ) : null}
-                            {!hasRecentVisionObjects ? (
-                                <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
-                                    {trackingEnabled
-                                        ? 'No tracking objects yet. Move racers through the frame.'
-                                        : 'Tracking overlay is hidden until Start Tracking is pressed.'}
-                                </p>
-                            ) : null}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
-                        Live preview is paused to avoid multiple stream consumers.
-                    </div>
-                )}
+                {previewContent}
 
                 <form onSubmit={onCapture} className="flex flex-wrap items-center gap-2">
                     <button
@@ -402,7 +427,7 @@ export default function VisionPanel() {
 
             <div className="race-card p-4 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Recent object detections</h3>
-                {(!trackingEnabled || recentObjectDetections.length === 0) ? <p className="text-xs text-[var(--color-text-secondary)]">{trackingEnabled ? 'No detections yet. Start tracking and assign object IDs in Settings.' : 'Start tracking to show object IDs and annotation events.'}</p> : null}
+                {(!trackingEnabled || recentObjectDetections.length === 0) ? <p className="text-xs text-[var(--color-text-secondary)]">{detectionEmptyMessage}</p> : null}
                 {trackingEnabled && recentObjectDetections.length > 0 ? (
                     <div className="max-h-52 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200 space-y-1">
                         {recentObjectDetections.map(item => {
@@ -411,7 +436,7 @@ export default function VisionPanel() {
                             const mapped = Boolean(racer && assignedId && assignedId === item.objectId)
                             return (
                                 <p key={`${item.objectId}-${item.seenAt}`}>
-                                    <span className={mapped ? 'text-emerald-300' : 'text-amber-300'}>{item.objectId}</span>
+                                    <span className={objectIdClass(mapped)}>{item.objectId}</span>
                                     {' → '}
                                     <span>{racer?.name || 'unmapped racer'}</span>
                                 </p>

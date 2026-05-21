@@ -30,6 +30,10 @@ function extractObjectNumber(objectId: string): string {
     return match ? match[1] : objectId
 }
 
+function connectionClass(ok: boolean): string {
+    return ok ? 'text-emerald-300' : 'text-amber-300'
+}
+
 export default function IntegrationCheckPanel() {
     const { connectionStatus, recentVisionObjects, recentObjectDetections, liveRace } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
@@ -238,31 +242,31 @@ export default function IntegrationCheckPanel() {
                 <ul className="space-y-2 text-sm">
                     <li>
                         UI websocket:{' '}
-                        <span className={connectionStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(connectionStatus === 'connected')}>
                             {connectionStatus}
                         </span>
                     </li>
                     <li>
                         Vision object stream:{' '}
-                        <span className={secondsSinceVision !== null && secondsSinceVision <= 3 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(secondsSinceVision !== null && secondsSinceVision <= 3)}>
                             {secondsSinceVision === null ? 'waiting for objects' : `${secondsSinceVision}s since last object`}
                         </span>
                     </li>
                     <li>
                         Auto-detected camera topics:{' '}
-                        <span className={autoDetectedTopics.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(autoDetectedTopics.length > 0)}>
                             {autoDetectedTopics.length > 0 ? autoDetectedTopics.join(', ') : 'none detected yet'}
                         </span>
                     </li>
                     <li>
                         Detection events in memory:{' '}
-                        <span className={recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(recentObjectDetections.length > 0)}>
                             {recentObjectDetections.length}
                         </span>
                     </li>
                     <li>
                         Tracking health:{' '}
-                        <span className={visionIsFresh && recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(visionIsFresh && recentObjectDetections.length > 0)}>
                             {visionIsFresh && recentObjectDetections.length > 0 ? 'active detections' : 'camera up but no confirmed detections yet'}
                         </span>
                     </li>

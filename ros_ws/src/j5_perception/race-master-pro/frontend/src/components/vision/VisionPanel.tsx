@@ -467,12 +467,10 @@ export default function VisionPanel() {
                 </form>
 
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                    Tracking status: <span className={trackingEnabled ? 'text-emerald-400' : 'text-amber-300'}>{trackingEnabled ? 'Enabled' : 'Disabled'}</span>
+                    Tracking status: <span className={trackingStatusClass(trackingEnabled)}>{trackingStatusText}</span>
                 </p>
 
-                {statusMessage ? (
-                    <p className={`text-sm ${statusError ? 'text-red-400' : 'text-emerald-400'}`}>{statusMessage}</p>
-                ) : null}
+                {statusMessage && <p className={`text-sm ${statusClassName}`}>{statusMessage}</p>}
             </div>
 
             <div className="race-card p-4 space-y-2">
@@ -498,7 +496,7 @@ export default function VisionPanel() {
 
             <div className="race-card p-4 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Lap / Tracking Logs</h3>
-                {logs.length === 0 ? <p className="text-xs text-[var(--color-text-secondary)]">No logs yet. Start tracking to populate this feed.</p> : null}
+                {logs.length === 0 && <p className="text-xs text-[var(--color-text-secondary)]">No logs yet. Start tracking to populate this feed.</p>}
                 <div className="max-h-56 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200">
                     {logs.map((line, index) => (
                         <p key={`${line}-${index}`}>{String(line)}</p>

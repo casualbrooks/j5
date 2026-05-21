@@ -149,7 +149,42 @@ fi
 
 apply_defaults
 
+print_source_revision_info() {
+  echo "[run_race_master_pro] repo_root=$REPO_ROOT"
+  if command -v git >/dev/null 2>&1; then
+    local head_sha
+    head_sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -n "$head_sha" ]]; then
+      echo "[run_race_master_pro] git_head=$head_sha"
+    fi
+  fi
+}
+
+frontend_parser_guard() {
+  local integration_file="$FRONTEND_ROOT/src/components/vision/IntegrationCheckPanel.tsx"
+  local vision_file="$FRONTEND_ROOT/src/components/vision/VisionPanel.tsx"
+  local failed="false"
+
+  for file in "$integration_file" "$vision_file"; do
+    if [[ ! -f "$file" ]]; then
+      continue
+    fi
+    if rg -n "\)\s*:\s*\(" "$file" >/dev/null 2>&1; then
+      echo "Detected parser-risk nested ternary pattern in: $file"
+      echo "Likely cause of Vite 'Expected \"}\" but found \":\"' error."
+      rg -n "\)\s*:\s*\(" "$file" || true
+      failed="true"
+    fi
+  done
+
+  if [[ "$failed" == "true" ]]; then
+    echo "Aborting startup. Please sync latest commits for vision panel syntax fixes."
+    exit 1
+  fi
+}
+
 if [[ "$DOCTOR_MODE" == "true" ]]; then
+  print_source_revision_info
   echo "[run_race_master_pro] doctor: app_root=$APP_ROOT"
   echo "[run_race_master_pro] doctor: python=$PYTHON_BIN"
   echo "[run_race_master_pro] doctor: npm=$(command -v npm || echo missing)"
@@ -157,6 +192,9 @@ if [[ "$DOCTOR_MODE" == "true" ]]; then
   echo "[run_race_master_pro] doctor: api_port=$API_PORT ui_port=$UI_PORT host=$HOST"
   exit 0
 fi
+
+print_source_revision_info
+frontend_parser_guard
 
 if [[ "$MODE" == "ros2" ]]; then
   if [[ -z "$ROS_SETUP" ]]; then

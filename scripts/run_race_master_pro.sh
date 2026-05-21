@@ -149,7 +149,84 @@ fi
 
 apply_defaults
 
+print_source_revision_info() {
+  echo "[run_race_master_pro] repo_root=$REPO_ROOT"
+  if command -v git >/dev/null 2>&1; then
+    local head_sha
+    head_sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -n "$head_sha" ]]; then
+      echo "[run_race_master_pro] git_head=$head_sha"
+    fi
+  fi
+}
+
+frontend_parser_guard() {
+  local integration_file="$FRONTEND_ROOT/src/components/vision/IntegrationCheckPanel.tsx"
+  local vision_file="$FRONTEND_ROOT/src/components/vision/VisionPanel.tsx"
+  local ts_parser="$FRONTEND_ROOT/node_modules/typescript/lib/typescript.js"
+
+  if [[ ! -f "$integration_file" || ! -f "$vision_file" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "$ts_parser" ]]; then
+    echo "[run_race_master_pro] warning: TypeScript parser not found at $ts_parser"
+    echo "[run_race_master_pro] warning: skipping frontend parser guard (run 'npm install' in $FRONTEND_ROOT to enable it)"
+    return 0
+  fi
+
+  if ! node - "$ts_parser" "$integration_file" "$vision_file" <<'JS'
+const fs = require('fs')
+const ts = require(process.argv[2])
+const files = process.argv.slice(3)
+let failed = false
+
+for (const file of files) {
+  const source = fs.readFileSync(file, 'utf8')
+  const result = ts.transpileModule(source, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.ReactJSX,
+      target: ts.ScriptTarget.ES2020,
+    },
+    fileName: file,
+    reportDiagnostics: true,
+  })
+  const diagnostics = result.diagnostics || []
+  const parseDiagnostics = diagnostics.filter((d) =>
+    d.category === ts.DiagnosticCategory.Error,
+  )
+
+  if (parseDiagnostics.length > 0) {
+    failed = true
+    console.error(`[run_race_master_pro] parser errors in ${file}:`)
+    const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TSX)
+    for (const diagnostic of parseDiagnostics) {
+      const text = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+      const start = typeof diagnostic.start === 'number' ? diagnostic.start : 0
+      const pos = sourceFile.getLineAndCharacterOfPosition(start)
+      const lineNo = pos.line + 1
+      const colNo = pos.character + 1
+      const lineText = source.split('\n')[pos.line] || ''
+      console.error(`  TS${diagnostic.code} (${lineNo}:${colNo}): ${text}`)
+      if (lineText.trim().length > 0) {
+        console.error(`    ${lineText}`)
+      }
+    }
+  }
+}
+
+process.exit(failed ? 1 : 0)
+JS
+  then
+    echo "Aborting startup due to frontend parser errors in vision panels."
+    echo "Tip: sync the latest frontend fixes, then retry."
+    exit 1
+  fi
+}
+
 if [[ "$DOCTOR_MODE" == "true" ]]; then
+  print_source_revision_info
+  frontend_parser_guard
   echo "[run_race_master_pro] doctor: app_root=$APP_ROOT"
   echo "[run_race_master_pro] doctor: python=$PYTHON_BIN"
   echo "[run_race_master_pro] doctor: npm=$(command -v npm || echo missing)"
@@ -157,6 +234,9 @@ if [[ "$DOCTOR_MODE" == "true" ]]; then
   echo "[run_race_master_pro] doctor: api_port=$API_PORT ui_port=$UI_PORT host=$HOST"
   exit 0
 fi
+
+print_source_revision_info
+frontend_parser_guard
 
 if [[ "$MODE" == "ros2" ]]; then
   if [[ -z "$ROS_SETUP" ]]; then

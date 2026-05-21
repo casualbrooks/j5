@@ -199,18 +199,9 @@ for (const file of files) {
   if (parseDiagnostics.length > 0) {
     failed = true
     console.error(`[run_race_master_pro] parser errors in ${file}:`)
-    const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TSX)
     for (const diagnostic of parseDiagnostics) {
       const text = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
-      const start = typeof diagnostic.start === 'number' ? diagnostic.start : 0
-      const pos = sourceFile.getLineAndCharacterOfPosition(start)
-      const lineNo = pos.line + 1
-      const colNo = pos.character + 1
-      const lineText = source.split('\n')[pos.line] || ''
-      console.error(`  TS${diagnostic.code} (${lineNo}:${colNo}): ${text}`)
-      if (lineText.trim().length > 0) {
-        console.error(`    ${lineText}`)
-      }
+      console.error(`  TS${diagnostic.code}: ${text}`)
     }
   }
 }

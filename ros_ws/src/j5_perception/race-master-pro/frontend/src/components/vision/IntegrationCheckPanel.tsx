@@ -6,7 +6,7 @@ function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `${window.location.protocol}//${window.location.hostname}:8091`
+    return ''
 }
 
 function normalizePreviewBaseUrl(value: string): string {
@@ -35,7 +35,7 @@ export default function IntegrationCheckPanel() {
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(true)
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
-    const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+    const streamUrl = normalizedBaseUrl ? `${normalizedBaseUrl}/stream.mjpg` : ''
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
     const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
@@ -244,6 +244,7 @@ export default function IntegrationCheckPanel() {
                     />
                 </label>
                 {previewEnabled ? (
+                    normalizedBaseUrl ? (
                     <div className="relative">
                         <img
                             src={streamUrl}
@@ -279,6 +280,10 @@ export default function IntegrationCheckPanel() {
                                 </p>
                             ) : null}
                         </div>
+                    </div>
+                ) : (
+                    <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                        Set Preview server URL first, then show embedded camera.
                     </div>
                 ) : (
                     <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">

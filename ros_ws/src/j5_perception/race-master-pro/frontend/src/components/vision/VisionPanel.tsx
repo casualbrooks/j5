@@ -19,6 +19,10 @@ function parseNumber(value: unknown): number | null {
     const n = Number(value)
     return Number.isFinite(n) ? n : null
 }
+
+function objectIdClass(mapped: boolean): string {
+    return mapped ? 'text-emerald-300' : 'text-amber-300'
+}
 function normalizePreviewBaseUrl(value: string): string {
     const raw = value.trim()
     if (!raw) return ''
@@ -170,6 +174,9 @@ export default function VisionPanel() {
 
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
+    const detectionEmptyMessage = trackingEnabled
+        ? 'No detections yet. Start tracking and assign object IDs in Settings.'
+        : 'Start tracking to show object IDs and annotation events.'
     const racerAssignments = getSelectedTrackId() ? getTrackRacerAssignments(getSelectedTrackId()) : {}
     const visibleVisionObjects = trackingEnabled ? recentVisionObjects : []
     const hasRecentVisionObjects = visibleVisionObjects.length > 0
@@ -470,7 +477,7 @@ export default function VisionPanel() {
 
             <div className="race-card p-4 space-y-2">
                 <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Recent object detections</h3>
-                {(!trackingEnabled || recentObjectDetections.length === 0) ? <p className="text-xs text-[var(--color-text-secondary)]">{trackingEnabled ? 'No detections yet. Start tracking and assign object IDs in Settings.' : 'Start tracking to show object IDs and annotation events.'}</p> : null}
+                {(!trackingEnabled || recentObjectDetections.length === 0) ? <p className="text-xs text-[var(--color-text-secondary)]">{detectionEmptyMessage}</p> : null}
                 {trackingEnabled && recentObjectDetections.length > 0 ? (
                     <div className="max-h-52 overflow-auto rounded border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200 space-y-1">
                         {recentObjectDetections.map(item => {
@@ -479,7 +486,7 @@ export default function VisionPanel() {
                             const mapped = Boolean(racer && assignedId && assignedId === item.objectId)
                             return (
                                 <p key={`${item.objectId}-${item.seenAt}`}>
-                                    <span className={mapped ? 'text-emerald-300' : 'text-amber-300'}>{item.objectId}</span>
+                                    <span className={objectIdClass(mapped)}>{item.objectId}</span>
                                     {' → '}
                                     <span>{racer?.name || 'unmapped racer'}</span>
                                 </p>

@@ -328,7 +328,7 @@ export default function VisionPanel() {
                 </div>
                 {previewEnabled ? (
                     normalizedBaseUrl ? (
-                        <div className="relative">
+                    <div className="relative">
                         <img
                             src={streamUrl}
                             alt="Live camera preview"
@@ -372,6 +372,10 @@ export default function VisionPanel() {
                             Set Preview server URL first (for example <code>http://100.90.148.71:8091</code>), then click Show Live Preview.
                         </div>
                     )
+                ) : (
+                    <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                        Set Preview server URL first (for example <code>http://100.90.148.71:8091</code>), then click Show Live Preview.
+                    </div>
                 ) : (
                     <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
                         Live preview is paused to avoid multiple stream consumers.

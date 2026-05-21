@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRaceContext } from '@/stores/raceStore'
+import { apiFetch } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `${window.location.protocol}//${window.location.hostname}:8091`
+    return ''
 }
 
 function normalizePreviewBaseUrl(value: string): string {
@@ -34,7 +35,7 @@ export default function IntegrationCheckPanel() {
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(true)
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
-    const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+    const streamUrl = normalizedBaseUrl ? `${normalizedBaseUrl}/stream.mjpg` : ''
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
     const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
@@ -84,6 +85,24 @@ export default function IntegrationCheckPanel() {
         return () => {
             window.clearInterval(timer)
         }
+    }, [])
+
+    useEffect(() => {
+        const loadPreviewUrl = async () => {
+            try {
+                const response = await apiFetch('/api/setup/wizard')
+                if (!response.ok) return
+                const payload = await response.json() as { config?: { preview_url?: unknown } }
+                const previewUrl = String(payload?.config?.preview_url || '').trim()
+                if (previewUrl) {
+                    setPreviewBaseUrl(previewUrl)
+                }
+            } catch {
+                // keep fallback URL when setup payload cannot be loaded
+            }
+        }
+
+        void loadPreviewUrl()
     }, [])
 
     const topicListCommand = 'ros2 topic list -t | rg -n "Image|CompressedImage|camera|video"'
@@ -225,6 +244,7 @@ export default function IntegrationCheckPanel() {
                     />
                 </label>
                 {previewEnabled ? (
+                    normalizedBaseUrl ? (
                     <div className="relative">
                         <img
                             src={streamUrl}
@@ -260,6 +280,10 @@ export default function IntegrationCheckPanel() {
                                 </p>
                             ) : null}
                         </div>
+                    </div>
+                ) : (
+                    <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                        Set Preview server URL first, then show embedded camera.
                     </div>
                 ) : (
                     <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">

@@ -6,7 +6,7 @@ function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `http://${window.location.hostname}:8091`
+    return ''
 }
 
 
@@ -42,7 +42,7 @@ export default function VisionPanel() {
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
 
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
-    const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+    const streamUrl = normalizedBaseUrl ? `${normalizedBaseUrl}/stream.mjpg` : ''
 
     const ensureSelectedTrack = async () => {
         const existingTrackId = getSelectedTrackId()
@@ -305,7 +305,12 @@ export default function VisionPanel() {
                     <button
                         type="button"
                         className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => setPreviewEnabled(prev => !prev)}
+                        onClick={async () => {
+                            if (!previewEnabled) {
+                                await refreshWizardContext()
+                            }
+                            setPreviewEnabled(prev => !prev)
+                        }}
                     >
                         {previewEnabled ? 'Hide Live Preview' : 'Show Live Preview'}
                     </button>
@@ -322,6 +327,7 @@ export default function VisionPanel() {
                     </p>
                 </div>
                 {previewEnabled ? (
+                    normalizedBaseUrl ? (
                     <div className="relative">
                         <img
                             src={streamUrl}
@@ -360,6 +366,10 @@ export default function VisionPanel() {
                                 </p>
                             ) : null}
                         </div>
+                    </div>
+                ) : (
+                    <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                        Set Preview server URL first (for example <code>http://100.90.148.71:8091</code>), then click Show Live Preview.
                     </div>
                 ) : (
                     <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">

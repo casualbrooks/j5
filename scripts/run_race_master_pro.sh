@@ -150,7 +150,6 @@ fi
 apply_defaults
 
 print_source_revision_info() {
-  echo "[run_race_master_pro] guard_version=2026-05-21b"
   echo "[run_race_master_pro] repo_root=$REPO_ROOT"
   if command -v git >/dev/null 2>&1; then
     local head_sha
@@ -200,18 +199,9 @@ for (const file of files) {
   if (parseDiagnostics.length > 0) {
     failed = true
     console.error(`[run_race_master_pro] parser errors in ${file}:`)
-    const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TSX)
     for (const diagnostic of parseDiagnostics) {
       const text = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
-      const start = typeof diagnostic.start === 'number' ? diagnostic.start : 0
-      const pos = sourceFile.getLineAndCharacterOfPosition(start)
-      const lineNo = pos.line + 1
-      const colNo = pos.character + 1
-      const lineText = source.split('\n')[pos.line] || ''
-      console.error(`  TS${diagnostic.code} (${lineNo}:${colNo}): ${text}`)
-      if (lineText.trim().length > 0) {
-        console.error(`    ${lineText}`)
-      }
+      console.error(`  TS${diagnostic.code}: ${text}`)
     }
   }
 }
@@ -220,8 +210,7 @@ process.exit(failed ? 1 : 0)
 JS
   then
     echo "Aborting startup due to frontend parser errors in vision panels."
-    echo "Tip: if output does not include 'guard_version=' and 'TS#### (line:col)', your run script is stale."
-    echo "      Refresh this checkout (git fetch && git pull) and rerun: ./scripts/run_race_master_pro.sh --doctor"
+    echo "Tip: sync the latest frontend fixes, then retry."
     exit 1
   fi
 }

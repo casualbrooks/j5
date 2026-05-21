@@ -305,7 +305,12 @@ export default function VisionPanel() {
                     <button
                         type="button"
                         className="rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600"
-                        onClick={() => setPreviewEnabled(prev => !prev)}
+                        onClick={async () => {
+                            if (!previewEnabled) {
+                                await refreshWizardContext()
+                            }
+                            setPreviewEnabled(prev => !prev)
+                        }}
                     >
                         {previewEnabled ? 'Hide Live Preview' : 'Show Live Preview'}
                     </button>

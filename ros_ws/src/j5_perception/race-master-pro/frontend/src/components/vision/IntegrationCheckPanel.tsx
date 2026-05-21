@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRaceContext } from '@/stores/raceStore'
+import { apiFetch } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
         return 'http://localhost:8091'
     }
-    return `${window.location.protocol}//${window.location.hostname}:8091`
+    return ''
 }
 
 function normalizePreviewBaseUrl(value: string): string {
@@ -29,12 +30,16 @@ function extractObjectNumber(objectId: string): string {
     return match ? match[1] : objectId
 }
 
+function connectionClass(ok: boolean): string {
+    return ok ? 'text-emerald-300' : 'text-amber-300'
+}
+
 export default function IntegrationCheckPanel() {
     const { connectionStatus, recentVisionObjects, recentObjectDetections, liveRace } = useRaceContext()
     const [previewBaseUrl, setPreviewBaseUrl] = useState(defaultPreviewBaseUrl)
     const [previewEnabled, setPreviewEnabled] = useState(true)
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
-    const streamUrl = `${normalizedBaseUrl}/stream.mjpg`
+    const streamUrl = normalizedBaseUrl ? `${normalizedBaseUrl}/stream.mjpg` : ''
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
     const lastVisionSeenAt = recentVisionObjects[0]?.seenAt || 0
     const secondsSinceVision = lastVisionSeenAt ? Math.max(0, Math.floor((statusNowMs - lastVisionSeenAt) / 1000)) : null
@@ -76,6 +81,60 @@ export default function IntegrationCheckPanel() {
                 .filter(topic => Boolean(topic)),
         ),
     )
+    const previewContent = (() => {
+        if (!previewEnabled) {
+            return (
+                <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
+                    Embedded camera preview is paused.
+                </div>
+            )
+        }
+        if (!normalizedBaseUrl) {
+            return (
+                <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                    Set Preview server URL first, then show embedded camera.
+                </div>
+            )
+        }
+        return (
+            <div className="relative">
+                    <img
+                        src={streamUrl}
+                        alt="Embedded camera stream"
+                        className="w-full rounded border border-slate-700 bg-black"
+                    />
+                    <div className="pointer-events-none absolute inset-0">
+                        {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => (
+                            <div
+                                key={`${item.objectId}-${item.seenAt}`}
+                                className="absolute border border-emerald-400/90"
+                                style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                            >
+                                <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+                                    {extractObjectNumber(item.objectId)}
+                                </span>
+                            </div>
+                        ))}
+                        {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
+                            <div className="absolute left-2 top-2 max-w-[70%] space-y-1">
+                                {recentVisionObjects.slice(0, 6).map((item) => (
+                                    <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
+                                        {extractObjectNumber(item.objectId)}
+                                        {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
+                                        {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
+                                    </p>
+                                ))}
+                            </div>
+                        ) : null}
+                        {!hasRecentVisionObjects ? (
+                            <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                                No object IDs yet. Move an object through frame and verify ROS2 topics below.
+                            </p>
+                        ) : null}
+                    </div>
+            </div>
+        )
+    })()
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -84,6 +143,24 @@ export default function IntegrationCheckPanel() {
         return () => {
             window.clearInterval(timer)
         }
+    }, [])
+
+    useEffect(() => {
+        const loadPreviewUrl = async () => {
+            try {
+                const response = await apiFetch('/api/setup/wizard')
+                if (!response.ok) return
+                const payload = await response.json() as { config?: { preview_url?: unknown } }
+                const previewUrl = String(payload?.config?.preview_url || '').trim()
+                if (previewUrl) {
+                    setPreviewBaseUrl(previewUrl)
+                }
+            } catch {
+                // keep fallback URL when setup payload cannot be loaded
+            }
+        }
+
+        void loadPreviewUrl()
     }, [])
 
     const topicListCommand = 'ros2 topic list -t | rg -n "Image|CompressedImage|camera|video"'
@@ -169,31 +246,31 @@ export default function IntegrationCheckPanel() {
                 <ul className="space-y-2 text-sm">
                     <li>
                         UI websocket:{' '}
-                        <span className={connectionStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(connectionStatus === 'connected')}>
                             {connectionStatus}
                         </span>
                     </li>
                     <li>
                         Vision object stream:{' '}
-                        <span className={secondsSinceVision !== null && secondsSinceVision <= 3 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(secondsSinceVision !== null && secondsSinceVision <= 3)}>
                             {secondsSinceVision === null ? 'waiting for objects' : `${secondsSinceVision}s since last object`}
                         </span>
                     </li>
                     <li>
                         Auto-detected camera topics:{' '}
-                        <span className={autoDetectedTopics.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(autoDetectedTopics.length > 0)}>
                             {autoDetectedTopics.length > 0 ? autoDetectedTopics.join(', ') : 'none detected yet'}
                         </span>
                     </li>
                     <li>
                         Detection events in memory:{' '}
-                        <span className={recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(recentObjectDetections.length > 0)}>
                             {recentObjectDetections.length}
                         </span>
                     </li>
                     <li>
                         Tracking health:{' '}
-                        <span className={visionIsFresh && recentObjectDetections.length > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+                        <span className={connectionClass(visionIsFresh && recentObjectDetections.length > 0)}>
                             {visionIsFresh && recentObjectDetections.length > 0 ? 'active detections' : 'camera up but no confirmed detections yet'}
                         </span>
                     </li>
@@ -224,48 +301,7 @@ export default function IntegrationCheckPanel() {
                         placeholder="http://192.168.1.134:8091"
                     />
                 </label>
-                {previewEnabled ? (
-                    <div className="relative">
-                        <img
-                            src={streamUrl}
-                            alt="Embedded camera stream"
-                            className="w-full rounded border border-slate-700 bg-black"
-                        />
-                        <div className="pointer-events-none absolute inset-0">
-                            {drawableVisionObjects.map(({ item, leftPct, topPct, widthPct, heightPct }) => (
-                                <div
-                                    key={`${item.objectId}-${item.seenAt}`}
-                                    className="absolute border border-emerald-400/90"
-                                    style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
-                                >
-                                    <span className="absolute -top-4 right-0 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
-                                        {extractObjectNumber(item.objectId)}
-                                    </span>
-                                </div>
-                            ))}
-                            {hasRecentVisionObjects && !hasDrawableVisionObjects ? (
-                                <div className="absolute left-2 top-2 max-w-[70%] space-y-1">
-                                    {recentVisionObjects.slice(0, 6).map((item) => (
-                                        <p key={`${item.objectId}-${item.seenAt}`} className="rounded bg-black/70 px-2 py-1 text-[11px] text-emerald-200">
-                                            {extractObjectNumber(item.objectId)}
-                                            {item.position ? ` (${item.position.x.toFixed(1)}, ${item.position.y.toFixed(1)})` : ''}
-                                            {item.cameraTopic ? ` · ${item.cameraTopic}` : ''}
-                                        </p>
-                                    ))}
-                                </div>
-                            ) : null}
-                            {!hasRecentVisionObjects ? (
-                                <p className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
-                                    No object IDs yet. Move an object through frame and verify ROS2 topics below.
-                                </p>
-                            ) : null}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="rounded border border-dashed border-slate-700 bg-black/30 p-4 text-xs text-[var(--color-text-secondary)]">
-                        Embedded camera preview is paused.
-                    </div>
-                )}
+                {previewContent}
                 <div className="rounded border border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1">
                     <p className="font-semibold text-slate-100">If tracking still does not start, check this in order:</p>
                     <p>• Camera stream loads in this panel and updates continuously.</p>

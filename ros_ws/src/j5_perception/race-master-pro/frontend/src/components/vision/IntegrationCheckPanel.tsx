@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRaceContext } from '@/stores/raceStore'
+import { apiFetch } from '@/lib/utils'
 
 function defaultPreviewBaseUrl(): string {
     if (typeof window === 'undefined') {
@@ -84,6 +85,24 @@ export default function IntegrationCheckPanel() {
         return () => {
             window.clearInterval(timer)
         }
+    }, [])
+
+    useEffect(() => {
+        const loadPreviewUrl = async () => {
+            try {
+                const response = await apiFetch('/api/setup/wizard')
+                if (!response.ok) return
+                const payload = await response.json() as { config?: { preview_url?: unknown } }
+                const previewUrl = String(payload?.config?.preview_url || '').trim()
+                if (previewUrl) {
+                    setPreviewBaseUrl(previewUrl)
+                }
+            } catch {
+                // keep fallback URL when setup payload cannot be loaded
+            }
+        }
+
+        void loadPreviewUrl()
     }, [])
 
     const topicListCommand = 'ros2 topic list -t | rg -n "Image|CompressedImage|camera|video"'

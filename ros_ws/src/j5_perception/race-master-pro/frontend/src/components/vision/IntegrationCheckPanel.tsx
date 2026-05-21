@@ -280,7 +280,12 @@ export default function IntegrationCheckPanel() {
                                 </p>
                             ) : null}
                         </div>
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                            Set Preview server URL first, then show embedded camera.
+                        </div>
+                    )
                 ) : (
                     <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
                         Set Preview server URL first, then show embedded camera.

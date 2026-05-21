@@ -366,7 +366,12 @@ export default function VisionPanel() {
                                 </p>
                             ) : null}
                         </div>
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
+                            Set Preview server URL first (for example <code>http://100.90.148.71:8091</code>), then click Show Live Preview.
+                        </div>
+                    )
                 ) : (
                     <div className="rounded border border-dashed border-amber-700 bg-amber-950/20 p-4 text-xs text-amber-200">
                         Set Preview server URL first (for example <code>http://100.90.148.71:8091</code>), then click Show Live Preview.

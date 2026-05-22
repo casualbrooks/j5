@@ -27,6 +27,16 @@ function objectIdClass(mapped: boolean): string {
 function trackingStatusClass(enabled: boolean): string {
     return enabled ? 'text-emerald-400' : 'text-amber-300'
 }
+
+function formatHostForUrl(host: string): string {
+    const normalized = host.trim()
+    if (!normalized) return ''
+    if (normalized.includes(':') && !normalized.startsWith('[') && !normalized.endsWith(']')) {
+        return `[${normalized}]`
+    }
+    return normalized
+}
+
 function normalizePreviewBaseUrl(value: string): string {
     const raw = value.trim()
     if (!raw) return ''
@@ -38,13 +48,17 @@ function normalizePreviewBaseUrl(value: string): string {
     }
 }
 
-function resolveWizardPreviewUrl(previewUrl: string): string {
+function resolveWizardPreviewUrl(previewUrl: string, piHost?: string): string {
     const raw = previewUrl.trim()
     if (!raw) return ''
     try {
         const parsed = new URL(raw)
         const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
         if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+            const candidatePiHost = String(piHost || '').trim()
+            if (candidatePiHost && !['localhost', '127.0.0.1', '::1'].includes(candidatePiHost.toLowerCase())) {
+                return `${parsed.protocol}//${formatHostForUrl(candidatePiHost)}:${parsed.port || '8091'}`
+            }
             if (typeof window !== 'undefined' && window.location.hostname) {
                 return `${window.location.protocol}//${window.location.hostname}:${parsed.port || '8091'}`
             }
@@ -116,7 +130,10 @@ export default function VisionPanel() {
             if (!response.ok) return
             const payload = await response.json()
             setRaceContext(payload.race_context || {})
-            const previewUrl = resolveWizardPreviewUrl(String(payload?.config?.preview_url || ''))
+            const previewUrl = resolveWizardPreviewUrl(
+                String(payload?.config?.preview_url || ''),
+                String(payload?.config?.pi_host || ''),
+            )
             if (previewUrl) {
                 setPreviewBaseUrl((current) => (current.trim() ? current : previewUrl))
             }

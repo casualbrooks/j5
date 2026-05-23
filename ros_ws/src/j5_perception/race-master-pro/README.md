@@ -258,10 +258,72 @@ colcon build --symlink-install \
 source ~/j5/ros_ws/install/setup.bash
 
 # verify rebuilt artifact now matches source
-rg 'image_subscriptions|self\.subscriptions' \
-  build/racetracker_perception/racetracker_perception/perception_node.py
+head -n 1 install/racetracker_perception/lib/racetracker_perception/perception_node
+python3 -c "import racetracker_perception.perception_node as p; print(p.__file__)"
+```
+
+## Hardened ROS2 + YOLO runtime (system Python path)
+
+If you intentionally launch with:
+
+```bash
 ros2 run racetracker_perception perception_node
 ```
+
+the generated console script may use `/usr/bin/python3` directly. On Raspberry Pi
+images that mix apt-provided scientific packages (for example matplotlib) with user-site
+pip installs, NumPy 2.x can cause ABI import failures while importing ultralytics:
+
+```text
+A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x
+```
+
+Use this hardened sequence in a fresh shell:
+
+```bash
+source ~/ros2_kilted/install/setup.bash
+cd ~/j5/ros_ws
+
+# optional cleanup if you changed overlays recently
+rm -rf build/racetracker_perception install/racetracker_perception log
+
+colcon build --symlink-install \
+  --base-paths src/j5_perception/race-master-pro/perception/ros2_node \
+  --packages-select racetracker_perception
+source ~/j5/ros_ws/install/setup.bash
+
+# verify ros2 entrypoint interpreter
+head -n 1 install/racetracker_perception/lib/racetracker_perception/perception_node
+```
+
+Install runtime deps for `/usr/bin/python3` (the interpreter used by that shebang):
+
+```bash
+/usr/bin/python3 -m pip install --user --break-system-packages ultralytics "numpy<2"
+
+# verify imports in system python
+/usr/bin/python3 -c "import numpy; print(numpy.__version__)"
+/usr/bin/python3 -c "import matplotlib; print('matplotlib OK')"
+/usr/bin/python3 -c "from ultralytics import YOLO; print('ultralytics OK')"
+```
+
+Launch and confirm YOLO initialization:
+
+```bash
+ros2 run racetracker_perception perception_node --ros-args --log-level info \
+  -p camera_topics:=[/camera/cam1/image_raw] \
+  -p auto_discover_camera_topics:=true \
+  -p confidence_threshold:=0.35
+```
+
+Expected startup signal:
+
+```text
+Loaded YOLO model from .../perception/models/yolov8n.pt
+```
+
+If you see repeated model downloads, run once while connected to the internet so
+`perception/models/yolov8n.pt` is cached for future runs.
 
 
 ## Features

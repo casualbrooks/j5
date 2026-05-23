@@ -370,7 +370,7 @@ class StandaloneRunner:
             if state.disappeared > 2:
                 continue
             closest_bbox = None
-            if candidates:
+            if state.disappeared == 0 and candidates:
                 closest_bbox = min(
                     candidates,
                     key=lambda item: (item[0][0] - state.centroid[0]) ** 2

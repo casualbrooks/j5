@@ -578,7 +578,7 @@ if ROS2_AVAILABLE:
                     continue
                 confidence = self.confidence_threshold
                 nearest_idx = -1
-                if candidates:
+                if state.disappeared == 0 and candidates:
                     distances = [
                         (
                             idx,
@@ -599,6 +599,8 @@ if ROS2_AVAILABLE:
                     bbox = candidates[nearest_idx].get("bbox")
                     if bbox is not None:
                         bbox_x, bbox_y, bbox_w, bbox_h = bbox
+                elif state.bbox is not None:
+                    bbox_x, bbox_y, bbox_w, bbox_h = state.bbox
                 detection = {
                     "object_id": f"cv-{topic.replace('/', '-')}-track-{object_id}",
                     "camera_topic": topic,

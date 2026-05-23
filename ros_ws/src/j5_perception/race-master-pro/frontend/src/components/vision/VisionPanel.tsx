@@ -351,17 +351,18 @@ export default function VisionPanel() {
                 <div className="rounded border border-cyan-900/70 bg-cyan-950/30 p-3 text-xs text-cyan-100 space-y-2">
                     <p className="font-semibold text-cyan-200">Tracking bring-up quick start</p>
                     <p>Run these commands on the Pi / perception host before pressing <strong>Start Tracking</strong>:</p>
-                    <p><strong>1) Camera preview server</strong></p>
+                    <p><strong>1) Preview-only setup/capture (no tracking)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
                         python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15
                     </code>
-                    <p><strong>2) Perception node (choose one)</strong></p>
+                    <p><strong>2) Tracking + preview during race (recommended)</strong></p>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
-                        python -m perception.standalone.standalone_runner --camera-source /dev/video0 --camera-id cam1
+                        python3 scripts/camera_ros_publisher.py --device /dev/video0 --topic /camera/cam1/image_raw --width 960 --height 540 --fps 15 --pixel-format MJPG --serve-preview --preview-host 0.0.0.0 --preview-port 8091
                     </code>
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
-                        ros2 run racetracker_perception perception_node
+                        python -m racetracker_perception.perception_node --ros-args -p camera_topics:=[/camera/cam1/image_raw] -p auto_discover_camera_topics:=true -p confidence_threshold:=0.25
                     </code>
+                    <p className="text-xs text-cyan-100/90">Use <code>--confidence-threshold</code> around <strong>0.25-0.35</strong>. Lower values reduce missed moving cars but can add false positives.</p>
                     <p>Then in this tab: <strong>Show Live Preview</strong> → <strong>Capture Track Photo</strong> → <strong>Start Tracking</strong>.</p>
                 </div>
                 <label className="block text-sm text-[var(--color-text-secondary)]">

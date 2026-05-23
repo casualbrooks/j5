@@ -362,7 +362,7 @@ export default function VisionPanel() {
                     <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
                         python -m racetracker_perception.perception_node --ros-args -p camera_topics:=[/camera/cam1/image_raw] -p auto_discover_camera_topics:=true -p confidence_threshold:=0.25
                     </code>
-                    <p className="text-xs text-cyan-100/90">Use <code>--confidence-threshold</code> around <strong>0.25-0.35</strong>. Lower values reduce missed moving cars but can add false positives.</p>
+                    <p className="text-xs text-cyan-100/90">Use ROS param <code>-p confidence_threshold:=...</code> around <strong>0.25-0.35</strong>. Lower values reduce missed moving cars but can add false positives.</p>
                     <p>Then in this tab: <strong>Show Live Preview</strong> → <strong>Capture Track Photo</strong> → <strong>Start Tracking</strong>.</p>
                 </div>
                 <label className="block text-sm text-[var(--color-text-secondary)]">

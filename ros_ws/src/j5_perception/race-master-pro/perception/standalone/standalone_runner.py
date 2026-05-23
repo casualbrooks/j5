@@ -28,29 +28,63 @@ except ImportError:
 @dataclass
 class TrackerState:
     centroid: tuple[float, float]
+    bbox: tuple[float, float, float, float] | None = None
     velocity: tuple[float, float] = (0.0, 0.0)
     disappeared: int = 0
+
+
+def _bbox_iou(
+    a: tuple[float, float, float, float] | None,
+    b: tuple[float, float, float, float] | None,
+) -> float:
+    if a is None or b is None:
+        return 0.0
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ax2, ay2 = ax + aw, ay + ah
+    bx2, by2 = bx + bw, by + bh
+    ix1, iy1 = max(ax, bx), max(ay, by)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0.0:
+        return 0.0
+    union = (aw * ah) + (bw * bh) - inter
+    return inter / union if union > 0.0 else 0.0
 
 
 class SimpleCentroidTracker:
     """Lightweight centroid tracker for moving objects."""
 
-    def __init__(self, max_disappeared: int = 20, max_distance: float = 140.0):
+    def __init__(
+        self,
+        max_disappeared: int = 20,
+        max_distance: float = 140.0,
+        min_iou: float = 0.03,
+    ):
         self.max_disappeared = max_disappeared
         self.max_distance = max_distance
+        self.min_iou = min_iou
         self.next_object_id = 1
         self.objects: OrderedDict[int, TrackerState] = OrderedDict()
 
-    def _register(self, centroid: tuple[float, float]):
-        self.objects[self.next_object_id] = TrackerState(centroid=centroid)
+    def _register(
+        self,
+        centroid: tuple[float, float],
+        bbox: tuple[float, float, float, float] | None = None,
+    ):
+        self.objects[self.next_object_id] = TrackerState(centroid=centroid, bbox=bbox)
         self.next_object_id += 1
 
     def _deregister(self, object_id: int):
         self.objects.pop(object_id, None)
 
     def update(
-        self, centroids: list[tuple[float, float]]
+        self,
+        centroids: list[tuple[float, float]],
+        bboxes: list[tuple[float, float, float, float]] | None = None,
     ) -> OrderedDict[int, TrackerState]:
+        incoming_bboxes = bboxes or [None] * len(centroids)
         if not centroids:
             stale_ids: list[int] = []
             for object_id, state in self.objects.items():
@@ -62,8 +96,8 @@ class SimpleCentroidTracker:
             return self.objects
 
         if not self.objects:
-            for centroid in centroids:
-                self._register(centroid)
+            for idx, centroid in enumerate(centroids):
+                self._register(centroid, incoming_bboxes[idx])
             return self.objects
 
         object_items = list(self.objects.items())
@@ -95,6 +129,14 @@ class SimpleCentroidTracker:
                 if float(distances[row, col]) > self.max_distance:
                     continue
                 object_id = object_ids[row]
+                iou = _bbox_iou(self.objects[object_id].bbox, incoming_bboxes[col])
+                if (
+                    self.objects[object_id].disappeared == 0
+                    and self.objects[object_id].bbox is not None
+                    and incoming_bboxes[col] is not None
+                    and iou < self.min_iou
+                ):
+                    continue
                 prev_x, prev_y = self.objects[object_id].centroid
                 next_x, next_y = centroids[col]
                 velocity = (next_x - prev_x, next_y - prev_y)
@@ -103,6 +145,7 @@ class SimpleCentroidTracker:
                     (self.objects[object_id].velocity[1] * 0.4) + (velocity[1] * 0.6),
                 )
                 self.objects[object_id].centroid = centroids[col]
+                self.objects[object_id].bbox = incoming_bboxes[col]
                 self.objects[object_id].disappeared = 0
                 used_rows.add(row)
                 used_cols.add(col)
@@ -117,7 +160,7 @@ class SimpleCentroidTracker:
 
         for col, centroid in enumerate(centroids):
             if col not in used_cols:
-                self._register(centroid)
+                self._register(centroid, incoming_bboxes[col])
 
         return self.objects
 
@@ -317,19 +360,29 @@ class StandaloneRunner:
             for x, y, w, h in merged_boxes
         ]
 
-        tracked = tracker.update([centroid for centroid, _bbox in candidates])
+        tracked = tracker.update(
+            [centroid for centroid, _bbox in candidates],
+            [bbox for _centroid, bbox in candidates],
+        )
         detections: list[dict] = []
         frame_height, frame_width = frame.shape[:2]
         for object_id, state in tracked.items():
-            if state.disappeared != 0:
+            if state.disappeared > 2:
                 continue
             closest_bbox = None
-            if candidates:
+            if state.disappeared == 0 and candidates:
                 closest_bbox = min(
                     candidates,
                     key=lambda item: (item[0][0] - state.centroid[0]) ** 2
                     + (item[0][1] - state.centroid[1]) ** 2,
                 )[1]
+            if closest_bbox is None and state.bbox is not None:
+                closest_bbox = (
+                    int(state.bbox[0]),
+                    int(state.bbox[1]),
+                    int(state.bbox[2]),
+                    int(state.bbox[3]),
+                )
             bbox_x, bbox_y, bbox_w, bbox_h = (
                 closest_bbox if closest_bbox else (None, None, None, None)
             )

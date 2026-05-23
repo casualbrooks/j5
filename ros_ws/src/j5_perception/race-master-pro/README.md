@@ -374,8 +374,9 @@ python3 scripts/pi_preflight.py \
 Then open `http://<pi-ip>:8091/` from another device. Use **Capture Track Photo**
 to write the snapshot to `track_snapshot.jpg` on the Pi.
 
-If you need a lightweight ROS image publisher that also serves `/stream.mjpg`
-for the Integration/Computer Vision tabs, run:
+If you need preview + tracking at the same time, use a single camera owner (`camera_ros_publisher.py`) and let the perception node subscribe to `/camera/cam1/image_raw`.
+
+Run the publisher + preview stream:
 
 ```bash
 python3 scripts/camera_ros_publisher.py \
@@ -386,8 +387,20 @@ python3 scripts/camera_ros_publisher.py \
   --serve-preview --preview-host 0.0.0.0 --preview-port 8091
 ```
 
-This is useful when `usb_cam` is unavailable in the current source-built
-environment.
+Then start the perception node in another shell (same host):
+
+```bash
+python -m racetracker_perception.perception_node   --ros-args   -p camera_topics:=[/camera/cam1/image_raw]   -p auto_discover_camera_topics:=true   -p confidence_threshold:=0.25
+```
+
+Calibration/tuning notes:
+- `scripts/pi_preflight.py` is **preview + capture only**. It does not run object tracking.
+- For race tracking and lap counting, run `camera_ros_publisher.py` + `racetracker_perception.perception_node`.
+- Start at `--width 960 --height 540 --fps 15` to reduce motion blur + ID switching.
+- Keep `confidence_threshold` around `0.25-0.35` and tune upward only if false positives are excessive.
+- Use only one camera owner process for `/dev/video0` at a time to avoid blank preview or camera-open failures.
+
+This is useful when `usb_cam` is unavailable in the current source-built environment.
 
 You can also use Race Manager Pro UI from another machine at
 `http://<pi-ip>:5173` -> **Computer Vision** tab:

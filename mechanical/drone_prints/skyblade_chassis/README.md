@@ -13,4 +13,6 @@ This folder contains the first-pass slice outputs for the Skyblade v2.0 modular 
 - Top layers: 5
 - Bottom layers: 4
 - Infill: 15%
+- PLA baseline slice from PrusaSlicer
+- Athorbot extruder should be calibrated in firmware to 397.5 E-steps/mm; slicer flow is left at 1.0
 - No Blender pass used; the mesh was already manifold.

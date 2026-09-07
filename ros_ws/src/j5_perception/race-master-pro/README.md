@@ -141,6 +141,13 @@ python3 -c "from sensor_msgs.msg import Image; print('sensor_msgs OK')"
 
 ### 4. Operator flow for camera-based object tracking
 
+The **Computer Vision** page now starts with a source choice. Select a live camera,
+an onboard recording path, or upload a recording. **Prepare lap counter** sends the
+choice to the connected perception worker. The worker observes ordinary tracked-car
+centroids to estimate a centerline, travel direction, four checkpoints, and a finish
+gate. Lap counting remains locked until discovery reaches 85% confidence; finishing
+the race stops perception automatically.
+
 1. Start backend + frontend.
 2. Start camera preview (`scripts/pi_preflight.py --serve-preview ...`) so you can position camera framing.
 3. Start standalone perception camera runner (`python -m perception.standalone.standalone_runner --camera-source /dev/video0 ...`).

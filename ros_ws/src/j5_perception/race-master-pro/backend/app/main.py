@@ -7,6 +7,7 @@ import asyncio
 import json
 import socket
 import uuid
+from pathlib import Path
 from shutil import which
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import (
@@ -40,6 +41,7 @@ from app.models import (
     DetectionCreate,
     PositionUpdate,
     LapComplete,
+    LapCounterSetup,
 )
 from app.websocket_manager import manager
 
@@ -145,6 +147,8 @@ _DEFAULT_SETUP_CONFIG = {
     "total_laps": 20,
     "racer_names": ["Racer 1", "Racer 2"],
 }
+
+_VIDEO_UPLOAD_DIR = Path.home() / ".race-master-pro" / "videos"
 
 
 async def _get_state_json(key: str, default: dict | list | None = None):
@@ -683,6 +687,15 @@ async def finish_race(race_id: str):
             "timestamp": now,
         }
     )
+    context = await _get_state_json("race_context", {})
+    if context.get("race_id") == race_id:
+        context["tracking_enabled"] = False
+        lap_counter = context.setdefault("lap_counter", {})
+        lap_counter["phase"] = "finished"
+        await _set_state_json("race_context", context)
+        await manager.broadcast_to_group(
+            {"type": "stopPerception", "data": {"race_id": race_id}}, "cv_system"
+        )
     return updated
 
 
@@ -1171,6 +1184,12 @@ async def resume_race_from_snapshot(race_id: str):
 @app.post("/api/races/{race_id}/tracking/start")
 async def start_tracking(race_id: str):
     context = await _get_state_json("race_context", {})
+    lap_counter = context.get("lap_counter")
+    if lap_counter and lap_counter.get("phase") != "ready":
+        raise HTTPException(
+            409,
+            "Track discovery is not confident enough yet. Complete the learning laps before counting.",
+        )
     cv_system_connections = len(manager.active_connections.get("cv_system", []))
     if cv_system_connections == 0:
         warning = (
@@ -1198,6 +1217,70 @@ async def start_tracking(race_id: str):
         "cv_system_connections": cv_system_connections,
         "warning": None,
     }
+
+
+@app.post("/api/races/{race_id}/lap-counter/prepare")
+async def prepare_lap_counter(race_id: str, setup: LapCounterSetup):
+    """Persist one simple source choice and ask the onboard worker to prepare it."""
+    if not await get_row("races", race_id):
+        raise HTTPException(404, "Race not found")
+    context = await _get_state_json("race_context", {})
+    if context.get("race_id") != race_id:
+        raise HTTPException(409, "Initialize this race before preparing lap counting")
+    cv_system_connections = len(manager.active_connections.get("cv_system", []))
+    if cv_system_connections == 0:
+        raise HTTPException(
+            409,
+            "Start the onboard perception worker before preparing a lap-counting source.",
+        )
+    lap_counter = {
+        **setup.model_dump(),
+        "phase": "discovering" if setup.auto_discover_track else "ready",
+        "confidence": 0.0 if setup.auto_discover_track else 1.0,
+        "message": (
+            "Drive two or more complete laps while the appliance learns the track."
+            if setup.auto_discover_track
+            else "Source prepared with manual track configuration."
+        ),
+        "updated_at": datetime.now().isoformat(),
+    }
+    context["lap_counter"] = lap_counter
+    await _set_state_json("race_context", context)
+    await manager.broadcast_to_group(
+        {
+            "type": "configurePerception",
+            "data": {"race_id": race_id, **setup.model_dump()},
+            "timestamp": datetime.now().isoformat(),
+        },
+        "cv_system",
+    )
+    return {
+        "context": context,
+        "cv_system_connections": cv_system_connections,
+    }
+
+
+@app.post("/api/perception/videos")
+async def upload_perception_video(request: Request, filename: str = "race.mp4"):
+    """Stream a browser-selected recording onto the perception host."""
+    safe_name = Path(filename).name
+    if not safe_name.lower().endswith((".mp4", ".mov", ".avi", ".mkv", ".webm")):
+        raise HTTPException(400, "Choose a supported video file")
+    _VIDEO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    target = _VIDEO_UPLOAD_DIR / f"{uuid.uuid4()}-{safe_name}"
+    size = 0
+    with target.open("wb") as output:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > 4 * 1024 * 1024 * 1024:
+                output.close()
+                target.unlink(missing_ok=True)
+                raise HTTPException(413, "Video exceeds the 4 GiB upload limit")
+            output.write(chunk)
+    if size == 0:
+        target.unlink(missing_ok=True)
+        raise HTTPException(400, "Uploaded video is empty")
+    return {"source": str(target), "size": size}
 
 
 @app.post("/api/races/{race_id}/tracking/stop")
@@ -1266,6 +1349,27 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "spectator
                 await manager.broadcast_all(message)
             elif msg_type == "visionDetection":
                 # CV detections go to organizers
+                message["timestamp"] = datetime.now().isoformat()
+                await manager.broadcast_to_group(message, "organizer")
+            elif msg_type == "trackDiscovery":
+                if client_type != "cv_system":
+                    continue
+                data = message.get("data", {})
+                context = await _get_state_json("race_context", {})
+                lap_counter = context.setdefault("lap_counter", {})
+                confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+                lap_counter.update(
+                    {
+                        "confidence": confidence,
+                        "phase": "ready" if confidence >= 0.85 else "discovering",
+                        "message": data.get(
+                            "message", "Learning track from car motion."
+                        ),
+                        "track_model": data.get("track_model"),
+                        "updated_at": datetime.now().isoformat(),
+                    }
+                )
+                await _set_state_json("race_context", context)
                 message["timestamp"] = datetime.now().isoformat()
                 await manager.broadcast_to_group(message, "organizer")
             else:

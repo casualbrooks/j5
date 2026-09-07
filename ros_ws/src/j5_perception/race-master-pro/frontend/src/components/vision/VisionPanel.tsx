@@ -79,6 +79,10 @@ export default function VisionPanel() {
     const [raceContext, setRaceContext] = useState<Record<string, unknown>>({})
     const [activeTrackName, setActiveTrackName] = useState('')
     const [statusNowMs, setStatusNowMs] = useState(() => Date.now())
+    const [countingMode, setCountingMode] = useState<'live' | 'video'>('live')
+    const [countingSource, setCountingSource] = useState('/dev/video0')
+    const [preparing, setPreparing] = useState(false)
+    const [videoFile, setVideoFile] = useState<File | null>(null)
 
     const normalizedBaseUrl = useMemo(() => normalizePreviewBaseUrl(previewBaseUrl), [previewBaseUrl])
     const streamUrl = normalizedBaseUrl ? `${normalizedBaseUrl}/stream.mjpg` : ''
@@ -211,6 +215,9 @@ export default function VisionPanel() {
     }
 
     const trackingEnabled = Boolean(raceContext.tracking_enabled)
+    const lapCounter = (raceContext.lap_counter || {}) as Record<string, unknown>
+    const discoveryConfidence = Math.round(Number(lapCounter.confidence || 0) * 100)
+    const lapCounterReady = lapCounter.phase === 'ready'
     const logs = Array.isArray(raceContext.log_stream) ? raceContext.log_stream : []
     const detectionEmptyMessage = trackingEnabled
         ? 'No detections yet. Start tracking and assign object IDs in Settings.'
@@ -342,28 +349,83 @@ export default function VisionPanel() {
         setStatusError(true)
     }
 
+    const prepareLapCounter = async () => {
+        const raceId = String(raceContext.race_id || '')
+        if (!raceId) {
+            setStatusMessage('Initialize a race first; then this page can prepare its video source.')
+            setStatusError(true)
+            return
+        }
+        if (!countingSource.trim() && !videoFile) {
+            setStatusMessage(countingMode === 'live' ? 'Enter a camera device or ROS topic.' : 'Enter an onboard video file path.')
+            setStatusError(true)
+            return
+        }
+        setPreparing(true)
+        try {
+            let source = countingSource.trim()
+            if (countingMode === 'video' && videoFile) {
+                const upload = await apiFetch(`/api/perception/videos?filename=${encodeURIComponent(videoFile.name)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': videoFile.type || 'application/octet-stream' },
+                    body: videoFile,
+                })
+                if (!upload.ok) throw new Error('The video could not be uploaded to the perception computer.')
+                source = String((await upload.json() as { source: string }).source)
+                setCountingSource(source)
+            }
+            const response = await apiFetch(`/api/races/${raceId}/lap-counter/prepare`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: countingMode, source, auto_discover_track: true }),
+            })
+            if (!response.ok) throw new Error('The backend could not prepare this source.')
+            await refreshWizardContext()
+            setStatusMessage('Source selected. Move the cars for two complete laps while track discovery gains confidence.')
+            setStatusError(false)
+        } catch (error) {
+            setStatusMessage(error instanceof Error ? error.message : 'Unable to prepare lap counting.')
+            setStatusError(true)
+        } finally {
+            setPreparing(false)
+        }
+    }
+
     try {
         return (
             <div className="fade-in space-y-4">
             <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">Computer Vision</h2>
 
             <div className="race-card p-4 space-y-3">
-                <div className="rounded border border-cyan-900/70 bg-cyan-950/30 p-3 text-xs text-cyan-100 space-y-2">
-                    <p className="font-semibold text-cyan-200">Tracking bring-up quick start</p>
-                    <p>Run these commands on the Pi / perception host before pressing <strong>Start Tracking</strong>:</p>
-                    <p><strong>1) Preview-only setup/capture (no tracking)</strong></p>
-                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
-                        python3 scripts/pi_preflight.py --camera-source /dev/video0 --capture-file track_snapshot.jpg --serve-preview --preview-host 0.0.0.0 --preview-port 8091 --preview-fps 15
-                    </code>
-                    <p><strong>2) Tracking + preview during race (recommended)</strong></p>
-                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
-                        python3 scripts/camera_ros_publisher.py --device /dev/video0 --topic /camera/cam1/image_raw --width 960 --height 540 --fps 15 --pixel-format MJPG --serve-preview --preview-host 0.0.0.0 --preview-port 8091
-                    </code>
-                    <code className="block overflow-x-auto rounded bg-black/40 p-2 text-xs text-emerald-300">
-                        python -m racetracker_perception.perception_node --ros-args -p camera_topics:=[/camera/cam1/image_raw] -p auto_discover_camera_topics:=true -p confidence_threshold:=0.25
-                    </code>
-                    <p className="text-xs text-cyan-100/90">Use ROS param <code>-p confidence_threshold:=...</code> around <strong>0.25-0.35</strong>. Lower values reduce missed moving cars but can add false positives.</p>
-                    <p>Then in this tab: <strong>Show Live Preview</strong> → <strong>Capture Track Photo</strong> → <strong>Start Tracking</strong>.</p>
+                <div className="rounded border border-cyan-900/70 bg-cyan-950/30 p-3 text-sm text-cyan-100 space-y-3">
+                    <div>
+                        <p className="font-semibold text-cyan-200">How would you like to count laps?</p>
+                        <p className="mt-1 text-xs">Choose one source. The onboard perception worker will learn the track, direction, checkpoints, and finish gate from moving cars—no browser tracing required.</p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                        {(['live', 'video'] as const).map(mode => (
+                            <button key={mode} type="button" onClick={() => {
+                                setCountingMode(mode)
+                                setCountingSource(mode === 'live' ? '/dev/video0' : '')
+                            }} className={`rounded border p-3 text-left ${countingMode === mode ? 'border-cyan-400 bg-cyan-900/50' : 'border-slate-700 bg-slate-950/50'}`}>
+                                <strong>{mode === 'live' ? 'Live camera' : 'Uploaded / recorded video'}</strong>
+                                <span className="mt-1 block text-xs text-slate-300">{mode === 'live' ? 'Count an event in real time.' : 'Replay a file through the same lap pipeline.'}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <label className="block text-xs">
+                        {countingMode === 'live' ? 'Camera device or ROS topic' : 'Video path on the perception computer'}
+                        <input className="mt-1 w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-white" value={countingSource} onChange={event => setCountingSource(event.target.value)} placeholder={countingMode === 'live' ? '/dev/video0' : '/data/races/heat-1.mp4'} />
+                    </label>
+                    {countingMode === 'video' && <label className="block text-xs">Or upload a recording
+                        <input type="file" accept="video/*,.mkv" className="mt-1 block w-full text-xs text-slate-300" onChange={event => setVideoFile(event.target.files?.[0] || null)} />
+                    </label>}
+                    <button type="button" disabled={preparing} onClick={prepareLapCounter} className="rounded bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-60">{preparing ? 'Preparing…' : 'Prepare lap counter'}</button>
+                    {lapCounter.phase && <div className="rounded bg-black/30 p-2 text-xs">
+                        <p><strong>Status:</strong> {lapCounterReady ? 'Ready to race' : lapCounter.phase === 'finished' ? 'Race finished' : `Learning track · ${discoveryConfidence}% confidence`}</p>
+                        <div className="mt-2 h-2 overflow-hidden rounded bg-slate-800"><div className={`h-full ${lapCounterReady ? 'bg-emerald-500' : 'bg-cyan-500'}`} style={{ width: `${discoveryConfidence}%` }} /></div>
+                        <p className="mt-2 text-slate-300">{String(lapCounter.message || '')}</p>
+                    </div>}
                 </div>
                 <label className="block text-sm text-[var(--color-text-secondary)]">
                     Preview server URL

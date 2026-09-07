@@ -431,6 +431,16 @@ if ROS2_AVAILABLE:
                         self.get_logger().info(
                             "Connected to backend websocket as cv_system client."
                         )
+                        # This node consumes ROS image topics configured at launch; unlike
+                        # the standalone worker it cannot switch browser-selected sources.
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "workerCapabilities",
+                                    "data": {"capabilities": ["detections:ros-topic"]},
+                                }
+                            )
+                        )
                         last_ping = 0.0
                         while not self._ws_stop.is_set():
                             now = time.time()

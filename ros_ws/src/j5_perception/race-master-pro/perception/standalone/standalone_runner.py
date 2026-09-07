@@ -12,6 +12,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
 
+from perception.track_discovery import TrackDiscovery
+
 try:
     import websockets
 except ImportError:
@@ -218,6 +220,10 @@ class StandaloneRunner:
         self._captures: dict = {}
         self._trackers: dict[str, SimpleCentroidTracker] = {}
         self._background_models: dict[str, object] = {}
+        self._track_discovery = TrackDiscovery()
+        self._frame_count = 0
+        self._discovery_race_id: str | None = None
+        self._discovery_session_id: str | None = None
 
     async def connect(self):
         """Connect to the backend WebSocket."""
@@ -228,6 +234,20 @@ class StandaloneRunner:
             return
         try:
             self._ws = await websockets.connect(self.ws_url)
+            await self._ws.send(
+                json.dumps(
+                    {
+                        "type": "workerCapabilities",
+                        "data": {
+                            "capabilities": [
+                                "configure:live",
+                                "configure:video",
+                                "track-discovery",
+                            ]
+                        },
+                    }
+                )
+            )
             print(f"Connected to backend at {self.ws_url}")
         except Exception as e:
             print(f"Failed to connect to backend: {e}")
@@ -248,6 +268,25 @@ class StandaloneRunner:
                 )
             except Exception:
                 pass
+
+    async def send_track_discovery(self):
+        if self._ws and self._discovery_session_id and self._discovery_race_id:
+            try:
+                await self._ws.send(
+                    json.dumps(
+                        {
+                            "type": "trackDiscovery",
+                            "data": {
+                                **self._track_discovery.proposal(),
+                                "race_id": self._discovery_race_id,
+                                "discovery_session_id": self._discovery_session_id,
+                            },
+                        }
+                    )
+                )
+            except Exception:
+                # A transient backend restart must not stop camera capture.
+                self._ws = None
 
     def open_cameras(self):
         """Open video captures for configured cameras."""
@@ -288,6 +327,34 @@ class StandaloneRunner:
         self._captures.clear()
         self._trackers.clear()
         self._background_models.clear()
+
+    def configure_source(self, source: str) -> None:
+        """Switch live devices and video files through the identical CV pipeline."""
+        self.close_cameras()
+        self.cameras = [{"id": "cam1", "name": "Selected source", "source": source}]
+        self.use_mock = False
+        self._track_discovery = TrackDiscovery()
+        self.open_cameras()
+
+    async def receive_commands(self):
+        if not self._ws:
+            return
+        async for raw_message in self._ws:
+            message = json.loads(raw_message)
+            if message.get("type") == "configurePerception":
+                data = message.get("data", {})
+                source = str(data.get("source", "")).strip()
+                if source:
+                    self._discovery_race_id = str(data.get("race_id", "")) or None
+                    self._discovery_session_id = (
+                        str(data.get("discovery_session_id", "")) or None
+                    )
+                    self.configure_source(source)
+            elif message.get("type") == "stopPerception":
+                self._discovery_race_id = None
+                self._discovery_session_id = None
+                self._track_discovery = TrackDiscovery()
+                self.close_cameras()
 
     async def generate_mock_detections(self) -> list[dict]:
         """Generate mock detections for development/testing."""
@@ -416,6 +483,7 @@ class StandaloneRunner:
         await self.connect()
         self.open_cameras()
         self._running = True
+        command_task = asyncio.create_task(self.receive_commands())
 
         try:
             while self._running:
@@ -431,7 +499,18 @@ class StandaloneRunner:
 
                 for det in detections:
                     if det["confidence"] >= self.confidence_threshold:
+                        self._track_discovery.observe(
+                            det["object_id"],
+                            det["position_x"],
+                            det["position_y"],
+                            det.get("frame_width"),
+                            det.get("frame_height"),
+                        )
                         await self.send_detection(det)
+
+                self._frame_count += 1
+                if self._frame_count % 30 == 0:
+                    await self.send_track_discovery()
 
                 await asyncio.sleep(0.033)  # ~30 FPS
 
@@ -439,6 +518,7 @@ class StandaloneRunner:
             print("\nStopping perception runner...")
         finally:
             self._running = False
+            command_task.cancel()
             self.close_cameras()
             if self._ws:
                 await self._ws.close()

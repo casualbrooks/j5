@@ -198,3 +198,12 @@ class LapComplete(BaseModel):
     racer_id: str
     lap_time: float
     total_time: float
+
+
+class LapCounterSetup(BaseModel):
+    """Operator choice used to prepare the perception appliance."""
+
+    mode: str = Field(pattern="^(live|video)$")
+    source: str = Field(min_length=1, max_length=500)
+    auto_discover_track: bool = True
+    track_id: Optional[str] = None

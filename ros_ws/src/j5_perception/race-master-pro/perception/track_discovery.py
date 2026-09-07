@@ -11,8 +11,18 @@ class TrackDiscovery:
         self.angular_bins = angular_bins
         self.points = defaultdict(lambda: deque(maxlen=history))
 
-    def observe(self, object_id: str, x: float, y: float) -> None:
-        self.points[object_id].append((float(x), float(y)))
+    def observe(
+        self,
+        object_id: str,
+        x: float,
+        y: float,
+        frame_width: float | None = None,
+        frame_height: float | None = None,
+    ) -> None:
+        """Add a centroid, normalized when frame dimensions are available."""
+        normalized_x = float(x) / frame_width if frame_width else float(x)
+        normalized_y = float(y) / frame_height if frame_height else float(y)
+        self.points[object_id].append((normalized_x, normalized_y))
 
     def proposal(self) -> dict:
         samples = [point for path in self.points.values() for point in path]
@@ -53,7 +63,15 @@ class TrackDiscovery:
             first, second = centerline[0], centerline[1]
             dx, dy = second["x"] - first["x"], second["y"] - first["y"]
             length = max(1.0, (dx * dx + dy * dy) ** 0.5)
-            normal_x, normal_y = (-dy / length) * 20, (dx / length) * 20
+            average_radius = sum(
+                ((point[0] - center_x) ** 2 + (point[1] - center_y) ** 2) ** 0.5
+                for point in samples
+            ) / len(samples)
+            half_gate_width = average_radius * 0.08
+            normal_x, normal_y = (
+                (-dy / length) * half_gate_width,
+                (dx / length) * half_gate_width,
+            )
             gate = [
                 {
                     "x": round(first["x"] - normal_x, 2),

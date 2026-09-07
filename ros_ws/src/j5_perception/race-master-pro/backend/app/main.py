@@ -1227,12 +1227,14 @@ async def prepare_lap_counter(race_id: str, setup: LapCounterSetup):
     context = await _get_state_json("race_context", {})
     if context.get("race_id") != race_id:
         raise HTTPException(409, "Initialize this race before preparing lap counting")
-    cv_system_connections = len(manager.active_connections.get("cv_system", []))
+    required_capability = f"configure:{setup.mode}"
+    cv_system_connections = manager.capable_worker_count(required_capability)
     if cv_system_connections == 0:
         raise HTTPException(
             409,
-            "Start the onboard perception worker before preparing a lap-counting source.",
+            f"Start a perception worker that supports {setup.mode} source configuration.",
         )
+    discovery_session_id = str(uuid.uuid4())
     lap_counter = {
         **setup.model_dump(),
         "phase": "discovering" if setup.auto_discover_track else "ready",
@@ -1243,13 +1245,18 @@ async def prepare_lap_counter(race_id: str, setup: LapCounterSetup):
             else "Source prepared with manual track configuration."
         ),
         "updated_at": datetime.now().isoformat(),
+        "discovery_session_id": discovery_session_id,
     }
     context["lap_counter"] = lap_counter
     await _set_state_json("race_context", context)
     await manager.broadcast_to_group(
         {
             "type": "configurePerception",
-            "data": {"race_id": race_id, **setup.model_dump()},
+            "data": {
+                "race_id": race_id,
+                "discovery_session_id": discovery_session_id,
+                **setup.model_dump(),
+            },
             "timestamp": datetime.now().isoformat(),
         },
         "cv_system",
@@ -1334,6 +1341,10 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "spectator
                         "timestamp": datetime.now().isoformat(),
                     },
                 )
+            elif msg_type == "workerCapabilities" and client_type == "cv_system":
+                capabilities = message.get("data", {}).get("capabilities", [])
+                if isinstance(capabilities, list):
+                    manager.register_worker_capabilities(websocket, capabilities)
             elif msg_type in (
                 "raceUpdate",
                 "positionUpdate",
@@ -1357,6 +1368,13 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "spectator
                 data = message.get("data", {})
                 context = await _get_state_json("race_context", {})
                 lap_counter = context.setdefault("lap_counter", {})
+                if (
+                    lap_counter.get("phase") != "discovering"
+                    or data.get("race_id") != context.get("race_id")
+                    or data.get("discovery_session_id")
+                    != lap_counter.get("discovery_session_id")
+                ):
+                    continue
                 confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
                 lap_counter.update(
                     {
@@ -1370,6 +1388,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "spectator
                     }
                 )
                 await _set_state_json("race_context", context)
+                data["track_id"] = lap_counter.get("track_id")
                 message["timestamp"] = datetime.now().isoformat()
                 await manager.broadcast_to_group(message, "organizer")
             else:

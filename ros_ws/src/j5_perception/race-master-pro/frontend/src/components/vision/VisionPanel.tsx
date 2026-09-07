@@ -152,8 +152,11 @@ export default function VisionPanel() {
     }, [])
 
     useEffect(() => {
+        let ticks = 0
         const timer = window.setInterval(() => {
             setStatusNowMs(Date.now())
+            ticks += 1
+            if (ticks % 2 === 0) void refreshWizardContext()
         }, 1000)
         return () => {
             window.clearInterval(timer)
@@ -377,7 +380,12 @@ export default function VisionPanel() {
             const response = await apiFetch(`/api/races/${raceId}/lap-counter/prepare`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: countingMode, source, auto_discover_track: true }),
+                body: JSON.stringify({
+                    mode: countingMode,
+                    source,
+                    auto_discover_track: true,
+                    track_id: getSelectedTrackId() || null,
+                }),
             })
             if (!response.ok) throw new Error('The backend could not prepare this source.')
             await refreshWizardContext()

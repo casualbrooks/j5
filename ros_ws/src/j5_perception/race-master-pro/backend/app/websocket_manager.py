@@ -5,9 +5,13 @@ Handles client groups (spectator, organizer, cv_system), broadcasting, and heart
 
 import asyncio
 import json
-from typing import Optional
-from fastapi import WebSocket
+from typing import TYPE_CHECKING, Any, Optional
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
+else:
+    WebSocket = Any
 
 
 class ConnectionManager:
@@ -17,6 +21,7 @@ class ConnectionManager:
             "organizer": [],
             "cv_system": [],
         }
+        self.worker_capabilities: dict[int, set[str]] = {}
 
     async def connect(self, websocket: WebSocket, client_type: str = "spectator"):
         await websocket.accept()
@@ -26,6 +31,7 @@ class ConnectionManager:
         await self.broadcast_connection_count()
 
     def disconnect(self, websocket: WebSocket, client_type: str = "spectator"):
+        self.worker_capabilities.pop(id(websocket), None)
         if client_type in self.active_connections:
             try:
                 self.active_connections[client_type].remove(websocket)
@@ -87,6 +93,23 @@ class ConnectionManager:
     @property
     def total_connections(self) -> int:
         return sum(len(v) for v in self.active_connections.values())
+
+    def register_worker_capabilities(
+        self, websocket: WebSocket, capabilities: list[str]
+    ) -> None:
+        self.worker_capabilities[id(websocket)] = {
+            str(capability) for capability in capabilities
+        }
+
+    def capable_worker_count(self, capability: str) -> int:
+        connected_ids = {
+            id(websocket) for websocket in self.active_connections.get("cv_system", [])
+        }
+        return sum(
+            1
+            for websocket_id, capabilities in self.worker_capabilities.items()
+            if websocket_id in connected_ids and capability in capabilities
+        )
 
 
 # Global singleton

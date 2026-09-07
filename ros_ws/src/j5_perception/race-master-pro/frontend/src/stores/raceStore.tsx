@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import type { Checkpoint, LiveRaceState, LiveRacer, TrackPoint } from '@/types'
-import { apiFetch, backendWsUrl, getSelectedTrackId, getTrackCheckpoints, getTrackRacerAssignments, stringToColor } from '@/lib/utils'
+import { apiFetch, backendWsUrl, getSelectedTrackId, getTrackCheckpoints, getTrackRacerAssignments, setTrackCheckpoints, stringToColor } from '@/lib/utils'
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
 
@@ -444,8 +444,13 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             ).trim()
             const positionX = Number(data.position_x)
             const positionY = Number(data.position_y)
+            const frameWidth = readFiniteNumber(data.frame_width)
+            const frameHeight = readFiniteNumber(data.frame_height)
             const position = Number.isFinite(positionX) && Number.isFinite(positionY)
-                ? { x: positionX, y: positionY }
+                ? {
+                    x: frameWidth && frameWidth > 0 ? positionX / frameWidth : positionX,
+                    y: frameHeight && frameHeight > 0 ? positionY / frameHeight : positionY,
+                }
                 : null
             const cameraTopic = String(
                 data.camera_topic
@@ -456,8 +461,6 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             const confidence = Number(data.confidence)
             const normalizedConfidence = Number.isFinite(confidence) ? confidence : null
             const bbox = extractBoundingBox(data)
-            const frameWidth = readFiniteNumber(data.frame_width)
-            const frameHeight = readFiniteNumber(data.frame_height)
             const frameSize = frameWidth != null && frameHeight != null
                 ? { width: frameWidth, height: frameHeight }
                 : null
@@ -532,6 +535,45 @@ export function RaceProvider({ children }: { children: ReactNode }) {
                 }
                 case 'visionDetection': {
                     handleVisionDetection(msg.data)
+                    break
+                }
+                case 'trackDiscovery': {
+                    if (Number(msg.data.confidence || 0) < 0.85) break
+                    const trackId = String(msg.data.track_id || getSelectedTrackId() || '')
+                    const model = msg.data.track_model as {
+                        checkpoints?: TrackPoint[]
+                        finish_gate?: TrackPoint[]
+                    } | null
+                    if (!trackId || !model) break
+                    const discoveredCheckpoints = Array.isArray(model.checkpoints)
+                        ? model.checkpoints.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+                        : []
+                    const gate = Array.isArray(model.finish_gate) ? model.finish_gate : []
+                    const finishPosition = gate.length >= 2
+                        ? {
+                            x: (Number(gate[0]!.x) + Number(gate[1]!.x)) / 2,
+                            y: (Number(gate[0]!.y) + Number(gate[1]!.y)) / 2,
+                        }
+                        : null
+                    if (!finishPosition || discoveredCheckpoints.length === 0) break
+                    setTrackCheckpoints(trackId, [
+                        ...discoveredCheckpoints.map((position, index): Checkpoint => ({
+                            id: `${trackId}-auto-checkpoint-${index + 1}`,
+                            track_id: trackId,
+                            name: `AUTO CP ${index + 1}`,
+                            type: 'checkpoint',
+                            position,
+                            sort_order: index,
+                        })),
+                        {
+                            id: `${trackId}-auto-finish`,
+                            track_id: trackId,
+                            name: 'AUTO FINISH',
+                            type: 'finish',
+                            position: finishPosition,
+                            sort_order: discoveredCheckpoints.length,
+                        },
+                    ])
                     break
                 }
                 case 'raceStart':

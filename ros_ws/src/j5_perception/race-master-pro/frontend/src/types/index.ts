@@ -187,6 +187,7 @@ export type WSMessageType =
     | 'lapLog'
     | 'racerAdded'
     | 'visionDetection'
+    | 'trackDiscovery'
     | 'connectionCount'
     | 'ping'
     | 'pong'

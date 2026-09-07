@@ -206,3 +206,4 @@ class LapCounterSetup(BaseModel):
     mode: str = Field(pattern="^(live|video)$")
     source: str = Field(min_length=1, max_length=500)
     auto_discover_track: bool = True
+    track_id: Optional[str] = None

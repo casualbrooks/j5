@@ -222,6 +222,8 @@ class StandaloneRunner:
         self._background_models: dict[str, object] = {}
         self._track_discovery = TrackDiscovery()
         self._frame_count = 0
+        self._discovery_race_id: str | None = None
+        self._discovery_session_id: str | None = None
 
     async def connect(self):
         """Connect to the backend WebSocket."""
@@ -232,6 +234,20 @@ class StandaloneRunner:
             return
         try:
             self._ws = await websockets.connect(self.ws_url)
+            await self._ws.send(
+                json.dumps(
+                    {
+                        "type": "workerCapabilities",
+                        "data": {
+                            "capabilities": [
+                                "configure:live",
+                                "configure:video",
+                                "track-discovery",
+                            ]
+                        },
+                    }
+                )
+            )
             print(f"Connected to backend at {self.ws_url}")
         except Exception as e:
             print(f"Failed to connect to backend: {e}")
@@ -254,12 +270,23 @@ class StandaloneRunner:
                 pass
 
     async def send_track_discovery(self):
-        if self._ws:
-            await self._ws.send(
-                json.dumps(
-                    {"type": "trackDiscovery", "data": self._track_discovery.proposal()}
+        if self._ws and self._discovery_session_id and self._discovery_race_id:
+            try:
+                await self._ws.send(
+                    json.dumps(
+                        {
+                            "type": "trackDiscovery",
+                            "data": {
+                                **self._track_discovery.proposal(),
+                                "race_id": self._discovery_race_id,
+                                "discovery_session_id": self._discovery_session_id,
+                            },
+                        }
+                    )
                 )
-            )
+            except Exception:
+                # A transient backend restart must not stop camera capture.
+                self._ws = None
 
     def open_cameras(self):
         """Open video captures for configured cameras."""
@@ -315,10 +342,18 @@ class StandaloneRunner:
         async for raw_message in self._ws:
             message = json.loads(raw_message)
             if message.get("type") == "configurePerception":
-                source = str(message.get("data", {}).get("source", "")).strip()
+                data = message.get("data", {})
+                source = str(data.get("source", "")).strip()
                 if source:
+                    self._discovery_race_id = str(data.get("race_id", "")) or None
+                    self._discovery_session_id = (
+                        str(data.get("discovery_session_id", "")) or None
+                    )
                     self.configure_source(source)
             elif message.get("type") == "stopPerception":
+                self._discovery_race_id = None
+                self._discovery_session_id = None
+                self._track_discovery = TrackDiscovery()
                 self.close_cameras()
 
     async def generate_mock_detections(self) -> list[dict]:
@@ -465,7 +500,11 @@ class StandaloneRunner:
                 for det in detections:
                     if det["confidence"] >= self.confidence_threshold:
                         self._track_discovery.observe(
-                            det["object_id"], det["position_x"], det["position_y"]
+                            det["object_id"],
+                            det["position_x"],
+                            det["position_y"],
+                            det.get("frame_width"),
+                            det.get("frame_height"),
                         )
                         await self.send_detection(det)
 

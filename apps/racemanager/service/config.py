@@ -5,10 +5,9 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from dotenv import load_dotenv
-
 
 ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(ENV_PATH)
@@ -28,6 +27,7 @@ class Settings:
         websocket_public_url: Optional[str] = None,
         http_host: Optional[str] = None,
         http_port: Optional[int] = None,
+        cors_origins: Optional[list[str]] = None,
     ) -> None:
         self.db_backend = (db_backend or os.getenv("DB_BACKEND", "sqlite")).lower()
         self.atlas_uri = atlas_uri or os.getenv(
@@ -43,8 +43,16 @@ class Settings:
         self.websocket_public_url = websocket_public_url or os.getenv("WS_PUBLIC_URL")
         self.http_host = http_host or os.getenv("HTTP_HOST", "0.0.0.0")
         self.http_port = http_port or int(os.getenv("HTTP_PORT", "4000"))
+        self.cors_origins = cors_origins or [
+            origin.strip()
+            for origin in os.getenv(
+                "CORS_ORIGINS",
+                "http://localhost:3000,http://127.0.0.1:3000",
+            ).split(",")
+            if origin.strip()
+        ]
 
-    def dict(self, *, include_sensitive: bool = True) -> dict[str, Optional[str | int]]:
+    def dict(self, *, include_sensitive: bool = True) -> dict[str, Any]:
         config = {
             "db_backend": self.db_backend,
             "atlas_uri": self.atlas_uri,
@@ -54,6 +62,7 @@ class Settings:
             "websocket_public_url": self.websocket_public_url,
             "http_host": self.http_host,
             "http_port": self.http_port,
+            "cors_origins": self.cors_origins,
         }
         if not include_sensitive:
             config["atlas_uri"] = "<redacted>"

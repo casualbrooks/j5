@@ -26,6 +26,30 @@
 ## Quick start
 **Codespaces is CPU-only**; for docs/CI. Use local GPU or GPU VM for Isaac Sim.
 
+### Run the Race Manager after the build
+
+The Race Manager is three processes: the FastAPI backend, the Next.js frontend,
+and a lap-event bridge. Sourcing ROS 2 does not start any of them. From the
+repository root, the shortest working smoke test (using the built-in SQLite
+database and synthetic laps) is:
+
+```bash
+./scripts/run_racemanager.sh --mode standalone
+```
+
+Open <http://localhost:3000>. For real ROS 2 lap events, source the ROS 2
+underlay and this repository's overlay, then run:
+
+```bash
+source /opt/ros/iron/setup.bash       # or your source-built ROS 2 underlay
+source ros_ws/install/setup.bash
+./scripts/run_racemanager.sh --mode ros2 --topic /race/lap_event
+```
+
+The exact three-shell commands, database choices, health checks, lap-event
+script, and current prerecorded-video limitations are documented in the
+[Race Manager runbook](apps/racemanager/README.md#run-it-now-three-shell-runbook).
+
 Install ROS 2 Kilted Kaiju from source and source your workspace overlay:
 ```bash
 # after building your ROS 2 + j5 workspace from source

@@ -293,6 +293,7 @@ export HTTP_HOST="$HOST"
 export HTTP_PORT="$API_PORT"
 export NEXT_PUBLIC_API_BASE="http://$PI_IP:$API_PORT"
 export NEXT_PUBLIC_WS_URL="ws://$PI_IP:$API_PORT/ws"
+export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:$UI_PORT,http://127.0.0.1:$UI_PORT,http://$PI_IP:$UI_PORT}"
 
 "$VENV_PYTHON" -m uvicorn apps.racemanager.service.main:app --host "$HOST" --port "$API_PORT" --env-file apps/racemanager/service/.env &
 API_PID=$!

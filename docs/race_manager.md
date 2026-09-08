@@ -1,5 +1,13 @@
 # Race Manager Web App + Lap Counter Integration
 
+> **Looking for commands to run the app?** Use the
+> [three-shell Race Manager runbook](../apps/racemanager/README.md#run-it-now-three-shell-runbook).
+> It identifies the backend, frontend, and exact Python lap-event listener, plus
+> database health checks. The video/automatic track-discovery sections in this
+> document describe a target design unless explicitly marked as implemented;
+> see the runbook's
+> [current video-support summary](../apps/racemanager/README.md#what-prerecorded-video-support-does-and-does-not-do-today).
+
 ## Recommended folder layout (apps/racemanager)
 Keep the race manager together in `apps/racemanager` so it travels as a single deployable unit alongside the ROS 2 workspace. A starter FastAPI service lives in `apps/racemanager/service` and exposes `/ingest/lap` + `/races/{raceId}/leaderboard` to bridge lap events into MongoDB:
 

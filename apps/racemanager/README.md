@@ -2,6 +2,151 @@
 
 This folder holds the race-management web UI, backend service, and ROS bridge that connect the lap counter to MongoDB Atlas and keep live race/championship views updated. A minimal FastAPI service implementation now lives in `service/` and is ready to ingest laps from the bridge.
 
+## Run it now: three-shell runbook
+
+Run every command below from the repository root. The three processes are
+independent, so keep each one running in its own terminal (three SSH sessions or
+three `tmux` panes work as well). **Sourcing ROS 2 only prepares a shell; it does
+not start the API, browser UI, or lap listener.**
+
+### 0. One-time install and database selection
+
+The quickest local setup uses SQLite. It requires no database daemon and creates
+`apps/racemanager/service/data/race_manager.db` when the backend first starts:
+
+```bash
+cp apps/racemanager/service/.env.example apps/racemanager/service/.env
+python3 -m venv apps/racemanager/service/.venv
+apps/racemanager/service/.venv/bin/pip install \
+  -r apps/racemanager/service/requirements.txt \
+  -r apps/racemanager/bridge/requirements.txt
+cd apps/racemanager/ui && npm install && cd ../../..
+```
+
+Leave `DB_BACKEND=sqlite` in `.env`. To use MongoDB instead, set
+`DB_BACKEND=mongo` and `ATLAS_URI` as described in
+[Local MongoDB on Raspberry Pi](#local-mongodb-on-raspberry-pi-instead-of-atlas),
+and start MongoDB before the API. The current UI reports API/WebSocket
+connectivity, but it does **not** start a database service or safely execute a
+shell command on the host. Check the selected backend with `curl` in step 4.
+
+### 1. Shell A — backend API (port 4000)
+
+```bash
+apps/racemanager/service/.venv/bin/python -m uvicorn \
+  apps.racemanager.service.main:app \
+  --host 0.0.0.0 --port 4000 \
+  --env-file apps/racemanager/service/.env
+```
+
+Keep this process running. API documentation is at <http://localhost:4000/docs>.
+
+### 2. Shell B — frontend (port 3000)
+
+```bash
+cd apps/racemanager/ui
+NEXT_PUBLIC_API_BASE=http://localhost:4000 \
+NEXT_PUBLIC_WS_URL=ws://localhost:4000/ws \
+npm run dev -- --hostname 0.0.0.0 --port 3000
+```
+
+Open <http://localhost:3000>. If the server is remote, replace `localhost` in
+both public URLs with the server's LAN address **before** starting Next.js, then
+open `http://<server-ip>:3000` on the operator's computer.
+
+### 3. Shell C — choose exactly one lap-event source
+
+For a no-ROS smoke test, emit three synthetic laps and exit:
+
+```bash
+apps/racemanager/service/.venv/bin/python \
+  apps/racemanager/bridge/bridge.py \
+  --mode demo --service-url http://localhost:4000
+```
+
+For the real lap-count topic, source ROS 2 **in this shell**, then leave the
+bridge running. This is the Python script that listens for lap-counting events:
+
+```bash
+source /opt/ros/iron/setup.bash          # omit/adjust for another ROS install
+source ros_ws/install/setup.bash
+command -v ros2
+
+apps/racemanager/service/.venv/bin/python \
+  apps/racemanager/bridge/bridge.py \
+  --mode ros2 \
+  --topic /race/lap_event \
+  --service-url http://localhost:4000
+```
+
+The topic must be `std_msgs/msg/String`; its `data` field must contain the JSON
+payload accepted by `POST /ingest/lap`. The bridge validates that JSON and
+forwards it to the backend. It does not itself detect cars or count laps from
+camera frames.
+
+### 4. Verify the complete path
+
+```bash
+# Backend and configured database backend (expect status=ok and db_backend=sqlite or mongo)
+curl -s http://localhost:4000/health | python3 -m json.tool
+
+# Frontend (expect HTTP 200)
+curl -I http://localhost:3000
+
+# ROS mode only: confirm the subscriber and message type
+ros2 topic info /race/lap_event --verbose
+
+# After a demo or real event, inspect persisted standings
+curl -s http://localhost:4000/races/demo-race/leaderboard | python3 -m json.tool
+```
+
+For a manual ROS smoke event, use the publish command in
+[ROS 2 mode](#ros-2-mode-source-build-workflow). If `/health` fails, start Shell
+A. If it reports `mongo` and the API subsequently logs a Mongo connection error,
+start `mongod` or correct `ATLAS_URI`; alternatively switch back to SQLite.
+
+### One terminal instead
+
+The launcher performs the same backend/frontend/bridge startup and stops all
+three with Ctrl-C:
+
+```bash
+# SQLite + synthetic demo laps; ROS 2 is not needed
+./scripts/run_racemanager.sh --mode standalone
+
+# Subscribe to /race/lap_event after the relevant ROS setup files are available
+./scripts/run_racemanager.sh --mode ros2 --topic /race/lap_event
+```
+
+Run `./scripts/run_racemanager.sh --mode ros2 --doctor` first when diagnosing
+PATH or dependency problems.
+
+## What prerecorded-video support does (and does not) do today
+
+The envisioned operator flow is sensible: verify backend/database/frontend,
+upload a race video, discover or mark the track and ordered checkpoints, rewind,
+run detection/tracking and lap validation, then review results. The repository
+does **not yet implement that end-to-end flow**:
+
+- The UI can save a track image **URL** and manually place layout points, a mask,
+  checkpoints, and start/finish gates. It has no video file upload control.
+- `bridge/replay_pipeline.py` can read video frames with OpenCV and forward laps,
+  but it is a library adapter: callers must supply the computer-vision callback
+  that converts frames into `LapEvent` objects. It is not a runnable lap
+  extractor and does not automatically discover track geometry.
+- `bridge.py --mode stdin` can ingest already-extracted JSON-lines lap events.
+  It cannot infer those events from an MP4.
+- Persisted laps, leaderboard aggregates, dashboard events, and manually saved
+  track geometry are available for review after ingestion.
+
+Consequently, do not use the placeholder `/path/to/your_lap_extractor.py` example
+below as if it were included in this repository. Until a detector/tracker is
+wired to `ReplayRunner`, use `--mode demo`, publish ROS lap JSON, or provide
+JSON-lines from an external extractor. A future video workflow should use two
+explicit passes: calibration/geometry first, then a rewind and lap-count pass,
+with the same checkpoint-order, direction, on-track, and minimum-time validation
+used for live events.
+
 ## Layout
 - `ui/`: Web client (e.g., React/Next.js) that subscribes to websocket updates and renders live leaderboards + championship tables.
 - `service/`: API + websocket fan-out (FastAPI starter) that ingests validated lap events, writes to Atlas, and computes derived stats.

@@ -93,10 +93,29 @@ class RaceManagerBridge:
         response.raise_for_status()
         return response.json()
 
+    def create_demo_race(self) -> str:
+        """Create an active race so demo laps are accepted and counted."""
+        url = f"{self.service_base_url}/api/races"
+        response = requests.post(
+            url,
+            json={
+                "name": "Bridge demo race",
+                "totalLaps": 3,
+                "status": "active",
+                "entries": [],
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        return str(response.json()["id"])
+
 
 def run_demo(
-    bridge: RaceManagerBridge, *, race_id: str, car_id: str, track_m: float
+    bridge: RaceManagerBridge, *, race_id: Optional[str], car_id: str, track_m: float
 ) -> int:
+    if race_id is None:
+        race_id = bridge.create_demo_race()
+        logger.info("created active demo race %s", race_id)
     lap_idx = 1
     while lap_idx <= 3:
         lap = LapEvent(
@@ -210,7 +229,10 @@ def parse_args() -> argparse.Namespace:
         help="Bridge input mode",
     )
     parser.add_argument("--topic", default="/race/lap_event", help="ROS 2 topic name")
-    parser.add_argument("--race-id", default="demo-race")
+    parser.add_argument(
+        "--race-id",
+        help="Existing active race ID; demo mode creates one when omitted",
+    )
     parser.add_argument("--car-id", default="car-01")
     parser.add_argument("--track-distance-m", type=float, default=350.0)
     parser.add_argument("--log-level", default="INFO")

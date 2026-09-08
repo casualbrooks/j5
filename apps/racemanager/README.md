@@ -52,7 +52,10 @@ npm run dev -- --hostname 0.0.0.0 --port 3000
 
 Open <http://localhost:3000>. If the server is remote, replace `localhost` in
 both public URLs with the server's LAN address **before** starting Next.js, then
-open `http://<server-ip>:3000` on the operator's computer.
+open `http://<server-ip>:3000` on the operator's computer. Also add that browser
+origin to `CORS_ORIGINS` in the service `.env` (for example,
+`CORS_ORIGINS=http://localhost:3000,http://192.168.1.50:3000`) and restart Shell
+A. The localhost origins are allowed by default.
 
 ### 3. Shell C — choose exactly one lap-event source
 
@@ -63,6 +66,10 @@ apps/racemanager/service/.venv/bin/python \
   apps/racemanager/bridge/bridge.py \
   --mode demo --service-url http://localhost:4000
 ```
+
+When `--race-id` is omitted, demo mode first creates an active race and logs its
+generated ID, then sends the laps to that race. To target a race created in the
+UI, add `--race-id <active-race-id>`.
 
 For the real lap-count topic, source ROS 2 **in this shell**, then leave the
 bridge running. This is the Python script that listens for lap-counting events:
@@ -96,8 +103,11 @@ curl -I http://localhost:3000
 # ROS mode only: confirm the subscriber and message type
 ros2 topic info /race/lap_event --verbose
 
-# After a demo or real event, inspect persisted standings
-curl -s http://localhost:4000/races/demo-race/leaderboard | python3 -m json.tool
+# List races and copy the ID logged by demo mode (or an active race ID from this list)
+curl -s http://localhost:4000/api/races | python3 -m json.tool
+
+# Inspect persisted standings using that actual ID
+curl -s http://localhost:4000/races/<active-race-id>/leaderboard | python3 -m json.tool
 ```
 
 For a manual ROS smoke event, use the publish command in

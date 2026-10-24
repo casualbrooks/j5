@@ -2,7 +2,7 @@
   "name": "Project J5 Dev",
   "build": {
     "dockerfile": "Dockerfile",
-    "args": { "VARIANT": "cpu", "ROS_DISTRO": "iron" }
+    "args": { "VARIANT": "cpu", "ROS_DISTRO": "kilted" }
   },
   "workspaceFolder": "/workspaces/j5",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/j5,type=bind,consistency=cached",
@@ -13,7 +13,7 @@
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "remoteUser": "vscode",
-  "remoteEnv": { "ROS_DISTRO": "iron" },
+  "remoteEnv": { "ROS_DISTRO": "kilted" },
   "customizations": {
     "vscode": {
       "extensions": [

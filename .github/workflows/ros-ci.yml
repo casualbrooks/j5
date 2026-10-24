@@ -6,17 +6,25 @@ permissions:
   contents: read
 jobs:
   build-ubuntu:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: ros-tooling/setup-ros@v0.7
         with:
-          required-ros-distributions: iron
+          required-ros-distributions: kilted
       - name: Install deps
         run: |
           sudo apt-get update
           rosdep update
-          rosdep install --rosdistro iron --from-paths ros_ws/src -y -r || true
+          rosdep install --rosdistro kilted --from-paths ros_ws/src --ignore-src -y -r
       - name: Build
         working-directory: ros_ws
-        run: colcon build --symlink-install --event-handlers console_direct+
+        run: |
+          source /opt/ros/kilted/setup.bash
+          colcon build --symlink-install --event-handlers console_direct+
+      - name: Test
+        run: |
+          source /opt/ros/kilted/setup.bash
+          source ros_ws/install/local_setup.bash
+          make test
+          ros2 launch j5_bringup bringup.launch.py --show-args

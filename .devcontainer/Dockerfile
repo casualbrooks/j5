@@ -1,17 +1,17 @@
 # Devcontainer build for J5
 # Select base via build arg VARIANT=cpu|gpu (default cpu)
 ARG VARIANT=cpu
-ARG ROS_DISTRO=iron
+ARG ROS_DISTRO=kilted
 
 # --- Base stage definitions ---
-FROM ubuntu:22.04 AS cpu
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04 AS gpu
+FROM ubuntu:24.04 AS cpu
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04 AS gpu
 
 # Final selection
 FROM ${VARIANT} AS base
 
 # Re-declare args for use within this stage
-ARG ROS_DISTRO=iron
+ARG ROS_DISTRO=kilted
 ARG VARIANT=cpu
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && add-apt-repository -y universe \
  && apt-get update
 
-# Add ROS 2 apt repository with keyring (Jammy + Iron)
+# Add ROS 2 apt repository with keyring (Noble + Kilted)
 RUN mkdir -p /etc/apt/keyrings \
  && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key | gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg \
  && chmod a+r /etc/apt/keyrings/ros-archive-keyring.gpg \
@@ -33,7 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion build-essential git \
     python3-pip python3-venv python3-apt \
     python3-colcon-common-extensions python3-rosdep python3-vcstool \
- && python3 -m pip install --no-cache-dir --upgrade pip \
+ && python3 -m venv /opt/j5-tools \
+ && /opt/j5-tools/bin/pip install --no-cache-dir pre-commit \
  && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8
 RUN locale-gen en_US en_US.UTF-8 && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
@@ -45,12 +46,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create non-root user (vscode)
 ARG USER=vscode
-ARG UID=1000
-ARG GID=1000
+ARG UID=1001
+ARG GID=1001
 RUN groupadd --gid ${GID} ${USER} && useradd -s /bin/bash --uid ${UID} --gid ${GID} -m ${USER} \
     && echo "${USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-${USER}
 USER ${USER}
 WORKDIR /workspaces/j5
+ENV PATH="/opt/j5-tools/bin:${PATH}"
 
 # rosdep init/update (allow re-run)
 RUN sudo rosdep init 2>/dev/null || true && rosdep update

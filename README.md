@@ -10,7 +10,7 @@
 - Simulation at scale (Isaac Sim, Gym)
 
 ## Architecture
-- **ROS 2 Kilted Kaiju** baseline (source-build workflow)
+- **ROS 2 Kilted** baseline
 - NVIDIA Isaac Sim ≥ 2023.x
 - OAK-D depth vision, MoveIt 2 (Kilted)
 - FaceRig + QuirkPolicy
@@ -26,36 +26,20 @@
 ## Quick start
 **Codespaces is CPU-only**; for docs/CI. Use local GPU or GPU VM for Isaac Sim.
 
-### Run the Race Manager after the build
-
-The Race Manager is three processes: the FastAPI backend, the Next.js frontend,
-and a lap-event bridge. Sourcing ROS 2 does not start any of them. From the
-repository root, the shortest working smoke test (using the built-in SQLite
-database and synthetic laps) is:
-
+Install ROS 2 Kilted and source the environment:
 ```bash
-./scripts/run_racemanager.sh --mode standalone
+# follow https://docs.ros.org/en/kilted/Installation.html
+source /opt/ros/kilted/setup.bash
+rosdep install --rosdistro kilted --from-paths ros_ws/src --ignore-src -r -y
+make build
+source ros_ws/install/local_setup.bash
 ```
 
-Open <http://localhost:3000>. For real ROS 2 lap events, source the ROS 2
-underlay and this repository's overlay, then run:
-
-```bash
-source /opt/ros/iron/setup.bash       # or your source-built ROS 2 underlay
-source ros_ws/install/setup.bash
-./scripts/run_racemanager.sh --mode ros2 --topic /race/lap_event
-```
-
-The exact three-shell commands, database choices, health checks, lap-event
-script, and current prerecorded-video limitations are documented in the
+The focused Raspberry Pi browser race manager runs from the existing FastAPI
+backend. See [Race Manager on Raspberry Pi](docs/RACE_WEB.md) for camera setup,
+lap timing, and persistent championship data. The larger three-process
+dashboard remains documented in the
 [Race Manager runbook](apps/racemanager/README.md#run-it-now-three-shell-runbook).
-
-Install ROS 2 Kilted Kaiju from source and source your workspace overlay:
-```bash
-# after building your ROS 2 + j5 workspace from source
-source ~/j5/ros_ws/install/setup.bash
-
-```
 
 Install Python dependencies (system Python on Debian/Ubuntu may enforce PEP 668):
 ```bash
@@ -73,7 +57,7 @@ Launch the robot:
 ros2 launch j5_bringup bringup.launch.py
 ```
 If `ros2` or bringup packages are not found, verify:
-- You're running a ROS 2 Kilted-supported Linux distro.
+- You're running **Ubuntu 24.04** (required for ROS 2 Kilted).
 - All packages are built for ROS 2 (mixing ROS 1 can break discovery).
 - Your environment includes the workspace:
   ```bash
@@ -83,7 +67,8 @@ If `ros2` or bringup packages are not found, verify:
   ```
 Re-run the `source` commands above after any changes.
 
-If `ros2` is still missing, your source build likely did not finish. Rebuild the workspace (`colcon build`) and source `.../ros_ws/install/setup.bash` in every shell before launching.
+If `ros2` is still missing, verify the Kilted underlay first. Rebuild the J5
+overlay only after that underlay works, then source its `local_setup.bash`.
 
 #### Source-build troubleshooting (`catkin_pkg`, `ament_cmake`, wrong Python)
 If your `colcon build` fails with errors like:
@@ -170,10 +155,9 @@ echo $CMAKE_PREFIX_PATH | tr ':' '\n' | rg ament_cmake || true
 Then rebuild the J5 overlay:
 ```bash
 cd ~/j5/ros_ws
-rm -rf build install log
-colcon build --symlink-install --allow-overriding fastdds \
+colcon build --symlink-install \
   --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
-source install/setup.bash
+source install/local_setup.bash
 ```
 
 If `ros2 launch` returns `invalid choice: 'launch'`, you are in a partial ROS CLI environment.
@@ -553,6 +537,10 @@ source install/setup.bash
 
 ### Development
 Run `make lint` to format and `make test` to run tests.
+
+See [ROS workspace setup](ros_ws/README.md) for source-built Kilted and clean
+overlay builds. Kilted support ends in November 2026; validate the next supported
+ROS baseline before long-term deployment.
 
 
 

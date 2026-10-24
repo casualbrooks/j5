@@ -11,6 +11,7 @@ setup(
         ("share/" + package_name + "/launch", ["launch/bringup.launch.py"]),
     ],
     install_requires=["setuptools"],
+    tests_require=["pytest"],
     zip_safe=True,
     maintainer="You",
     maintainer_email="you@example.com",

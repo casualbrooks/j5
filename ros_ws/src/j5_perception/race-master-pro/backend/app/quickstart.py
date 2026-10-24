@@ -275,7 +275,10 @@ async def state():
         ),
         "camera": {
             "source": runtime.camera.source,
-            "ready": time.monotonic() - runtime.camera.frame_time < 2,
+            "ready": (runtime.camera.paused and runtime.camera.frame is not None)
+            or time.monotonic() - runtime.camera.frame_time < 2,
+            "paused": runtime.camera.paused,
+            "video_second": runtime.camera.video_second,
             "error": runtime.camera.error,
             "detections": runtime.detections,
         },
@@ -405,8 +408,31 @@ async def open_camera(data: CameraSource):
         race = await database.get_row("races", context.get("race_id", ""))
         if race and race["status"] == "active":
             raise HTTPException(409, "Pause the race before reconnecting the camera")
+        if race and race["status"] == "paused" and data.source.startswith("video:"):
+            laps = await database.get_all_rows("lap_records", {"race_id": race["id"]})
+            if laps and (
+                data.source != runtime.camera.source
+                or not runtime.camera.thread
+                or not runtime.camera.thread.is_alive()
+            ):
+                raise HTTPException(
+                    409,
+                    "This paused race has saved laps; restarting a replay would count earlier footage again",
+                )
         try:
+            if (
+                data.source != runtime.camera.source
+                and runtime.camera.thread
+                and runtime.camera.thread.is_alive()
+            ):
+                await asyncio.to_thread(runtime.camera.stop)
             runtime.camera.start(data.source)
+            if runtime.camera.paused and race and race["status"] == "paused":
+                laps = await database.get_all_rows(
+                    "lap_records", {"race_id": race["id"]}
+                )
+                if not laps:
+                    runtime.camera.resume()
         except ValueError as exc:
             raise HTTPException(409, str(exc))
     return {"opening": True}
@@ -431,7 +457,7 @@ async def close_camera():
 @router.get("/api/quick/frame.jpg")
 async def frame_image():
     frame, stamp = runtime.camera.latest()
-    if frame is None or time.monotonic() - stamp > 2:
+    if frame is None or (not runtime.camera.paused and time.monotonic() - stamp > 2):
         raise HTTPException(503, runtime.camera.error or "Waiting for camera frames")
     ok, jpeg = await asyncio.to_thread(cv2.imencode, ".jpg", frame)
     if not ok:
@@ -458,13 +484,23 @@ async def create_session(data: SessionSetup):
             if previous_context.get("server_timing"):
                 unfinished = await (
                     await db.execute(
-                        "SELECT id FROM races WHERE id=? AND status IN ('active','paused')",
+                        "SELECT id,status FROM races WHERE id=? AND status IN ('active','paused')",
                         [previous_context.get("race_id")],
                     )
                 ).fetchone()
-            if unfinished:
+            if unfinished and unfinished["status"] == "paused":
+                has_laps = await (
+                    await db.execute(
+                        "SELECT 1 FROM lap_records WHERE race_id=? LIMIT 1",
+                        [unfinished["id"]],
+                    )
+                ).fetchone()
+            else:
+                has_laps = None
+            if unfinished and (unfinished["status"] == "active" or has_laps):
                 raise HTTPException(
-                    409, "Finish the existing race before creating another"
+                    409,
+                    "Pause before editing setup; finish a race with saved laps before starting another",
                 )
             if previous_context.get("race_id"):
                 await db.execute(
@@ -508,7 +544,7 @@ async def create_session(data: SessionSetup):
             ):
                 prepared = await (
                     await db.execute(
-                        "SELECT r.id,r.event_id FROM races r WHERE r.id=? AND r.status='setup' "
+                        "SELECT r.id,r.event_id FROM races r WHERE r.id=? AND r.status IN ('setup','paused') "
                         "AND NOT EXISTS (SELECT 1 FROM lap_records l WHERE l.race_id=r.id)",
                         [previous_context["race_id"]],
                     )
@@ -520,7 +556,7 @@ async def create_session(data: SessionSetup):
                     [champ_id, data.event_name.strip(), event_id],
                 )
                 await db.execute(
-                    "UPDATE races SET total_laps=? WHERE id=?",
+                    "UPDATE races SET total_laps=?,status='setup',start_time=NULL WHERE id=?",
                     [data.total_laps, race_id],
                 )
             else:
@@ -594,6 +630,8 @@ async def create_session(data: SessionSetup):
         )
         runtime.motion = MotionFinishDetector(**runtime.vision_config.model_dump())
         runtime.motion_evidence.clear()
+        if runtime.camera.paused:
+            runtime.camera.resume()
     return {"race_id": race_id, "championship_id": champ_id, "updated": bool(prepared)}
 
 
@@ -632,6 +670,17 @@ async def control(action: str):
                     raise HTTPException(
                         409, runtime.camera.error or "Video did not provide a frame"
                     )
+            elif race["status"] == "paused" and runtime.camera.paused:
+                if runtime.camera.source != source:
+                    raise HTTPException(409, "Reconnect the video saved for this race")
+                runtime.camera.resume()
+                deadline = time.monotonic() + 5
+                previous_frame = runtime.camera.frame_time
+                while (
+                    runtime.camera.frame_time == previous_frame
+                    and time.monotonic() < deadline
+                ):
+                    await asyncio.sleep(0.05)
             if runtime.camera.source != config.get("source"):
                 raise HTTPException(
                     409, "Connect the saved camera source before resuming this race"
@@ -643,6 +692,7 @@ async def control(action: str):
             result = await start_race(context["race_id"])
         elif action == "pause":
             result = await pause_race(context["race_id"])
+            runtime.camera.pause()
         elif action == "finish":
             result = await finish_race(context["race_id"])
         else:

@@ -14,6 +14,7 @@ class Camera:
     def __init__(self):
         self.thread = None
         self.stop_event = threading.Event()
+        self.pause_event = threading.Event()
         self.lock = threading.Lock()
         self.frame = None
         self.frame_time = 0.0
@@ -27,6 +28,7 @@ class Camera:
                 return
             raise ValueError("Stop the camera before changing its source")
         self.stop_event.clear()
+        self.pause_event.clear()
         self.frame, self.frame_time, self.error, self.source = None, 0.0, None, source
         self.video_second = None
         self.thread = threading.Thread(
@@ -36,11 +38,32 @@ class Camera:
 
     def stop(self):
         self.stop_event.set()
+        self.pause_event.clear()
         if self.thread:
             self.thread.join(timeout=5)
         if self.thread and self.thread.is_alive():
             raise ValueError("Camera did not stop; check the device before restarting")
         self.frame, self.frame_time = None, 0.0
+
+    @property
+    def paused(self):
+        return bool(
+            self.source
+            and self.source.startswith("video:")
+            and self.pause_event.is_set()
+        )
+
+    def pause(self):
+        if (
+            self.source
+            and self.source.startswith("video:")
+            and self.thread
+            and self.thread.is_alive()
+        ):
+            self.pause_event.set()
+
+    def resume(self):
+        self.pause_event.clear()
 
     def latest(self):
         with self.lock:
@@ -106,6 +129,12 @@ class Camera:
                 raise RuntimeError("Replay video has no usable frame rate")
             deadline = time.monotonic()
             while not self.stop_event.is_set():
+                if self.pause_event.is_set():
+                    paused_at = time.monotonic()
+                    while self.pause_event.is_set() and not self.stop_event.is_set():
+                        self.stop_event.wait(0.05)
+                    deadline += time.monotonic() - paused_at
+                    continue
                 ok, frame = cap.read()
                 if not ok:
                     self.error = "Replay video finished; reconnect to restart it"

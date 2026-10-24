@@ -2,6 +2,7 @@
 
 import threading
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -16,6 +17,7 @@ class Camera:
         self.frame_time = 0.0
         self.error = None
         self.source = None
+        self.video_second = None
 
     def start(self, source):
         if self.thread and self.thread.is_alive():
@@ -24,6 +26,7 @@ class Camera:
             raise ValueError("Stop the camera before changing its source")
         self.stop_event.clear()
         self.frame, self.frame_time, self.error, self.source = None, 0.0, None, source
+        self.video_second = None
         self.thread = threading.Thread(
             target=self._run, daemon=True, name="race-camera"
         )
@@ -41,16 +44,19 @@ class Camera:
         with self.lock:
             return (None if self.frame is None else self.frame.copy()), self.frame_time
 
-    def _store(self, frame):
+    def _store(self, frame, video_second=None):
         with self.lock:
             self.frame = frame
             self.frame_time = time.monotonic()
+            self.video_second = video_second
             self.error = None
 
     def _run(self):
         try:
             if self.source.startswith("ros:"):
                 self._ros(self.source[4:])
+            elif self.source.startswith("video:"):
+                self._video(self.source[6:])
             else:
                 self._usb(self.source)
         except Exception as exc:
@@ -62,7 +68,7 @@ class Camera:
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FPS, 15)
+            cap.set(cv2.CAP_PROP_FPS, 30)
             if not cap.isOpened():
                 raise RuntimeError(
                     "Camera could not open. Check USB connection, video-group permissions, and competing camera processes."
@@ -72,6 +78,30 @@ class Camera:
                 if not ok:
                     raise RuntimeError("Camera stopped providing frames")
                 self._store(frame)
+        finally:
+            cap.release()
+
+    def _video(self, filename):
+        """Replay an existing Pi recording at its recorded frame rate for testing."""
+        path = Path(filename).resolve()
+        if path.parent != Path("/home/racetime") or path.suffix.lower() != ".mp4":
+            raise ValueError("Replay videos must be MP4 files in /home/racetime")
+        cap = cv2.VideoCapture(str(path))
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open replay video: {path.name}")
+        try:
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if not 1 <= fps <= 240:
+                raise RuntimeError("Replay video has no usable frame rate")
+            deadline = time.monotonic()
+            while not self.stop_event.is_set():
+                ok, frame = cap.read()
+                if not ok:
+                    self.error = "Replay video finished; reconnect to restart it"
+                    break
+                self._store(frame, cap.get(cv2.CAP_PROP_POS_MSEC) / 1000)
+                deadline += 1 / fps
+                self.stop_event.wait(max(0, deadline - time.monotonic()))
         finally:
             cap.release()
 

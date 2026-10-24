@@ -1,12 +1,14 @@
 """A single-origin browser workflow using the existing Race Master database."""
 
 import asyncio
+import csv
+import io
 import json
 import re
 import time
 import uuid
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -18,6 +20,7 @@ from pydantic import BaseModel, Field, model_validator
 from app import database
 from app.camera import Camera
 from app.color_timing import FinishGate, detect_colors, hue_for_color
+from app.motion_timing import MotionFinishDetector
 from app.models import LapRecordCreate
 
 router = APIRouter()
@@ -77,10 +80,26 @@ class SessionSetup(BaseModel):
 
 
 def validate_source(source):
-    if not re.fullmatch(r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+)", source):
+    if not re.fullmatch(
+        r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+|video:/home/racetime/[A-Za-z0-9_-]+\.mp4)",
+        source,
+    ):
         raise ValueError(
-            "Use /dev/video0, a camera index, or ros:/camera/cam1/image_raw"
+            "Use /dev/video0, a camera index, a ROS image topic, or video:/home/racetime/name.mp4"
         )
+
+
+class VisionGate(BaseModel):
+    finish_x: float = Field(ge=0.1, le=0.9)
+    y_min: float = Field(ge=0, le=1)
+    y_max: float = Field(ge=0, le=1)
+    direction: int
+
+    @model_validator(mode="after")
+    def valid_gate(self):
+        if self.y_min >= self.y_max or self.direction not in (-1, 1):
+            raise ValueError("Choose a valid finish-line range and direction")
+        return self
 
 
 class TimingRuntime:
@@ -93,11 +112,16 @@ class TimingRuntime:
         self.last_frame = 0
         self.detections = []
         self.error = None
+        self.vision_config = VisionGate(finish_x=0.5, y_min=0.1, y_max=0.9, direction=1)
+        self.motion = MotionFinishDetector(**self.vision_config.model_dump())
+        self.motion_evidence = {}
 
     async def start(self):
         self.lock = asyncio.Lock()
         self.race_key = None
         self.last_frame = 0
+        self.motion = MotionFinishDetector(**self.vision_config.model_dump())
+        self.motion_evidence.clear()
         # A process restart invalidates in-flight timing, never saved laps.
         await pause_active_camera_race()
         self.task = asyncio.create_task(self.run())
@@ -115,6 +139,27 @@ class TimingRuntime:
 
         now = time.monotonic() if now is None else now
         async with self.lock:
+            new_frame = (
+                frame is not None and stamp != self.last_frame and now - stamp <= 1
+            )
+            if new_frame:
+                self.last_frame = stamp
+                for event in self.motion.observe(frame, stamp):
+                    event["observed_at"] = datetime.now(timezone.utc).isoformat(
+                        timespec="milliseconds"
+                    )
+                    event["video_second"] = (
+                        self.camera.video_second
+                        if self.camera.source
+                        and self.camera.source.startswith("video:")
+                        and self.camera.frame_time == stamp
+                        else None
+                    )
+                    ok, jpeg = cv2.imencode(".jpg", frame)
+                    if ok:
+                        self.motion_evidence[event["id"]] = jpeg.tobytes()
+                        if len(self.motion_evidence) > 500:
+                            del self.motion_evidence[next(iter(self.motion_evidence))]
             config = await _get_state_json("quick_config", {})
             context = await _get_state_json("race_context", {})
             if not context.get("server_timing"):
@@ -139,9 +184,8 @@ class TimingRuntime:
                 self.detections = []
                 self.error = "Camera frames stopped. Race paused; reconnect and resume. Completed laps are saved."
                 return
-            if frame is None or stamp == self.last_frame or now - stamp > 1:
+            if not new_frame:
                 return
-            self.last_frame = stamp
             self.detections = await asyncio.to_thread(
                 detect_colors, frame, context.get("racers", [])
             )
@@ -186,7 +230,7 @@ class TimingRuntime:
                         "Could not persist paused status"
                     )
                 self.race_key = None
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.025)
 
 
 runtime = TimingRuntime()
@@ -219,8 +263,50 @@ async def state():
             "error": runtime.camera.error,
             "detections": runtime.detections,
         },
+        "vision": {
+            "config": runtime.vision_config.model_dump(),
+            "calibrated": runtime.motion.calibrated,
+            "total": runtime.motion.total,
+            "boxes": runtime.motion.boxes,
+            "recent": list(runtime.motion.recent)[-20:],
+        },
         "error": runtime.error,
     }
+
+
+@router.post("/api/quick/vision")
+async def set_vision_gate(data: VisionGate):
+    """Start an anonymous crossing test; no championship lap is written."""
+    async with runtime.lock:
+        runtime.vision_config = data
+        runtime.motion = MotionFinishDetector(**data.model_dump())
+        runtime.motion_evidence.clear()
+    return {"calibrating": True}
+
+
+@router.get("/api/quick/crossing/{event_id}.jpg")
+async def crossing_frame(event_id: int):
+    jpeg = runtime.motion_evidence.get(event_id)
+    if jpeg is None:
+        raise HTTPException(404, "Crossing frame is no longer available")
+    return Response(
+        jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
+    )
+
+
+@router.get("/api/quick/crossings.csv")
+async def crossing_log():
+    stream = io.StringIO()
+    fields = ("id", "observed_at", "video_second", "x", "y", "box", "identity")
+    writer = csv.DictWriter(stream, fieldnames=fields)
+    writer.writeheader()
+    for event in runtime.motion.recent:
+        writer.writerow({field: event.get(field) for field in fields})
+    return Response(
+        stream.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=crossing-candidates.csv"},
+    )
 
 
 class CameraSource(BaseModel):
@@ -398,6 +484,14 @@ async def create_session(data: SessionSetup):
                 )
             await db.commit()
         runtime.race_key = None
+        runtime.vision_config = VisionGate(
+            finish_x=data.finish_x,
+            y_min=data.y_min,
+            y_max=data.y_max,
+            direction=data.direction,
+        )
+        runtime.motion = MotionFinishDetector(**runtime.vision_config.model_dump())
+        runtime.motion_evidence.clear()
     return {"race_id": race_id, "championship_id": champ_id}
 
 

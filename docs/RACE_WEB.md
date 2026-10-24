@@ -18,6 +18,27 @@ Open `http://<pi-address>:8080/race` from another device on the trusted LAN or
 Tailscale network. This local club application does not implement user accounts;
 do not expose its control API directly to the public Internet.
 
+## Camera-only crossing test
+
+The **Camera-only crossing test** works before preparing a race. Connect the
+camera, set a vertical line over one straight and limit its top and bottom to
+that track segment, then click **Apply test line and reset candidates**. The
+orange boxes on the camera preview are moving objects; each directed crossing
+adds an anonymous candidate with a frame link. Download the CSV before stopping
+the service if you want to retain the observations. Only the latest 500
+candidate frames and rows are kept in memory. This test does not insert laps
+or championship scores and cannot identify visually similar cars.
+
+For the existing whole-track GoPro recording on the Pi, enter
+`video:/home/racetime/videotest.mp4` as the source and click **Use full-track
+video line** immediately after connecting. The preset watches the upper
+straight around x=61%, y=10-20%, moving right to left. The video plays at its
+recorded rate; reconnect it to restart. This preset is specific to that
+640x360 recording. It is a diagnostic starting point, not a verified four-car
+lap counter. The current 30-fps full-track footage can miss dark cars and
+brief occlusions. For live acceptance, compare candidate frames against a
+manually checked practice race before relying on the count.
+
 1. Connect `/dev/video0`. If a ROS camera publisher already owns that device,
    connect `ros:/camera/cam1/image_raw` instead. The launcher selects Kilted;
    `ROS_UNDERLAY=/path/to/setup.bash` selects a specific source installation.

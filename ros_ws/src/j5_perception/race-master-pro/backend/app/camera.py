@@ -21,8 +21,14 @@ class Camera:
         self.error = None
         self.source = None
         self.video_second = None
+        self.video_duration = None
+        self.video_fps = None
+        self.end_reached = False
+        self.start_second = 0.0
+        self.end_second = None
+        self.pause_after_first = False
 
-    def start(self, source):
+    def start(self, source, start_second=0.0, end_second=None, paused=False):
         if self.thread and self.thread.is_alive():
             if source == self.source:
                 return
@@ -31,6 +37,12 @@ class Camera:
         self.pause_event.clear()
         self.frame, self.frame_time, self.error, self.source = None, 0.0, None, source
         self.video_second = None
+        self.video_duration = None
+        self.video_fps = None
+        self.end_reached = False
+        self.start_second = start_second
+        self.end_second = end_second
+        self.pause_after_first = paused
         self.thread = threading.Thread(
             target=self._run, daemon=True, name="race-camera"
         )
@@ -44,6 +56,7 @@ class Camera:
         if self.thread and self.thread.is_alive():
             raise ValueError("Camera did not stop; check the device before restarting")
         self.frame, self.frame_time = None, 0.0
+        self.end_reached = False
 
     @property
     def paused(self):
@@ -106,8 +119,8 @@ class Camera:
         finally:
             cap.release()
 
-    def _video(self, filename):
-        """Replay a managed upload or an existing Pi recording at its frame rate."""
+    @staticmethod
+    def video_path(filename):
         path = Path(filename)
         if not path.is_absolute():
             path = Path(database.DB_PATH).parent / "videos" / path
@@ -120,6 +133,11 @@ class Camera:
             raise ValueError(
                 "Replay videos must be uploaded or stored in /home/racetime"
             )
+        return path
+
+    def _video(self, filename):
+        """Replay an MP4 at its frame rate, optionally within marked race bounds."""
+        path = self.video_path(filename)
         cap = cv2.VideoCapture(str(path))
         if not cap.isOpened():
             raise RuntimeError(f"Could not open replay video: {path.name}")
@@ -127,6 +145,13 @@ class Camera:
             fps = cap.get(cv2.CAP_PROP_FPS)
             if not 1 <= fps <= 240:
                 raise RuntimeError("Replay video has no usable frame rate")
+            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            self.video_fps = fps
+            self.video_duration = frame_count / fps if frame_count > 0 else None
+            if self.video_duration and self.start_second >= self.video_duration:
+                raise RuntimeError("Race start is beyond the end of this recording")
+            if self.start_second:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, round(self.start_second * fps))
             deadline = time.monotonic()
             while not self.stop_event.is_set():
                 if self.pause_event.is_set():
@@ -137,9 +162,23 @@ class Camera:
                     continue
                 ok, frame = cap.read()
                 if not ok:
-                    self.error = "Replay video finished; reconnect to restart it"
+                    self.end_reached = True
+                    self.pause_event.set()
+                    self.error = (
+                        "Replay video ended; scrub to another frame or finish the race"
+                    )
                     break
-                self._store(frame, cap.get(cv2.CAP_PROP_POS_MSEC) / 1000)
+                frame_index = max(0, cap.get(cv2.CAP_PROP_POS_FRAMES) - 1)
+                video_second = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
+                if video_second <= 0 and frame_index > 0:
+                    video_second = frame_index / fps
+                self._store(frame, video_second)
+                if self.pause_after_first:
+                    self.pause_after_first = False
+                    self.pause_event.set()
+                if self.end_second is not None and video_second >= self.end_second:
+                    self.end_reached = True
+                    self.pause_event.set()
                 deadline += 1 / fps
                 self.stop_event.wait(max(0, deadline - time.monotonic()))
         finally:

@@ -62,12 +62,20 @@ class SessionSetup(BaseModel):
     y_max: float = Field(default=0.9, ge=0, le=1)
     direction: int = Field(default=1)
     minimum_lap_ms: int = Field(default=2000, ge=500, le=600000)
+    video_start_s: float = Field(default=0, ge=0, le=86400)
+    video_end_s: float | None = Field(default=None, ge=0, le=86400)
 
     @model_validator(mode="after")
     def validate_track(self):
         validate_source(self.source)
         if self.direction not in (-1, 1) or self.y_min >= self.y_max:
             raise ValueError("Choose a valid direction and finish-line range")
+        if self.video_end_s is not None and self.video_end_s <= self.video_start_s:
+            raise ValueError("Race end must be later than race start in the video")
+        if not self.source.startswith("video:") and (
+            self.video_start_s or self.video_end_s is not None
+        ):
+            raise ValueError("Video race markers require a replay source")
         names = [r.name.strip().casefold() for r in self.racers]
         if not all(names) or len(set(names)) != len(names):
             raise ValueError("Racer names must be distinct and nonempty")
@@ -182,7 +190,8 @@ class TimingRuntime:
                 return
             if not race:
                 return
-            key = (race["id"], race["status"])
+            replay = bool(config.get("source", "").startswith("video:"))
+            key = (race["id"], "replay" if replay else race["status"])
             if key != self.race_key:
                 self.gate = FinishGate(
                     config.get("finish_x", 0.5),
@@ -192,6 +201,23 @@ class TimingRuntime:
                     config.get("minimum_lap_ms", 2000),
                 )
                 self.race_key = key
+            if (
+                race["status"] == "active"
+                and self.camera.source
+                and self.camera.source.startswith("video:")
+                and self.camera.end_reached
+            ):
+                await pause_race(race["id"])
+                self.race_key = None
+                self.cache_until = 0
+                self.detections = []
+                end_label = (
+                    "Recording ended"
+                    if config.get("video_end_s") is None
+                    else "Marked race end reached"
+                )
+                self.error = f"{end_label}. Lap counting paused; review the laps and finish this round."
+                return
             if race["status"] == "active" and (frame is None or now - stamp > 2):
                 await pause_race(race["id"])
                 self.race_key = None
@@ -201,14 +227,25 @@ class TimingRuntime:
                 return
             if not new_frame:
                 return
+            if replay and self.camera.frame_time != stamp:
+                # A newer video frame arrived while this one was queued. Its
+                # timestamp belongs to that frame, so wait for the next pair.
+                return
             self.detections = await asyncio.to_thread(
                 detect_colors, frame, context.get("racers", [])
             )
             if race["status"] != "active":
                 return
             for detection in self.detections:
+                crossing_time = (
+                    self.camera.video_second
+                    if replay
+                    and self.camera.frame_time == stamp
+                    and self.camera.video_second is not None
+                    else stamp
+                )
                 duration = self.gate.observe(
-                    detection["racer_id"], detection["x"], detection["y"], stamp
+                    detection["racer_id"], detection["x"], detection["y"], crossing_time
                 )
                 if duration is None:
                     continue
@@ -279,6 +316,9 @@ async def state():
             or time.monotonic() - runtime.camera.frame_time < 2,
             "paused": runtime.camera.paused,
             "video_second": runtime.camera.video_second,
+            "duration": runtime.camera.video_duration,
+            "fps": runtime.camera.video_fps,
+            "end_reached": runtime.camera.end_reached,
             "error": runtime.camera.error,
             "detections": runtime.detections,
         },
@@ -306,6 +346,21 @@ async def set_vision_gate(data: VisionGate):
 
 def video_directory():
     return Path(database.DB_PATH).parent / "videos"
+
+
+def video_metadata(source):
+    path = Camera.video_path(source[6:])
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            raise ValueError(f"Could not open replay video: {path.name}")
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        frames = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+        if not 1 <= fps <= 240 or frames < 1:
+            raise ValueError("Replay video has no usable duration")
+        return frames / fps, fps
+    finally:
+        capture.release()
 
 
 @router.get("/api/quick/videos")
@@ -395,6 +450,72 @@ class CameraSource(BaseModel):
     source: str
 
 
+class VideoSeek(BaseModel):
+    second: float = Field(ge=0, le=86400)
+
+
+async def preview_race():
+    from app.main import _get_state_json
+
+    context = await _get_state_json("race_context", {})
+    race = await database.get_row("races", context.get("race_id", ""))
+    if race and race["status"] == "active":
+        raise HTTPException(409, "Pause the race before controlling its replay")
+    if race and race["status"] == "paused":
+        laps = await database.get_all_rows("lap_records", {"race_id": race["id"]})
+        if laps:
+            raise HTTPException(
+                409, "A replay with saved laps cannot be scrubbed or previewed"
+            )
+
+
+@router.post("/api/quick/camera/preview/{action}")
+async def preview_video(action: str):
+    async with runtime.lock:
+        await preview_race()
+        if not runtime.camera.source or not runtime.camera.source.startswith("video:"):
+            raise HTTPException(409, "Choose a replay video first")
+        if not runtime.camera.thread or not runtime.camera.thread.is_alive():
+            raise HTTPException(409, "Open the replay video first")
+        if action == "pause":
+            runtime.camera.pause()
+        elif action == "play":
+            runtime.camera.resume()
+        else:
+            raise HTTPException(404, "Unknown preview action")
+    return {"paused": runtime.camera.paused}
+
+
+@router.post("/api/quick/camera/seek")
+async def seek_video(data: VideoSeek):
+    async with runtime.lock:
+        await preview_race()
+        source = runtime.camera.source
+        if not source or not source.startswith("video:"):
+            raise HTTPException(409, "Choose a replay video first")
+        try:
+            duration, _ = await asyncio.to_thread(video_metadata, source)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if data.second >= duration:
+            raise HTTPException(422, f"Seek within the {duration:.2f}s video")
+        try:
+            await asyncio.to_thread(runtime.camera.stop)
+            runtime.camera.start(source, start_second=data.second, paused=True)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        deadline = time.monotonic() + 5
+        while (
+            runtime.camera.frame_time == 0 or not runtime.camera.paused
+        ) and time.monotonic() < deadline:
+            if runtime.camera.error:
+                raise HTTPException(409, runtime.camera.error)
+            await asyncio.sleep(0.05)
+        if runtime.camera.frame_time == 0 or not runtime.camera.paused:
+            raise HTTPException(409, "Could not read a frame at that position")
+    return {"second": runtime.camera.video_second, "paused": True}
+
+
 @router.post("/api/quick/camera")
 async def open_camera(data: CameraSource):
     from app.main import _get_state_json
@@ -469,6 +590,19 @@ async def frame_image():
 
 @router.post("/api/quick/session")
 async def create_session(data: SessionSetup):
+    if data.source.startswith("video:") and (
+        data.video_start_s or data.video_end_s is not None
+    ):
+        try:
+            duration, _ = await asyncio.to_thread(video_metadata, data.source)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if data.video_start_s >= duration or (
+            data.video_end_s is not None and data.video_end_s > duration
+        ):
+            raise HTTPException(
+                422, f"Race markers must be within this {duration:.2f}s video"
+            )
     async with runtime.lock:
         async with aiosqlite.connect(database.DB_PATH) as db:
             db.row_factory = aiosqlite.Row
@@ -654,42 +788,53 @@ async def control(action: str):
                 )
             source = config.get("source")
             if race["status"] == "setup" and source and source.startswith("video:"):
-                # Always begin a new race at the first frame, even if a different
-                # replay was used to position the finish line in the preview.
+                # Start official timing at the marked frame, regardless of where
+                # preview playback was positioned during setup.
                 try:
                     await asyncio.to_thread(runtime.camera.stop)
-                    runtime.camera.start(source)
+                    runtime.camera.start(
+                        source,
+                        start_second=config.get("video_start_s", 0),
+                        end_second=config.get("video_end_s"),
+                        paused=True,
+                    )
                 except ValueError as exc:
                     raise HTTPException(409, str(exc)) from exc
                 deadline = time.monotonic() + 5
-                while runtime.camera.frame_time == 0 and time.monotonic() < deadline:
+                while (
+                    runtime.camera.frame_time == 0 or not runtime.camera.paused
+                ) and time.monotonic() < deadline:
                     if runtime.camera.error:
                         raise HTTPException(409, runtime.camera.error)
                     await asyncio.sleep(0.05)
-                if runtime.camera.frame_time == 0:
+                if runtime.camera.frame_time == 0 or not runtime.camera.paused:
                     raise HTTPException(
                         409, runtime.camera.error or "Video did not provide a frame"
                     )
             elif race["status"] == "paused" and runtime.camera.paused:
+                if runtime.camera.end_reached:
+                    raise HTTPException(
+                        409, "Replay end reached; review laps and finish this round"
+                    )
                 if runtime.camera.source != source:
                     raise HTTPException(409, "Reconnect the video saved for this race")
-                runtime.camera.resume()
-                deadline = time.monotonic() + 5
-                previous_frame = runtime.camera.frame_time
-                while (
-                    runtime.camera.frame_time == previous_frame
-                    and time.monotonic() < deadline
-                ):
-                    await asyncio.sleep(0.05)
+                if runtime.camera.frame is None:
+                    raise HTTPException(409, "Replay has no paused frame to resume")
             if runtime.camera.source != config.get("source"):
                 raise HTTPException(
                     409, "Connect the saved camera source before resuming this race"
                 )
-            if time.monotonic() - runtime.camera.frame_time > 2:
+            if time.monotonic() - runtime.camera.frame_time > 2 and not (
+                race["status"] == "paused"
+                and runtime.camera.paused
+                and runtime.camera.frame is not None
+            ):
                 raise HTTPException(
                     409, "Camera or replay is not providing frames; check the preview"
                 )
             result = await start_race(context["race_id"])
+            if source and source.startswith("video:") and runtime.camera.paused:
+                runtime.camera.resume()
         elif action == "pause":
             result = await pause_race(context["race_id"])
             runtime.camera.pause()
@@ -697,7 +842,8 @@ async def control(action: str):
             result = await finish_race(context["race_id"])
         else:
             raise HTTPException(404, "Unknown race action")
-        runtime.race_key = None
+        if action == "finish" or not (runtime.camera.source or "").startswith("video:"):
+            runtime.race_key = None
         runtime.cache_until = 0
         runtime.error = None
         return result

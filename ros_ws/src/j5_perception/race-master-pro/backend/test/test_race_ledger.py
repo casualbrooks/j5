@@ -179,6 +179,11 @@ def test_uploaded_video_can_be_selected_and_invalid_video_is_rejected(client, tm
     assert (
         client.post("/api/quick/videos/escape.txt", content=b"bad").status_code == 400
     )
+    seek = client.post("/api/quick/camera/seek", json={"second": 0})
+    assert seek.status_code == 200, seek.text
+    assert seek.json()["paused"] is True
+    assert client.get("/api/quick/frame.jpg").status_code == 200
+    assert client.post("/api/quick/camera/preview/play").status_code == 200
 
 
 def test_start_opens_saved_replay_from_beginning_but_resume_does_not_rewind(
@@ -191,10 +196,12 @@ def test_start_opens_saved_replay_from_beginning_but_resume_does_not_rewind(
         calls.append("stop")
         runtime.camera.frame_time = 0
 
-    def start(chosen):
-        calls.append(("start", chosen))
+    def start(chosen, **options):
+        calls.append(("start", chosen, options))
         runtime.camera.source = chosen
         runtime.camera.frame_time = time.monotonic()
+        if options.get("paused"):
+            runtime.camera.pause_event.set()
 
     monkeypatch.setattr(runtime.camera, "stop", stop)
     monkeypatch.setattr(runtime.camera, "start", start)
@@ -206,7 +213,10 @@ def test_start_opens_saved_replay_from_beginning_but_resume_does_not_rewind(
     runtime.camera.source = "video:/home/racetime/videotest.mp4"
     runtime.camera.frame_time = 0
     assert client.post("/api/quick/control/start").status_code == 200
-    assert calls == ["stop", ("start", source)]
+    assert calls == [
+        "stop",
+        ("start", source, {"start_second": 0, "end_second": None, "paused": True}),
+    ]
     assert client.post("/api/quick/control/pause").status_code == 200
     calls.clear()
     assert client.post("/api/quick/control/start").status_code == 200
@@ -277,6 +287,89 @@ def test_pause_freezes_replay_and_resume_continues_it(client, tmp_path):
     while runtime.camera.video_second == video_second and time.monotonic() < deadline:
         time.sleep(0.02)
     assert runtime.camera.video_second > video_second
+
+
+def test_marked_video_interval_pauses_then_supports_another_round(client, tmp_path):
+    directory = tmp_path / "videos"
+    directory.mkdir()
+    writer = cv2.VideoWriter(
+        str(directory / "heats.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 10, (64, 48)
+    )
+    for number in range(40):
+        writer.write(np.full((48, 64, 3), number, dtype=np.uint8))
+    writer.release()
+    payload = {
+        "source": "video:heats.mp4",
+        "event_name": "Heat 1",
+        "video_start_s": 1.0,
+        "video_end_s": 1.4,
+        "racers": [{"name": "Red", "color": "#ff0000"}],
+    }
+    assert (
+        client.post(
+            "/api/quick/session", json={**payload, "video_end_s": 0.5}
+        ).status_code
+        == 422
+    )
+    first = client.post("/api/quick/session", json=payload)
+    assert first.status_code == 200, first.text
+    assert client.post("/api/quick/control/start").status_code == 200
+    deadline = time.monotonic() + 3
+    while client.get("/api/quick/state").json()["race"]["status"] != "paused":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    ended = client.get("/api/quick/state").json()
+    assert ended["camera"]["end_reached"] is True
+    assert ended["laps"] == []
+    assert client.post("/api/quick/control/start").status_code == 409
+    assert client.post("/api/quick/control/finish").status_code == 200
+    second = client.post(
+        "/api/quick/session",
+        json={
+            **payload,
+            "event_name": "Heat 2",
+            "video_start_s": 2.0,
+            "video_end_s": 2.4,
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["race_id"] != first.json()["race_id"]
+
+
+def test_replay_lap_time_uses_video_clock_across_a_pause(client):
+    from app.main import pause_race, start_race
+
+    response = client.post(
+        "/api/quick/session",
+        json={
+            "source": "video:clock.mp4",
+            "minimum_lap_ms": 1000,
+            "racers": [{"name": "Red", "color": "#ff0000"}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    race_id = response.json()["race_id"]
+    client.portal.call(start_race, race_id)
+    worker = TimingRuntime()
+    worker.camera.source = "video:clock.mp4"
+
+    async def feed(x, wall_second, video_second):
+        image = np.zeros((200, 300, 3), dtype=np.uint8)
+        cv2.rectangle(image, (x, 80), (x + 20, 100), (0, 0, 255), -1)
+        worker.camera.frame_time = wall_second
+        worker.camera.video_second = video_second
+        await worker.process_frame(image, wall_second, now=wall_second)
+
+    asyncio.run(feed(100, 100, 10))
+    asyncio.run(feed(180, 100.1, 10.1))
+    client.portal.call(pause_race, race_id)
+    asyncio.run(worker.process_frame(None, 0, now=150))
+    client.portal.call(start_race, race_id)
+    asyncio.run(feed(100, 200, 12))
+    asyncio.run(feed(180, 200.1, 12.1))
+    laps = client.get(f"/api/laps?race_id={race_id}").json()
+    assert len(laps) == 1
+    assert laps[0]["lap_time"] == pytest.approx(2000)
 
 
 def test_second_round_reuses_racers_and_accumulates_points(client):

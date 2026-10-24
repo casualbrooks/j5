@@ -115,6 +115,8 @@ class TimingRuntime:
         self.vision_config = VisionGate(finish_x=0.5, y_min=0.1, y_max=0.9, direction=1)
         self.motion = MotionFinishDetector(**self.vision_config.model_dump())
         self.motion_evidence = {}
+        self.cached_state = None
+        self.cache_until = 0
 
     async def start(self):
         self.lock = asyncio.Lock()
@@ -122,6 +124,8 @@ class TimingRuntime:
         self.last_frame = 0
         self.motion = MotionFinishDetector(**self.vision_config.model_dump())
         self.motion_evidence.clear()
+        self.cached_state = None
+        self.cache_until = 0
         # A process restart invalidates in-flight timing, never saved laps.
         await pause_active_camera_race()
         self.task = asyncio.create_task(self.run())
@@ -160,12 +164,21 @@ class TimingRuntime:
                         self.motion_evidence[event["id"]] = jpeg.tobytes()
                         if len(self.motion_evidence) > 500:
                             del self.motion_evidence[next(iter(self.motion_evidence))]
-            config = await _get_state_json("quick_config", {})
-            context = await _get_state_json("race_context", {})
+            if self.cached_state is None or now >= self.cache_until:
+                config = await _get_state_json("quick_config", {})
+                context = await _get_state_json("race_context", {})
+                race = (
+                    await database.get_row("races", context.get("race_id", ""))
+                    if context.get("server_timing")
+                    else None
+                )
+                self.cached_state = (config, context, race)
+                self.cache_until = now + 0.2
+            else:
+                config, context, race = self.cached_state
             if not context.get("server_timing"):
                 self.detections = []
                 return
-            race = await database.get_row("races", context.get("race_id", ""))
             if not race:
                 return
             key = (race["id"], race["status"])
@@ -181,6 +194,7 @@ class TimingRuntime:
             if race["status"] == "active" and (frame is None or now - stamp > 2):
                 await pause_race(race["id"])
                 self.race_key = None
+                self.cache_until = 0
                 self.detections = []
                 self.error = "Camera frames stopped. Race paused; reconnect and resume. Completed laps are saved."
                 return
@@ -230,6 +244,7 @@ class TimingRuntime:
                         "Could not persist paused status"
                     )
                 self.race_key = None
+                self.cache_until = 0
             await asyncio.sleep(0.025)
 
 
@@ -266,6 +281,7 @@ async def state():
         "vision": {
             "config": runtime.vision_config.model_dump(),
             "calibrated": runtime.motion.calibrated,
+            "processed_fps": runtime.motion.processed_fps,
             "total": runtime.motion.total,
             "boxes": runtime.motion.boxes,
             "recent": list(runtime.motion.recent)[-20:],
@@ -484,6 +500,7 @@ async def create_session(data: SessionSetup):
                 )
             await db.commit()
         runtime.race_key = None
+        runtime.cache_until = 0
         runtime.vision_config = VisionGate(
             finish_x=data.finish_x,
             y_min=data.y_min,
@@ -521,5 +538,6 @@ async def control(action: str):
         else:
             raise HTTPException(404, "Unknown race action")
         runtime.race_key = None
+        runtime.cache_until = 0
         runtime.error = None
         return result

@@ -39,12 +39,24 @@ class MotionFinishDetector:
         self.recent = deque(maxlen=500)
         self.total = 0
         self.boxes = []
+        self.frames_seen = 0
+        self.first_stamp = None
+        self.last_stamp = None
+
+    @property
+    def processed_fps(self):
+        if self.first_stamp is None or self.last_stamp == self.first_stamp:
+            return 0.0
+        return round((self.frames_seen - 1) / (self.last_stamp - self.first_stamp), 1)
 
     @property
     def calibrated(self):
         return self.calibration_frames >= 21
 
     def observe(self, frame, stamp):
+        self.frames_seen += 1
+        self.first_stamp = stamp if self.first_stamp is None else self.first_stamp
+        self.last_stamp = stamp
         height, width = frame.shape[:2]
         line = round(self.finish_x * width)
         half_width = max(40, round(width * 0.09))

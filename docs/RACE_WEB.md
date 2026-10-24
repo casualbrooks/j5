@@ -36,7 +36,10 @@ straight around x=61%, y=10-20%, moving right to left. The video plays at its
 recorded rate; reconnect it to restart. This preset is specific to that
 640x360 recording. It is a diagnostic starting point, not a verified four-car
 lap counter. The current 30-fps full-track footage can miss dark cars and
-brief occlusions. For live acceptance, compare candidate frames against a
+brief occlusions. The video contains setup movement before the racing begins
+at roughly 68 seconds; inspect `video_second` in the CSV before treating a
+candidate as a car. The page shows processed frames per second to help spot
+frame loss. For live acceptance, compare candidate frames against a
 manually checked practice race before relying on the count.
 
 1. Connect `/dev/video0`. If a ROS camera publisher already owns that device,

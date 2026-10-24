@@ -1,0 +1,431 @@
+"""A single-origin browser workflow using the existing Race Master database."""
+
+import asyncio
+import json
+import re
+import time
+import uuid
+from contextlib import suppress
+from datetime import datetime
+from pathlib import Path
+
+import aiosqlite
+import cv2
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field, model_validator
+
+from app import database
+from app.camera import Camera
+from app.color_timing import FinishGate, detect_colors, hue_for_color
+from app.models import LapRecordCreate
+
+router = APIRouter()
+
+
+async def pause_active_camera_race():
+    """On restart or camera fault, pause only the active browser-timed race."""
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        state = await (
+            await db.execute("SELECT value FROM system_state WHERE key='race_context'")
+        ).fetchone()
+        context = json.loads(state[0]) if state else {}
+        if not context.get("server_timing") or not context.get("race_id"):
+            return
+        await db.execute(
+            "UPDATE races SET status='paused' WHERE id=? AND status='active'",
+            [context["race_id"]],
+        )
+        await db.commit()
+
+
+class RacerColor(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class SessionSetup(BaseModel):
+    championship_id: str | None = None
+    championship_name: str = Field(
+        default="Club Championship", min_length=1, max_length=100
+    )
+    event_name: str = Field(default="Race day", min_length=1, max_length=100)
+    total_laps: int = Field(default=10, ge=1, le=1000)
+    source: str = "/dev/video0"
+    racers: list[RacerColor] = Field(min_length=1, max_length=8)
+    finish_x: float = Field(default=0.5, ge=0.1, le=0.9)
+    y_min: float = Field(default=0.1, ge=0, le=1)
+    y_max: float = Field(default=0.9, ge=0, le=1)
+    direction: int = Field(default=1)
+    minimum_lap_ms: int = Field(default=2000, ge=500, le=600000)
+
+    @model_validator(mode="after")
+    def validate_track(self):
+        validate_source(self.source)
+        if self.direction not in (-1, 1) or self.y_min >= self.y_max:
+            raise ValueError("Choose a valid direction and finish-line range")
+        names = [r.name.strip().casefold() for r in self.racers]
+        if not all(names) or len(set(names)) != len(names):
+            raise ValueError("Racer names must be distinct and nonempty")
+        hues = [hue_for_color(r.color) for r in self.racers]
+        for i, hue in enumerate(hues):
+            if any(min(abs(hue - h), 180 - abs(hue - h)) <= 16 for h in hues[:i]):
+                raise ValueError(
+                    "Car colors overlap. Select more distinct colors before racing"
+                )
+        return self
+
+
+def validate_source(source):
+    if not re.fullmatch(r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+)", source):
+        raise ValueError(
+            "Use /dev/video0, a camera index, or ros:/camera/cam1/image_raw"
+        )
+
+
+class TimingRuntime:
+    def __init__(self):
+        self.camera = Camera()
+        self.lock = asyncio.Lock()
+        self.task = None
+        self.gate = None
+        self.race_key = None
+        self.last_frame = 0
+        self.detections = []
+        self.error = None
+
+    async def start(self):
+        self.lock = asyncio.Lock()
+        self.race_key = None
+        self.last_frame = 0
+        # A process restart invalidates in-flight timing, never saved laps.
+        await pause_active_camera_race()
+        self.task = asyncio.create_task(self.run())
+
+    async def stop(self):
+        if self.task:
+            self.task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self.task
+            self.task = None
+        await asyncio.to_thread(self.camera.stop)
+
+    async def process_frame(self, frame, stamp, now=None):
+        from app.main import _get_state_json, record_lap, pause_race
+
+        now = time.monotonic() if now is None else now
+        async with self.lock:
+            config = await _get_state_json("quick_config", {})
+            context = await _get_state_json("race_context", {})
+            if not context.get("server_timing"):
+                self.detections = []
+                return
+            race = await database.get_row("races", context.get("race_id", ""))
+            if not race:
+                return
+            key = (race["id"], race["status"])
+            if key != self.race_key:
+                self.gate = FinishGate(
+                    config.get("finish_x", 0.5),
+                    config.get("y_min", 0.1),
+                    config.get("y_max", 0.9),
+                    config.get("direction", 1),
+                    config.get("minimum_lap_ms", 2000),
+                )
+                self.race_key = key
+            if race["status"] == "active" and (frame is None or now - stamp > 2):
+                await pause_race(race["id"])
+                self.race_key = None
+                self.detections = []
+                self.error = "Camera frames stopped. Race paused; reconnect and resume. Completed laps are saved."
+                return
+            if frame is None or stamp == self.last_frame or now - stamp > 1:
+                return
+            self.last_frame = stamp
+            self.detections = await asyncio.to_thread(
+                detect_colors, frame, context.get("racers", [])
+            )
+            if race["status"] != "active":
+                return
+            for detection in self.detections:
+                duration = self.gate.observe(
+                    detection["racer_id"], detection["x"], detection["y"], stamp
+                )
+                if duration is None:
+                    continue
+                laps = await database.query(
+                    "SELECT COALESCE(MAX(lap_number),0) n FROM lap_records WHERE race_id=? AND racer_profile_id=?",
+                    [race["id"], detection["racer_id"]],
+                )
+                number = laps[0]["n"] + 1
+                if number <= race["total_laps"]:
+                    await record_lap(
+                        LapRecordCreate(
+                            race_id=race["id"],
+                            racer_profile_id=detection["racer_id"],
+                            lap_number=number,
+                            lap_time=duration,
+                        )
+                    )
+
+    async def run(self):
+        import logging
+
+        while True:
+            try:
+                frame, stamp = self.camera.latest()
+                await self.process_frame(frame, stamp)
+            except Exception as exc:
+                self.error = str(exc)
+                logging.getLogger(__name__).exception("Camera timing failed")
+                # Never silently continue counting after a failed ledger write.
+                try:
+                    await pause_active_camera_race()
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Could not persist paused status"
+                    )
+                self.race_key = None
+            await asyncio.sleep(0.1)
+
+
+runtime = TimingRuntime()
+
+
+@router.get("/race")
+async def race_page():
+    return FileResponse(Path(__file__).parent / "static" / "race.html")
+
+
+@router.get("/api/quick/state")
+async def state():
+    from app.main import _get_state_json
+
+    context = await _get_state_json("race_context", {})
+    race_id = context.get("race_id", "")
+    return {
+        "config": await _get_state_json("quick_config", {}),
+        "context": context,
+        "race": await database.get_row("races", race_id),
+        "laps": await database.get_all_rows(
+            "lap_records", {"race_id": race_id}, "lap_number"
+        ),
+        "results": await database.get_all_rows(
+            "race_results", {"race_id": race_id}, "finish_position"
+        ),
+        "camera": {
+            "source": runtime.camera.source,
+            "ready": time.monotonic() - runtime.camera.frame_time < 2,
+            "error": runtime.camera.error,
+            "detections": runtime.detections,
+        },
+        "error": runtime.error,
+    }
+
+
+class CameraSource(BaseModel):
+    source: str
+
+
+@router.post("/api/quick/camera")
+async def open_camera(data: CameraSource):
+    from app.main import _get_state_json
+
+    async with runtime.lock:
+        try:
+            validate_source(data.source)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        context = await _get_state_json("race_context", {})
+        race = await database.get_row("races", context.get("race_id", ""))
+        if race and race["status"] == "active":
+            raise HTTPException(409, "Pause the race before reconnecting the camera")
+        try:
+            runtime.camera.start(data.source)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+    return {"opening": True}
+
+
+@router.delete("/api/quick/camera")
+async def close_camera():
+    from app.main import _get_state_json, pause_race
+
+    async with runtime.lock:
+        context = await _get_state_json("race_context", {})
+        race = await database.get_row("races", context.get("race_id", ""))
+        if race and race["status"] == "active":
+            await pause_race(race["id"])
+        try:
+            await asyncio.to_thread(runtime.camera.stop)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+    return {"stopped": True}
+
+
+@router.get("/api/quick/frame.jpg")
+async def frame_image():
+    frame, stamp = runtime.camera.latest()
+    if frame is None or time.monotonic() - stamp > 2:
+        raise HTTPException(503, runtime.camera.error or "Waiting for camera frames")
+    ok, jpeg = await asyncio.to_thread(cv2.imencode, ".jpg", frame)
+    if not ok:
+        raise HTTPException(503, "Could not encode camera frame")
+    return Response(
+        jpeg.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"}
+    )
+
+
+@router.post("/api/quick/session")
+async def create_session(data: SessionSetup):
+    async with runtime.lock:
+        async with aiosqlite.connect(database.DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("PRAGMA foreign_keys=ON")
+            await db.execute("BEGIN IMMEDIATE")
+            saved_context = await (
+                await db.execute(
+                    "SELECT value FROM system_state WHERE key='race_context'"
+                )
+            ).fetchone()
+            previous_context = json.loads(saved_context[0]) if saved_context else {}
+            unfinished = None
+            if previous_context.get("server_timing"):
+                unfinished = await (
+                    await db.execute(
+                        "SELECT id FROM races WHERE id=? AND status IN ('active','paused')",
+                        [previous_context.get("race_id")],
+                    )
+                ).fetchone()
+            if unfinished:
+                raise HTTPException(
+                    409, "Finish the existing race before creating another"
+                )
+            if previous_context.get("race_id"):
+                await db.execute(
+                    "INSERT OR IGNORE INTO system_state(key,value) VALUES(?,?)",
+                    [
+                        f"race_context:{previous_context['race_id']}",
+                        json.dumps(previous_context),
+                    ],
+                )
+            champ_id = data.championship_id
+            if champ_id:
+                if not await (
+                    await db.execute(
+                        "SELECT id FROM championships WHERE id=?", [champ_id]
+                    )
+                ).fetchone():
+                    raise HTTPException(404, "Championship not found")
+            else:
+                year = datetime.now().year
+                existing = await (
+                    await db.execute(
+                        "SELECT c.id FROM championships c JOIN seasons s ON s.id=c.season_id WHERE c.name=? AND s.year=?",
+                        [data.championship_name.strip(), year],
+                    )
+                ).fetchone()
+                if existing:
+                    champ_id = existing[0]
+                else:
+                    season_id, champ_id = str(uuid.uuid4()), str(uuid.uuid4())
+                    await db.execute(
+                        "INSERT INTO seasons(id,name,year) VALUES(?,?,?)",
+                        [season_id, str(year), year],
+                    )
+                    await db.execute(
+                        "INSERT INTO championships(id,season_id,name) VALUES(?,?,?)",
+                        [champ_id, season_id, data.championship_name.strip()],
+                    )
+            event_id, race_id = str(uuid.uuid4()), str(uuid.uuid4())
+            number = (
+                await (
+                    await db.execute(
+                        "SELECT COUNT(*) FROM race_events WHERE championship_id=?",
+                        [champ_id],
+                    )
+                ).fetchone()
+            )[0] + 1
+            await db.execute(
+                "INSERT INTO race_events(id,championship_id,name,event_date,round_number) VALUES(?,?,?,?,?)",
+                [
+                    event_id,
+                    champ_id,
+                    data.event_name.strip(),
+                    datetime.now().date().isoformat(),
+                    number,
+                ],
+            )
+            await db.execute(
+                "INSERT INTO races(id,event_id,total_laps) VALUES(?,?,?)",
+                [race_id, event_id, data.total_laps],
+            )
+            racers = []
+            for racer in data.racers:
+                row = await (
+                    await db.execute(
+                        "SELECT * FROM racer_profiles WHERE lower(name)=lower(?) ORDER BY created_at LIMIT 1",
+                        [racer.name.strip()],
+                    )
+                ).fetchone()
+                racer_id = row["id"] if row else str(uuid.uuid4())
+                if not row:
+                    await db.execute(
+                        "INSERT INTO racer_profiles(id,name) VALUES(?,?)",
+                        [racer_id, racer.name.strip()],
+                    )
+                racers.append(
+                    {"id": racer_id, "name": racer.name.strip(), "color": racer.color}
+                )
+            context = {
+                "race_id": race_id,
+                "event_id": event_id,
+                "championship_id": champ_id,
+                "race_name": data.event_name,
+                "racers": racers,
+                "server_timing": True,
+                "tracking_enabled": True,
+                "log_stream": [],
+            }
+            for key, value in [
+                ("race_context", context),
+                (f"race_context:{race_id}", context),
+                ("quick_config", data.model_dump()),
+            ]:
+                await db.execute(
+                    "INSERT INTO system_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [key, json.dumps(value)],
+                )
+            await db.commit()
+        runtime.race_key = None
+    return {"race_id": race_id, "championship_id": champ_id}
+
+
+@router.post("/api/quick/control/{action}")
+async def control(action: str):
+    from app.main import _get_state_json, start_race, pause_race, finish_race
+
+    async with runtime.lock:
+        context = await _get_state_json("race_context", {})
+        if not context.get("server_timing"):
+            raise HTTPException(409, "Create a camera race first")
+        if action == "start":
+            config = await _get_state_json("quick_config", {})
+            if runtime.camera.source != config.get("source"):
+                raise HTTPException(
+                    409, "Connect the camera source saved for this race first"
+                )
+            if time.monotonic() - runtime.camera.frame_time > 2:
+                raise HTTPException(
+                    409, "Connect the camera and check the preview first"
+                )
+            result = await start_race(context["race_id"])
+        elif action == "pause":
+            result = await pause_race(context["race_id"])
+        elif action == "finish":
+            result = await finish_race(context["race_id"])
+        else:
+            raise HTTPException(404, "Unknown race action")
+        runtime.race_key = None
+        runtime.error = None
+        return result

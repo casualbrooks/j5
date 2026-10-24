@@ -1,0 +1,20 @@
+[Unit]
+Description=J5 Race Manager browser app and camera timing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/j5-racemanager-current
+ExecStart=/bin/bash %h/j5-racemanager-current/scripts/run_race_web.sh
+Environment=RACE_HOST=0.0.0.0
+Environment=RACE_PORT=8080
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Race Manager · Trackside</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#10161e;color:#edf2f8}*{box-sizing:border-box}body{max-width:1320px;margin:auto;padding:28px}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}h1{margin:0;font-size:28px}h2{font-size:18px;margin:0 0 16px}p{color:#aebbc9;line-height:1.5}.tag{color:#74e2b5;font-size:13px;letter-spacing:2px}.layout{display:grid;grid-template-columns:340px 1fr;gap:20px}.card{background:#192330;border:1px solid #304052;border-radius:12px;padding:20px;margin-bottom:18px}label{display:block;margin:12px 0 5px;color:#becbd9;font-size:14px}input,select,button{font:inherit;border-radius:6px;padding:10px;border:1px solid #405268;background:#101923;color:inherit;max-width:100%}input:not([type=color]),select{width:100%}input[type=color]{width:52px;height:42px;padding:3px}button{cursor:pointer;background:#263a4e}button:hover{background:#35516c}button:disabled{opacity:.4;cursor:default}.primary{background:#1b6f59;border-color:#339f81}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>*{flex:1}.racer{display:grid;grid-template-columns:1fr 52px 38px;gap:6px;margin:8px 0}.racer button{padding:4px}canvas{width:100%;aspect-ratio:4/3;background:#0c1219;border-radius:8px;cursor:crosshair}#message{white-space:pre-wrap;border-left:3px solid #70d7af;padding:10px;margin:10px 0;min-height:42px}small{color:#aebbc9}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:12px 8px;border-bottom:1px solid #304052}th{font-size:12px;color:#aebbc9;text-transform:uppercase}.metric{font-size:24px;font-weight:700}a{color:#83d7ff}.status{color:#9bacbf;font-size:14px}details{margin-top:16px}summary{cursor:pointer}@media(max-width:850px){body{padding:14px}.layout{grid-template-columns:1fr}header{align-items:start;gap:16px}table{font-size:14px}}
+</style>
+<header><div><div class="tag">J5 / TRACKSIDE</div><h1>Race Manager</h1></div><div id="connection" class="status">Connecting to the Pi…</div></header>
+<div id="message" role="status" aria-live="polite">Connect the camera, assign car colors, and prepare your race.</div>
+<div class="layout"><aside>
+<section class="card"><h2>1. Connect camera</h2>
+<label for="source">Camera device or ROS image topic</label><input id="source" value="/dev/video0">
+<p><small>USB: /dev/video0 · Existing ROS publisher: ros:/camera/cam1/image_raw</small></p>
+<div class="row"><button id="camera" class="primary">Connect</button><button id="cameraStop">Stop camera</button></div>
+<p id="cameraStatus">Camera is stopped.</p></section>
+<section class="card"><h2>2. Prepare race</h2>
+<label for="championship">Championship</label><select id="championship"><option value="">Create / reuse by name</option></select>
+<label for="championshipName">Championship name</label><input id="championshipName" value="Club Championship" maxlength="100">
+<label for="eventName">Round name</label><input id="eventName" value="Race day" maxlength="100">
+<label for="laps">Laps per car</label><input id="laps" type="number" min="1" max="1000" value="10">
+<label>Racers and car colors</label><div id="racers"></div><button id="addRacer">+ Add racer</button>
+<p><small>Use distinct, saturated body colors. Click a color swatch, then click that car in the preview to sample it. Two visible objects of the same color are treated as ambiguous and are not counted.</small></p>
+<details><summary>Finish line &amp; timing</summary>
+<label for="finishX">Finish line position (% from left)</label><input id="finishX" type="number" min="10" max="90" value="50">
+<div class="row"><div><label for="yMin">Line top (%)</label><input id="yMin" type="number" min="0" max="99" value="10"></div><div><label for="yMax">Line bottom (%)</label><input id="yMax" type="number" min="1" max="100" value="90"></div></div>
+<label for="direction">Counting direction</label><select id="direction"><option value="1">Left → right</option><option value="-1">Right → left</option></select>
+<label for="minimumLap">Minimum plausible lap (seconds)</label><input id="minimumLap" type="number" min="0.5" max="600" step="0.5" value="2">
+</details><p><button id="prepare" class="primary">Save &amp; prepare race</button></p></section>
+</aside><main>
+<section class="card"><div class="row"><h2>Live camera</h2><span id="detected" class="status"></span></div><canvas id="preview" width="640" height="480" aria-label="Camera preview with finish line"></canvas>
+<p><small>The first forward finish-line crossing starts each car’s timer. The next crossing completes lap 1. After a pause or service restart, the next crossing starts a fresh lap; completed laps stay saved.</small></p></section>
+<section class="card"><div class="row"><h2 id="raceTitle">No race prepared</h2><span id="raceStatus" class="metric">—</span></div>
+<div class="row"><button id="start" class="primary">Start / resume</button><button id="pause">Pause</button><button id="finish">Finish &amp; save results</button></div>
+<table><thead><tr><th>Racer</th><th>Laps</th><th>Last lap</th><th>Best lap</th></tr></thead><tbody id="lapRows"></tbody></table></section>
+<section class="card"><h2>Championship standings</h2><p id="scoring">Completed main races earn 25 / 18 / 15 / 12 / 10… points by finishing position. Cars below the lap target are DNF and earn no points.</p><table><thead><tr><th>Racer</th><th>Points</th><th>Wins</th><th>Races</th></tr></thead><tbody id="standings"></tbody></table></section>
+<p><small>Race data is saved on this Pi. The browser can close while the backend continues counting. Keep a clear view of the finish line and validate a practice run before scoring a championship.</small></p>
+</main></div>
+<script>
+const $=id=>document.getElementById(id), canvas=$('preview'), ctx=canvas.getContext('2d');
+let current=null, sampledInput=null, rawFrame=null, hydrated=false, polling=false;
+const message=text=>$('message').textContent=text;
+async function api(path,method='GET',body){const r=await fetch(path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});let data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));return data;}
+function act(fn){return async()=>{try{await fn();await refresh();}catch(e){message(e.message)}}}
+function addRacer(name='',color='#e03131'){const row=document.createElement('div');row.className='racer';const n=document.createElement('input');n.value=name;n.placeholder='Racer name';n.maxLength=80;n.ariaLabel='Racer name';const c=document.createElement('input');c.type='color';c.value=color;c.ariaLabel='Car color';c.onclick=()=>{sampledInput=c;message('Click the colored body of this car in the preview, or use the color picker.');};const remove=document.createElement('button');remove.textContent='×';remove.ariaLabel='Remove racer';remove.onclick=()=>row.remove();row.append(n,c,remove);$('racers').append(row);}
+function setup(){return {source:$('source').value.trim(),championship_id:$('championship').value||null,championship_name:$('championshipName').value,event_name:$('eventName').value,total_laps:Number($('laps').value),racers:[...$('racers').children].map(r=>({name:r.children[0].value,color:r.children[1].value})),finish_x:Number($('finishX').value)/100,y_min:Number($('yMin').value)/100,y_max:Number($('yMax').value)/100,direction:Number($('direction').value),minimum_lap_ms:Number($('minimumLap').value)*1000};}
+function tableRows(id,rows){$(id).replaceChildren(...rows.map(values=>{const tr=document.createElement('tr');values.forEach(value=>{const td=document.createElement('td');td.textContent=value;tr.append(td)});return tr}));}
+const lapTime=n=>n?`${(n/1000).toFixed(3)}s`:'—';
+async function championships(){const items=await api('/api/championships');const chosen=$('championship').value;$('championship').replaceChildren(new Option('Create / reuse by name',''),...items.map(c=>new Option(c.name,c.id)));$('championship').value=chosen;}
+async function refresh(){
+if(polling)return;polling=true;
+try{current=await api('/api/quick/state');$('connection').textContent='Connected to the Pi';
+if(!hydrated){hydrated=true;const c=current.config;if(c.racers){$('racers').replaceChildren();c.racers.forEach(r=>addRacer(r.name,r.color));$('source').value=c.source;$('eventName').value=c.event_name;$('championshipName').value=c.championship_name;$('laps').value=c.total_laps;$('finishX').value=c.finish_x*100;$('yMin').value=c.y_min*100;$('yMax').value=c.y_max*100;$('direction').value=c.direction;$('minimumLap').value=c.minimum_lap_ms/1000;$('championship').value=current.context.championship_id||'';}}
+const status=current.race?.status;const busy=status==='active'||status==='paused';$('prepare').disabled=busy;document.querySelectorAll('aside input, aside select, #addRacer, .racer button').forEach(el=>el.disabled=busy);if(busy)sampledInput=null;$('start').disabled=!['setup','paused'].includes(status)||!current.camera.ready;$('pause').disabled=status!=='active';$('finish').disabled=!['active','paused'].includes(status);
+$('raceTitle').textContent=current.context.race_name||'No race prepared';$('raceStatus').textContent=status||'—';$('cameraStatus').textContent=current.camera.error||(current.camera.ready?'Camera is providing frames.':'Waiting for camera. Connect it to begin.');$('detected').textContent=(current.camera.detections||[]).map(d=>d.name).join(' · ')||'No unambiguous cars detected';if(current.error)message(current.error);
+tableRows('lapRows',(current.context.racers||[]).map(r=>{const laps=current.laps.filter(l=>l.racer_profile_id===r.id);return[r.name,`${laps.length} / ${current.race?.total_laps||0}`,lapTime(laps.at(-1)?.lap_time),lapTime(laps.length?Math.min(...laps.map(l=>l.lap_time)):0)]}));
+const champ=current.context.championship_id;if(champ){const standings=await api(`/api/analytics/championship/${encodeURIComponent(champ)}/standings`);tableRows('standings',standings.map(s=>[s.racer_name,s.total_points,s.wins,s.races_completed]));}
+}catch(e){$('connection').textContent='Connection lost — retrying';message(e.message)}finally{polling=false;}}
+async function frame(){try{if(current?.camera.ready){const r=await fetch('/api/quick/frame.jpg');if(r.ok){const bitmap=await createImageBitmap(await r.blob());if(rawFrame)rawFrame.close();rawFrame=bitmap;canvas.width=bitmap.width;canvas.height=bitmap.height;ctx.drawImage(bitmap,0,0);const c=['active','paused'].includes(current?.race?.status)?current.config:setup();ctx.strokeStyle='#72f5bf';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(c.finish_x*canvas.width,c.y_min*canvas.height);ctx.lineTo(c.finish_x*canvas.width,c.y_max*canvas.height);ctx.stroke();ctx.fillStyle='#72f5bf';ctx.font='20px system-ui';ctx.fillText(c.direction===1?'→':'←',c.finish_x*canvas.width+8,c.y_min*canvas.height+22);for(const d of current.camera.detections||[]){ctx.strokeStyle='#fff';ctx.strokeRect(...d.box);ctx.fillStyle='#fff';ctx.fillText(d.name,d.box[0],Math.max(22,d.box[1]-6));}}}}catch{}setTimeout(frame,200);}
+canvas.onclick=e=>{if(!sampledInput||!rawFrame)return;const bounds=canvas.getBoundingClientRect(),x=Math.floor((e.clientX-bounds.left)*canvas.width/bounds.width),y=Math.floor((e.clientY-bounds.top)*canvas.height/bounds.height);const off=document.createElement('canvas');off.width=canvas.width;off.height=canvas.height;const oc=off.getContext('2d');oc.drawImage(rawFrame,0,0);const rgb=oc.getImageData(x,y,1,1).data;sampledInput.value='#'+[...rgb].slice(0,3).map(v=>v.toString(16).padStart(2,'0')).join('');sampledInput=null;message('Color sampled. Save and prepare the race to apply it.');};
+$('addRacer').onclick=()=>addRacer();$('camera').onclick=act(async()=>{await api('/api/quick/camera','POST',{source:$('source').value.trim()});message('Opening camera…')});$('cameraStop').onclick=act(()=>api('/api/quick/camera','DELETE'));
+$('prepare').onclick=act(async()=>{const result=await api('/api/quick/session','POST',setup());await championships();$('championship').value=result.championship_id;message('Race prepared. Check that each car is identified, then start.');});
+for(const action of ['start','pause','finish'])$(action).onclick=act(async()=>{await api(`/api/quick/control/${action}`,'POST');message(action==='finish'?'Results and championship points saved.':action==='pause'?'Paused. Completed laps are saved.':'Race running. Each car’s first forward crossing starts its timer.');});
+addRacer('Racer 1','#e03131');addRacer('Racer 2','#206be0');championships().then(refresh).catch(e=>message(e.message));setInterval(refresh,1000);frame();
+</script>
+</html>

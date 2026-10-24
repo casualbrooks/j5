@@ -37,6 +37,7 @@ interface RuntimeStateResponse {
         total_laps?: number
     }
     context?: {
+        server_timing?: boolean
         race_name?: string
         racers?: Array<Record<string, unknown>>
     }
@@ -205,6 +206,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     const [showTrack, setShowTrack] = useState(true)
     const wsRef = useRef<WebSocket | null>(null)
     const liveRaceRef = useRef<LiveRaceState | null>(null)
+    const serverTimingRef = useRef(false)
     const checkpointStateRef = useRef<Map<string, RacerCheckpointState>>(new Map())
     const [recentVisionObjects, setRecentVisionObjects] = useState<Array<{
         objectId: string
@@ -272,6 +274,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
             }
 
             const statePayload = await stateResponse.json() as RuntimeStateResponse
+            serverTimingRef.current = statePayload.context?.server_timing === true
             const lapsPayload = lapsResponse.ok ? await lapsResponse.json() as LapRecordResponse[] : []
             setLiveRace(buildLiveRace(statePayload, activeRaceId, Array.isArray(lapsPayload) ? lapsPayload : []))
         } catch {
@@ -280,6 +283,7 @@ export function RaceProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const evaluateCheckpointProgress = useCallback((racerProfileId: string, position: TrackPoint) => {
+        if (serverTimingRef.current) return
         const race = liveRaceRef.current
         if (!race) return
         if (race.status !== 'active') return

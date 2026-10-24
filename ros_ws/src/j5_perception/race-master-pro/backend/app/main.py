@@ -44,13 +44,19 @@ from app.models import (
     LapCounterSetup,
 )
 from app.websocket_manager import manager
+from app.race_service import save_lap, finalize_race
+from app.quickstart import router as quickstart_router, runtime as timing_runtime
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize DB on startup."""
     await init_db()
-    yield
+    await timing_runtime.start()
+    try:
+        yield
+    finally:
+        await timing_runtime.stop()
 
 
 app = FastAPI(
@@ -67,6 +73,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(quickstart_router)
 
 _SETUP_STEPS = [
     {
@@ -75,7 +82,7 @@ _SETUP_STEPS = [
         "description": "Ensure ros2 and launch verbs are available in the active shell.",
         "check_commands": ["ros2 --help"],
         "check_contains": ["launch"],
-        "connect_command": ". /opt/ros/iron/setup.bash && . ~/alive/j5/ros_ws/install/setup.bash",
+        "connect_command": ". /opt/ros/kilted/setup.bash && . ~/j5/ros_ws/install/local_setup.bash",
         "stop_command": "pkill -f ros2 || true",
         "help": "The API process cannot mutate your terminal PATH. Run the source command in the shell where you launch ROS nodes, then click Verify.",
     },
@@ -639,7 +646,7 @@ async def start_race(race_id: str):
         raise HTTPException(404, "Race not found")
     if race["status"] not in ("setup", "paused"):
         raise HTTPException(400, f"Cannot start race in '{race['status']}' status")
-    now = datetime.now().isoformat()
+    now = race.get("start_time") or datetime.now().isoformat()
     updated = await update_row(
         "races", race_id, {"status": "active", "start_time": now}
     )
@@ -673,13 +680,8 @@ async def pause_race(race_id: str):
 
 @app.post("/api/races/{race_id}/finish")
 async def finish_race(race_id: str):
-    race = await get_row("races", race_id)
-    if not race:
-        raise HTTPException(404, "Race not found")
-    now = datetime.now().isoformat()
-    updated = await update_row(
-        "races", race_id, {"status": "finished", "end_time": now}
-    )
+    updated = await finalize_race(race_id)
+    now = updated["end_time"]
     await manager.broadcast_all(
         {
             "type": "raceFinish",
@@ -730,29 +732,15 @@ async def update_result(result_id: str, data: RaceResultCreate):
 
 @app.post("/api/laps")
 async def record_lap(data: LapRecordCreate):
-    race = await get_row("races", data.race_id)
-    if not race:
-        raise HTTPException(404, "Race not found")
-    if race.get("status") != "active":
-        raise HTTPException(
-            409,
-            f"Cannot record lap while race status is '{race.get('status')}'. Start or resume the race first.",
-        )
-
-    context = await _get_state_json("race_context", {})
-    if not context.get("tracking_enabled", False):
-        raise HTTPException(
-            409,
-            "Cannot record lap while object tracking is disabled. Start tracking first.",
-        )
-
-    row = {"id": str(uuid.uuid4()), **data.model_dump()}
-    result = await insert_row("lap_records", row)
+    result, created = await save_lap(data)
+    if not created:
+        return result
     # Broadcast lap complete
     await manager.broadcast_all(
         {
             "type": "lapComplete",
             "data": {
+                "race_id": data.race_id,
                 "racer_id": data.racer_profile_id,
                 "lap_number": data.lap_number,
                 "lap_time": data.lap_time,
@@ -869,7 +857,7 @@ async def championship_standings(champ_id: str):
         JOIN races r ON rr.race_id = r.id
         JOIN race_events re ON r.event_id = re.id
         JOIN racer_profiles rp ON rr.racer_profile_id = rp.id
-        WHERE re.championship_id = ?
+        WHERE re.championship_id = ? AND r.status = 'finished' AND r.type = 'main'
         GROUP BY rp.id
         ORDER BY total_points DESC
     """,
@@ -1055,8 +1043,8 @@ async def initialize_race_from_wizard():
         {
             "id": str(uuid.uuid4()),
             "name": config.get("event_name", "Setup Wizard Event"),
-            "championship_id": None,
-            "track_id": None,
+            "championship_id": config.get("championship_id") or None,
+            "track_id": config.get("track_id") or None,
             "event_date": datetime.now().date().isoformat(),
             "round_number": 1,
         },
@@ -1076,8 +1064,8 @@ async def initialize_race_from_wizard():
     racers = []
     for idx, name in enumerate(config.get("racer_names", []), start=1):
         racer_rows = await query(
-            "SELECT * FROM racer_profiles WHERE lower(name)=lower(?) OR number=? ORDER BY created_at ASC LIMIT 1",
-            [name, str(idx)],
+            "SELECT * FROM racer_profiles WHERE lower(name)=lower(?) ORDER BY created_at ASC LIMIT 1",
+            [name],
         )
         racer = (
             racer_rows[0]
@@ -1138,6 +1126,8 @@ async def get_race_runtime_state(race_id: str):
     if not race:
         raise HTTPException(404, "Race not found")
     context = await _get_state_json("race_context", {})
+    if context.get("race_id") != race_id:
+        context = await _get_state_json(f"race_context:{race_id}", {})
     snapshots = await _get_state_json("race_snapshots", {})
     return {"race": race, "context": context, "snapshot": snapshots.get(race_id)}
 
@@ -1165,6 +1155,9 @@ async def snapshot_race_state(race_id: str):
 
 @app.post("/api/races/{race_id}/resume")
 async def resume_race_from_snapshot(race_id: str):
+    race = await get_row("races", race_id)
+    if not race or race["status"] != "paused":
+        raise HTTPException(409, "Only a paused race can resume")
     snapshots = await _get_state_json("race_snapshots", {})
     snapshot = snapshots.get(race_id)
     if not snapshot:
@@ -1184,6 +1177,8 @@ async def resume_race_from_snapshot(race_id: str):
 @app.post("/api/races/{race_id}/tracking/start")
 async def start_tracking(race_id: str):
     context = await _get_state_json("race_context", {})
+    if context.get("race_id") != race_id:
+        raise HTTPException(409, "Initialize this race before starting tracking")
     lap_counter = context.get("lap_counter")
     if lap_counter and lap_counter.get("phase") != "ready":
         raise HTTPException(
@@ -1348,7 +1343,6 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "spectator
             elif msg_type in (
                 "raceUpdate",
                 "positionUpdate",
-                "lapComplete",
                 "raceStart",
                 "racePause",
                 "raceFinish",

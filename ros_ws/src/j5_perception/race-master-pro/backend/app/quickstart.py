@@ -4,6 +4,7 @@ import asyncio
 import csv
 import io
 import json
+import os
 import re
 import time
 import uuid
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import aiosqlite
 import cv2
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
@@ -81,11 +82,11 @@ class SessionSetup(BaseModel):
 
 def validate_source(source):
     if not re.fullmatch(
-        r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+|video:/home/racetime/[A-Za-z0-9_-]+\.mp4)",
+        r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+|video:(?:/home/racetime/)?[A-Za-z0-9_-]+\.mp4)",
         source,
     ):
         raise ValueError(
-            "Use /dev/video0, a camera index, a ROS image topic, or video:/home/racetime/name.mp4"
+            "Choose a camera, upload an MP4, or select an existing replay video"
         )
 
 
@@ -300,6 +301,68 @@ async def set_vision_gate(data: VisionGate):
     return {"calibrating": True}
 
 
+def video_directory():
+    return Path(database.DB_PATH).parent / "videos"
+
+
+@router.get("/api/quick/videos")
+async def list_videos():
+    videos = []
+    for directory, legacy in (
+        (video_directory(), False),
+        (Path("/home/racetime"), True),
+    ):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.mp4")):
+            if path.is_file() and re.fullmatch(r"[A-Za-z0-9_-]+\.mp4", path.name):
+                videos.append(
+                    {
+                        "name": path.name,
+                        "source": f"video:{path}" if legacy else f"video:{path.name}",
+                        "size": path.stat().st_size,
+                    }
+                )
+    return videos
+
+
+@router.post("/api/quick/videos/{filename}")
+async def upload_video(filename: str, request: Request):
+    """Stream a replay to persistent storage without replacing an existing file."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.mp4", filename, re.IGNORECASE):
+        raise HTTPException(400, "Choose an MP4 file with a simple filename")
+    filename = f"{filename[:-4]}.mp4"
+    directory = video_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    name = f"{uuid.uuid4().hex[:8]}-{filename}"
+    destination = directory / name
+    temporary = directory / f".{name}.upload"
+    size = 0
+    try:
+        with temporary.open("xb") as output:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 2 * 1024**3:
+                    raise HTTPException(
+                        413, "Video is larger than the 2 GB upload limit"
+                    )
+                output.write(chunk)
+        if not size:
+            raise HTTPException(400, "The selected video is empty")
+        capture = await asyncio.to_thread(cv2.VideoCapture, str(temporary))
+        try:
+            if not capture.isOpened() or not capture.get(cv2.CAP_PROP_FRAME_COUNT):
+                raise HTTPException(
+                    400, "The selected file is not a readable MP4 video"
+                )
+        finally:
+            capture.release()
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"name": filename, "source": f"video:{name}", "size": size}
+
+
 @router.get("/api/quick/crossing/{event_id}.jpg")
 async def crossing_frame(event_id: int):
     jpeg = runtime.motion_evidence.get(event_id)
@@ -439,29 +502,51 @@ async def create_session(data: SessionSetup):
                         "INSERT INTO championships(id,season_id,name) VALUES(?,?,?)",
                         [champ_id, season_id, data.championship_name.strip()],
                     )
-            event_id, race_id = str(uuid.uuid4()), str(uuid.uuid4())
-            number = (
-                await (
+            prepared = None
+            if previous_context.get("server_timing") and previous_context.get(
+                "race_id"
+            ):
+                prepared = await (
                     await db.execute(
-                        "SELECT COUNT(*) FROM race_events WHERE championship_id=?",
-                        [champ_id],
+                        "SELECT r.id,r.event_id FROM races r WHERE r.id=? AND r.status='setup' "
+                        "AND NOT EXISTS (SELECT 1 FROM lap_records l WHERE l.race_id=r.id)",
+                        [previous_context["race_id"]],
                     )
                 ).fetchone()
-            )[0] + 1
-            await db.execute(
-                "INSERT INTO race_events(id,championship_id,name,event_date,round_number) VALUES(?,?,?,?,?)",
-                [
-                    event_id,
-                    champ_id,
-                    data.event_name.strip(),
-                    datetime.now().date().isoformat(),
-                    number,
-                ],
-            )
-            await db.execute(
-                "INSERT INTO races(id,event_id,total_laps) VALUES(?,?,?)",
-                [race_id, event_id, data.total_laps],
-            )
+            if prepared:
+                race_id, event_id = prepared["id"], prepared["event_id"]
+                await db.execute(
+                    "UPDATE race_events SET championship_id=?,name=? WHERE id=?",
+                    [champ_id, data.event_name.strip(), event_id],
+                )
+                await db.execute(
+                    "UPDATE races SET total_laps=? WHERE id=?",
+                    [data.total_laps, race_id],
+                )
+            else:
+                event_id, race_id = str(uuid.uuid4()), str(uuid.uuid4())
+                number = (
+                    await (
+                        await db.execute(
+                            "SELECT COUNT(*) FROM race_events WHERE championship_id=?",
+                            [champ_id],
+                        )
+                    ).fetchone()
+                )[0] + 1
+                await db.execute(
+                    "INSERT INTO race_events(id,championship_id,name,event_date,round_number) VALUES(?,?,?,?,?)",
+                    [
+                        event_id,
+                        champ_id,
+                        data.event_name.strip(),
+                        datetime.now().date().isoformat(),
+                        number,
+                    ],
+                )
+                await db.execute(
+                    "INSERT INTO races(id,event_id,total_laps) VALUES(?,?,?)",
+                    [race_id, event_id, data.total_laps],
+                )
             racers = []
             for racer in data.racers:
                 row = await (
@@ -509,7 +594,7 @@ async def create_session(data: SessionSetup):
         )
         runtime.motion = MotionFinishDetector(**runtime.vision_config.model_dump())
         runtime.motion_evidence.clear()
-    return {"race_id": race_id, "championship_id": champ_id}
+    return {"race_id": race_id, "championship_id": champ_id, "updated": bool(prepared)}
 
 
 @router.post("/api/quick/control/{action}")

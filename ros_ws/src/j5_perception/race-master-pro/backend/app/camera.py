@@ -7,6 +7,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from app import database
+
 
 class Camera:
     def __init__(self):
@@ -82,10 +84,19 @@ class Camera:
             cap.release()
 
     def _video(self, filename):
-        """Replay an existing Pi recording at its recorded frame rate for testing."""
-        path = Path(filename).resolve()
-        if path.parent != Path("/home/racetime") or path.suffix.lower() != ".mp4":
-            raise ValueError("Replay videos must be MP4 files in /home/racetime")
+        """Replay a managed upload or an existing Pi recording at its frame rate."""
+        path = Path(filename)
+        if not path.is_absolute():
+            path = Path(database.DB_PATH).parent / "videos" / path
+        path = path.resolve()
+        allowed = {
+            Path(database.DB_PATH).parent.joinpath("videos").resolve(),
+            Path("/home/racetime"),
+        }
+        if path.parent not in allowed or path.suffix.lower() != ".mp4":
+            raise ValueError(
+                "Replay videos must be uploaded or stored in /home/racetime"
+            )
         cap = cv2.VideoCapture(str(path))
         if not cap.isOpened():
             raise RuntimeError(f"Could not open replay video: {path.name}")

@@ -144,6 +144,43 @@ def test_ambiguous_colors_and_invalid_sources_rejected(client):
     assert client.get("/race").status_code == 200
 
 
+def test_prepared_race_can_be_saved_again_without_creating_another_round(client):
+    payload = {
+        "championship_name": "Club",
+        "event_name": "Practice",
+        "racers": [{"name": "Red", "color": "#ff0000"}],
+    }
+    first = client.post("/api/quick/session", json=payload).json()
+    changed = {**payload, "event_name": "Final", "total_laps": 25, "finish_x": 0.61}
+    second = client.post("/api/quick/session", json=changed)
+    assert second.status_code == 200, second.text
+    assert second.json()["race_id"] == first["race_id"]
+    assert second.json()["updated"] is True
+    state = client.get("/api/quick/state").json()
+    assert state["race"]["total_laps"] == 25
+    assert state["config"]["finish_x"] == 0.61
+    events = client.portal.call(database.query, "SELECT id FROM race_events")
+    assert len(events) == 1
+
+
+def test_uploaded_video_can_be_selected_and_invalid_video_is_rejected(client, tmp_path):
+    path = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (64, 48))
+    writer.write(np.zeros((48, 64, 3), dtype=np.uint8))
+    writer.release()
+    response = client.post("/api/quick/videos/clip.mp4", content=path.read_bytes())
+    assert response.status_code == 200, response.text
+    source = response.json()["source"]
+    assert source in [v["source"] for v in client.get("/api/quick/videos").json()]
+    assert client.post("/api/quick/camera", json={"source": source}).status_code == 200
+    assert (
+        client.post("/api/quick/videos/broken.mp4", content=b"bad").status_code == 400
+    )
+    assert (
+        client.post("/api/quick/videos/escape.txt", content=b"bad").status_code == 400
+    )
+
+
 def test_second_round_reuses_racers_and_accumulates_points(client):
     first, racers = prepare(client, laps=1)
     for racer in racers:

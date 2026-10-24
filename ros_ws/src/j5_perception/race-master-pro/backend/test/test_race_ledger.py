@@ -181,6 +181,38 @@ def test_uploaded_video_can_be_selected_and_invalid_video_is_rejected(client, tm
     )
 
 
+def test_start_opens_saved_replay_from_beginning_but_resume_does_not_rewind(
+    client, monkeypatch
+):
+    source = "video:/home/racetime/videotest_masked.mp4"
+    calls = []
+
+    def stop():
+        calls.append("stop")
+        runtime.camera.frame_time = 0
+
+    def start(chosen):
+        calls.append(("start", chosen))
+        runtime.camera.source = chosen
+        runtime.camera.frame_time = time.monotonic()
+
+    monkeypatch.setattr(runtime.camera, "stop", stop)
+    monkeypatch.setattr(runtime.camera, "start", start)
+    response = client.post(
+        "/api/quick/session",
+        json={"source": source, "racers": [{"name": "Red", "color": "#ff0000"}]},
+    )
+    assert response.status_code == 200, response.text
+    runtime.camera.source = "video:/home/racetime/videotest.mp4"
+    runtime.camera.frame_time = 0
+    assert client.post("/api/quick/control/start").status_code == 200
+    assert calls == ["stop", ("start", source)]
+    assert client.post("/api/quick/control/pause").status_code == 200
+    calls.clear()
+    assert client.post("/api/quick/control/start").status_code == 200
+    assert calls == []
+
+
 def test_second_round_reuses_racers_and_accumulates_points(client):
     first, racers = prepare(client, laps=1)
     for racer in racers:

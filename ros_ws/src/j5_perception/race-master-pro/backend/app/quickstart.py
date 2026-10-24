@@ -607,13 +607,38 @@ async def control(action: str):
             raise HTTPException(409, "Create a camera race first")
         if action == "start":
             config = await _get_state_json("quick_config", {})
+            race = await database.get_row("races", context["race_id"])
+            if not race:
+                raise HTTPException(404, "Race not found")
+            if race["status"] not in ("setup", "paused"):
+                raise HTTPException(
+                    409, f"Cannot start a race in {race['status']} status"
+                )
+            source = config.get("source")
+            if race["status"] == "setup" and source and source.startswith("video:"):
+                # Always begin a new race at the first frame, even if a different
+                # replay was used to position the finish line in the preview.
+                try:
+                    await asyncio.to_thread(runtime.camera.stop)
+                    runtime.camera.start(source)
+                except ValueError as exc:
+                    raise HTTPException(409, str(exc)) from exc
+                deadline = time.monotonic() + 5
+                while runtime.camera.frame_time == 0 and time.monotonic() < deadline:
+                    if runtime.camera.error:
+                        raise HTTPException(409, runtime.camera.error)
+                    await asyncio.sleep(0.05)
+                if runtime.camera.frame_time == 0:
+                    raise HTTPException(
+                        409, runtime.camera.error or "Video did not provide a frame"
+                    )
             if runtime.camera.source != config.get("source"):
                 raise HTTPException(
-                    409, "Connect the camera source saved for this race first"
+                    409, "Connect the saved camera source before resuming this race"
                 )
             if time.monotonic() - runtime.camera.frame_time > 2:
                 raise HTTPException(
-                    409, "Connect the camera and check the preview first"
+                    409, "Camera or replay is not providing frames; check the preview"
                 )
             result = await start_race(context["race_id"])
         elif action == "pause":

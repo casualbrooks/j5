@@ -21,8 +21,20 @@ def detect_colors(frame, racers, tolerance=8, min_area=40):
     """Reject ambiguous colors rather than guessing between two cars or scenery."""
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     detections = []
+    usable = []
     for racer in racers:
-        hue = hue_for_color(racer["color"])
+        try:
+            usable.append((racer, hue_for_color(racer["color"])))
+        except ValueError:
+            # Keep the racer in the race ledger, but never invent a color match.
+            continue
+    for racer, hue in usable:
+        if any(
+            other["id"] != racer["id"]
+            and min(abs(hue - other_hue), 180 - abs(hue - other_hue)) <= 16
+            for other, other_hue in usable
+        ):
+            continue
         distance = np.abs(hsv[:, :, 0].astype(np.int16) - hue)
         distance = np.minimum(distance, 180 - distance)
         mask = (

@@ -35,3 +35,14 @@ def test_distinct_colors_keep_identity_and_duplicate_blobs_are_rejected():
     assert [d["racer_id"] for d in detect_colors(image, racers)] == ["red", "blue"]
     cv2.rectangle(image, (220, 60), (245, 80), (0, 0, 255), -1)
     assert [d["racer_id"] for d in detect_colors(image, racers)] == ["blue"]
+
+
+def test_unidentifiable_and_overlapping_colors_do_not_create_false_laps():
+    image = np.zeros((100, 120, 3), dtype=np.uint8)
+    cv2.rectangle(image, (20, 30), (50, 60), (0, 0, 255), -1)
+    racers = [
+        {"id": "black", "name": "Black", "color": "#101010"},
+        {"id": "red", "name": "Red", "color": "#ff0000"},
+        {"id": "other-red", "name": "Other red", "color": "#ed2010"},
+    ]
+    assert detect_colors(image, racers) == []

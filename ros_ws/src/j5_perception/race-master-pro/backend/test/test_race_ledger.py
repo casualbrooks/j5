@@ -122,19 +122,18 @@ def test_unfinished_car_is_dnf_and_scores_zero(client):
     assert all(r["status"] == "dnf" and r["points_earned"] == 0 for r in results)
 
 
-def test_ambiguous_colors_and_invalid_sources_rejected(client):
-    assert (
-        client.post(
-            "/api/quick/session",
-            json={
-                "racers": [
-                    {"name": "A", "color": "#ff0000"},
-                    {"name": "B", "color": "#ee0000"},
-                ]
-            },
-        ).status_code
-        == 422
+def test_ambiguous_colors_warn_and_invalid_sources_are_rejected(client):
+    response = client.post(
+        "/api/quick/session",
+        json={
+            "racers": [
+                {"name": "A", "color": "#ff0000"},
+                {"name": "B", "color": "#ee0000"},
+            ]
+        },
     )
+    assert response.status_code == 200
+    assert len(response.json()["color_warnings"]) == 1
     assert (
         client.post(
             "/api/quick/camera", json={"source": "http://example.com/video"}
@@ -242,6 +241,26 @@ def test_zero_lap_paused_race_can_return_to_setup_without_new_round(client):
     assert state["race"]["start_time"] is None
     assert state["config"]["finish_x"] == 0.61
     assert len(client.portal.call(database.query, "SELECT id FROM race_events")) == 1
+
+
+def test_unidentifiable_colors_can_be_saved_with_explicit_warnings(client):
+    response = client.post(
+        "/api/quick/session",
+        json={
+            "event_name": "Color test",
+            "racers": [
+                {"name": "Black", "color": "#101010"},
+                {"name": "Red", "color": "#ff0000"},
+                {"name": "Other red", "color": "#ed2010"},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()["racers"]) == 3
+    assert len(response.json()["color_warnings"]) == 2
+    state = client.get("/api/quick/state").json()
+    assert state["race"]["status"] == "setup"
+    assert state["color_warnings"] == response.json()["color_warnings"]
 
 
 def test_paused_race_with_saved_lap_cannot_change_setup(client):

@@ -79,13 +79,27 @@ class SessionSetup(BaseModel):
         names = [r.name.strip().casefold() for r in self.racers]
         if not all(names) or len(set(names)) != len(names):
             raise ValueError("Racer names must be distinct and nonempty")
-        hues = [hue_for_color(r.color) for r in self.racers]
-        for i, hue in enumerate(hues):
-            if any(min(abs(hue - h), 180 - abs(hue - h)) <= 16 for h in hues[:i]):
-                raise ValueError(
-                    "Car colors overlap. Select more distinct colors before racing"
-                )
         return self
+
+
+def color_warnings(racers):
+    """Report colors that cannot safely identify a car without blocking setup."""
+    usable = []
+    warnings = []
+    for racer in racers:
+        try:
+            usable.append((racer["name"], hue_for_color(racer["color"])))
+        except ValueError:
+            warnings.append(
+                f"{racer['name']}: this color is too dark or unsaturated for color-only lap counting"
+            )
+    for i, (name, hue) in enumerate(usable):
+        for other_name, other_hue in usable[:i]:
+            if min(abs(hue - other_hue), 180 - abs(hue - other_hue)) <= 16:
+                warnings.append(
+                    f"{name} and {other_name}: colors overlap; choose more distinct colors to count them separately"
+                )
+    return warnings
 
 
 def validate_source(source):
@@ -299,9 +313,11 @@ async def state():
     from app.main import _get_state_json
 
     context = await _get_state_json("race_context", {})
+    config = await _get_state_json("quick_config", {})
     race_id = context.get("race_id", "")
     return {
-        "config": await _get_state_json("quick_config", {}),
+        "config": config,
+        "color_warnings": color_warnings(config.get("racers", [])),
         "context": context,
         "race": await database.get_row("races", race_id),
         "laps": await database.get_all_rows(
@@ -764,9 +780,13 @@ async def create_session(data: SessionSetup):
         )
         runtime.motion = MotionFinishDetector(**runtime.vision_config.model_dump())
         runtime.motion_evidence.clear()
-        if runtime.camera.paused:
-            runtime.camera.resume()
-    return {"race_id": race_id, "championship_id": champ_id, "updated": bool(prepared)}
+    return {
+        "race_id": race_id,
+        "championship_id": champ_id,
+        "updated": bool(prepared),
+        "racers": racers,
+        "color_warnings": color_warnings(racers),
+    }
 
 
 @router.post("/api/quick/control/{action}")

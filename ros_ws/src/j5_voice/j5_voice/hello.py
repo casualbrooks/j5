@@ -11,9 +11,14 @@ class HelloVoice(Node):
 def main():
     rclpy.init()
     node = HelloVoice()
-    rclpy.spin_once(node, timeout_sec=0.1)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

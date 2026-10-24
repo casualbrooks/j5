@@ -8,8 +8,10 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 if command -v rosdep >/dev/null 2>&1; then
-  sudo rosdep init 2>/dev/null || true
-  rosdep update || true
+  if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+    sudo rosdep init
+  fi
+  rosdep update
 fi
 
 # Source ROS env in interactive shells
@@ -19,8 +21,10 @@ fi
 
 # Workspace deps
 if [ -d "/workspaces/j5/ros_ws/src" ]; then
-  . /opt/ros/${ROS_DISTRO}/setup.bash || true
-  rosdep install --from-paths /workspaces/j5/ros_ws/src --ignore-src -r -y || true
+  set +u
+  . /opt/ros/${ROS_DISTRO}/setup.bash
+  set -u
+  rosdep install --rosdistro "$ROS_DISTRO" --from-paths /workspaces/j5/ros_ws/src --ignore-src -r -y
 fi
 
 echo "Devcontainer post-create setup complete."

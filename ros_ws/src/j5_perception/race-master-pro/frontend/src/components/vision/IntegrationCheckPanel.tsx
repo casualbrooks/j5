@@ -315,7 +315,7 @@ export default function IntegrationCheckPanel() {
                         className="mt-1 w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
                         value={previewBaseUrl}
                         onChange={(event) => setPreviewBaseUrl(event.target.value)}
-                        placeholder="http://192.168.1.134:8091"
+                        placeholder="http://pi-host.local:8091"
                     />
                 </label>
                 {previewContent}

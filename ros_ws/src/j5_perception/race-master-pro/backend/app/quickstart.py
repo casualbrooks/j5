@@ -29,6 +29,7 @@ from app.review_service import (
     ReviewProposal,
     apply_proposal,
     assign_group,
+    finish_observation,
     gate_matches,
     get_review_job,
     get_proposal,
@@ -604,6 +605,7 @@ async def review_sample_frame(race_id: str, tracklet_id: int):
             for item in proposal.get("observations", [])
             if item["tracklet_id"] == tracklet_id
             and item.get("appearance_cluster") is not None
+            and finish_observation(item, info["finish_gate"])
         ),
         None,
     )

@@ -80,6 +80,14 @@ def gate_matches(proposed, saved):
     )
 
 
+def finish_observation(event, gate):
+    return (
+        event["direction"] == "outward"
+        and gate["y_min"] <= event["y"] <= gate["y_max"]
+        and abs(event["x"] - gate["finish_x"]) <= 0.02
+    )
+
+
 async def _state(key):
     row = await database.get_row("system_state", key, id_column="key")
     return json.loads(row["value"]) if row else None
@@ -175,6 +183,37 @@ def proposal_summary(data, info):
     }
 
 
+def candidate_summary(proposal, info):
+    """Preview mapped passes as tentative laps, never as ledger entries."""
+    assignments = proposal.get("group_assignments", {})
+    minimum = info["minimum_lap_ms"] / 1000
+    gate = info["finish_gate"]
+    accepted = {racer["id"]: [] for racer in info["racers"]}
+    ignored_close = {racer["id"]: 0 for racer in info["racers"]}
+    unassigned = 0
+    for event in proposal.get("observations", []):
+        if not finish_observation(event, gate):
+            continue
+        racer_id = assignments.get(str(event.get("appearance_cluster")))
+        if racer_id not in accepted:
+            unassigned += 1
+            continue
+        times = accepted[racer_id]
+        if times and event["second"] - times[-1] < minimum:
+            ignored_close[racer_id] += 1
+        else:
+            times.append(event["second"])
+    return {
+        "candidate_crossings": {racer: len(times) for racer, times in accepted.items()},
+        "candidate_laps": {
+            racer: max(0, len(times) - 1) for racer, times in accepted.items()
+        },
+        "ignored_close_passes": ignored_close,
+        "unassigned_passes": unassigned,
+        "mapped_racers": sorted(set(assignments.values())),
+    }
+
+
 async def submit_proposal(data):
     info = await manifest(data.race_id)
     if info["race_status"] == "active":
@@ -219,6 +258,7 @@ async def submit_proposal(data):
         "group_assignments": {},
         **data.model_dump(),
     }
+    proposal["candidate_summary"] = candidate_summary(proposal, info)
     async with aiosqlite.connect(database.DB_PATH) as db:
         await db.execute(
             "INSERT INTO system_state(key,value) VALUES(?,?) "
@@ -273,6 +313,7 @@ async def assign_group(race_id, assignment: GroupAssignment):
             event["appearance_cluster"]
             for event in proposal.get("observations", [])
             if event.get("appearance_cluster") is not None
+            and finish_observation(event, info["finish_gate"])
         }
         if assignment.appearance_cluster not in groups:
             raise HTTPException(422, "Appearance group is not in this proposal")
@@ -285,6 +326,7 @@ async def assign_group(race_id, assignment: GroupAssignment):
             mappings.pop(group, None)
         else:
             mappings[group] = assignment.racer_id
+        proposal["candidate_summary"] = candidate_summary(proposal, info)
         await db.execute(
             "UPDATE system_state SET value=? WHERE key=?", [json.dumps(proposal), key]
         )

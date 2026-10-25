@@ -6,10 +6,10 @@ from app import database
 from app.main import app
 
 
-def _video(path):
+def _video(path, frames=120):
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (100, 80))
     assert writer.isOpened()
-    for index in range(120):
+    for index in range(frames):
         writer.write(np.full((80, 100, 3), index % 200, dtype=np.uint8))
     writer.release()
 
@@ -176,7 +176,7 @@ def test_finish_line_groups_can_be_mapped_without_scoring(tmp_path, monkeypatch)
     monkeypatch.setattr(database, "DB_PATH", str(tmp_path / "race.db"))
     directory = tmp_path / "videos"
     directory.mkdir()
-    _video(directory / "heat.mp4")
+    _video(directory / "heat.mp4", frames=450)
     with TestClient(app) as client:
         race_id = client.post(
             "/api/quick/session",
@@ -210,9 +210,15 @@ def test_finish_line_groups_can_be_mapped_without_scoring(tmp_path, monkeypatch)
                     "tracklet_id": index + 1,
                     "appearance_cluster": index,
                 }
-                for index, second in enumerate((1.0, 2.0))
+                for index, second in enumerate((1.0, 2.0, 12.0, 13.0))
             ],
         }
+        proposal["observations"][2]["appearance_cluster"] = 0
+        proposal["observations"][3]["appearance_cluster"] = 0
+        proposal["observations"][0]["y"] = 0.60  # First racing lane.
+        proposal["observations"][1]["y"] = 0.65  # Second racing lane.
+        proposal["observations"][3]["y"] = 0.55  # Pit lane: outside the saved gate.
+        proposal["unassigned_crossings"] = 4
         assert (
             client.post(
                 f"/api/quick/review/{race_id}/proposal", json=proposal
@@ -234,12 +240,16 @@ def test_finish_line_groups_can_be_mapped_without_scoring(tmp_path, monkeypatch)
         assert mapped.status_code == 200, mapped.text
         assert mapped.json()["group_assignments"] == {"0": first}
         assert mapped.json()["status"] == "incomplete"
+        assert mapped.json()["candidate_summary"]["candidate_laps"][first] == 1
+        assert mapped.json()["candidate_summary"]["candidate_crossings"][first] == 2
         duplicate = client.post(
             f"/api/quick/review/{race_id}/groups",
             json={"appearance_cluster": 1, "racer_id": first},
         )
         assert duplicate.status_code == 200
         assert duplicate.json()["group_assignments"] == {"0": first, "1": first}
+        assert duplicate.json()["candidate_summary"]["candidate_laps"][first] == 1
+        assert duplicate.json()["candidate_summary"]["ignored_close_passes"][first] == 1
         assert (
             client.post(
                 f"/api/quick/review/{race_id}/groups",

@@ -17,9 +17,18 @@ def hue_for_color(color):
     return round(hue * 179)
 
 
-def detect_colors(frame, racers, tolerance=8, min_area=40):
+def detect_colors(frame, racers, tolerance=8, min_area=40, region=None):
     """Reject ambiguous colors rather than guessing between two cars or scenery."""
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    height, width = frame.shape[:2]
+    if region is None:
+        x0, y0, x1, y1 = 0, 0, width, height
+    else:
+        left, top, right, bottom = region
+        x0, y0 = max(0, round(left * width)), max(0, round(top * height))
+        x1, y1 = min(width, round(right * width)), min(height, round(bottom * height))
+        if x0 >= x1 or y0 >= y1:
+            return []
+    hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
     detections = []
     usable = []
     for racer in racers:
@@ -46,14 +55,13 @@ def detect_colors(frame, racers, tolerance=8, min_area=40):
         if len(blobs) != 1:
             continue
         x, y, w, h = cv2.boundingRect(blobs[0])
-        height, width = frame.shape[:2]
         detections.append(
             {
                 "racer_id": racer["id"],
                 "name": racer["name"],
-                "x": (x + w / 2) / width,
-                "y": (y + h / 2) / height,
-                "box": [x, y, w, h],
+                "x": (x0 + x + w / 2) / width,
+                "y": (y0 + y + h / 2) / height,
+                "box": [x0 + x, y0 + y, w, h],
             }
         )
     return detections

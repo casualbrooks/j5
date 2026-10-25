@@ -133,7 +133,10 @@ async def finalize_race(race_id):
             )
         await db.execute("DELETE FROM race_results WHERE race_id=?", [race_id])
         for position, row in enumerate(rows, 1):
-            completed = row["laps"] >= race["total_laps"]
+            # A marked replay can end before the target. Cars that completed
+            # laps still receive their finishing-position points; a car with
+            # no verified lap remains DNF.
+            completed = row["laps"] > 0
             await db.execute(
                 """INSERT INTO race_results
                 (id,race_id,racer_profile_id,finish_position,total_time,best_lap_time,

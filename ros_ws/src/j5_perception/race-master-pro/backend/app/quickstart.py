@@ -55,6 +55,7 @@ class SessionSetup(BaseModel):
     )
     event_name: str = Field(default="Race day", min_length=1, max_length=100)
     total_laps: int = Field(default=10, ge=1, le=1000)
+    points_by_place: list[int] = Field(default_factory=lambda: [10, 7, 5, 4])
     source: str = "/dev/video0"
     racers: list[RacerColor] = Field(min_length=1, max_length=8)
     finish_x: float = Field(default=0.5, ge=0.1, le=0.9)
@@ -79,6 +80,10 @@ class SessionSetup(BaseModel):
         names = [r.name.strip().casefold() for r in self.racers]
         if not all(names) or len(set(names)) != len(names):
             raise ValueError("Racer names must be distinct and nonempty")
+        if len(self.points_by_place) != 4 or any(
+            points < 0 for points in self.points_by_place
+        ):
+            raise ValueError("Enter four nonnegative championship point values")
         return self
 
 
@@ -164,8 +169,15 @@ class TimingRuntime:
     async def process_frame(self, frame, stamp, now=None):
         from app.main import _get_state_json, record_lap, pause_race
 
-        now = time.monotonic() if now is None else now
+        live_call = now is None
         async with self.lock:
+            now = time.monotonic() if live_call else now
+            if live_call and (frame is None or now - stamp > 1):
+                # Start can replace the camera while the worker waits for this
+                # lock. Use its current frame before deciding it has stopped.
+                latest_frame, latest_stamp = self.camera.latest()
+                if latest_stamp > stamp:
+                    frame, stamp = latest_frame, latest_stamp
             new_frame = (
                 frame is not None and stamp != self.last_frame and now - stamp <= 1
             )
@@ -246,7 +258,15 @@ class TimingRuntime:
                 # timestamp belongs to that frame, so wait for the next pair.
                 return
             self.detections = await asyncio.to_thread(
-                detect_colors, frame, context.get("racers", [])
+                detect_colors,
+                frame,
+                context.get("racers", []),
+                region=(
+                    max(0, config.get("finish_x", 0.5) - 0.15),
+                    config.get("y_min", 0.1),
+                    min(1, config.get("finish_x", 0.5) + 0.15),
+                    config.get("y_max", 0.9),
+                ),
             )
             if race["status"] != "active":
                 return
@@ -688,6 +708,18 @@ async def create_session(data: SessionSetup):
                         "INSERT INTO championships(id,season_id,name) VALUES(?,?,?)",
                         [champ_id, season_id, data.championship_name.strip()],
                     )
+            await db.execute(
+                "UPDATE championships SET points_system=? WHERE id=?",
+                [
+                    json.dumps(
+                        {
+                            str(position): points
+                            for position, points in enumerate(data.points_by_place, 1)
+                        }
+                    ),
+                    champ_id,
+                ],
+            )
             prepared = None
             if previous_context.get("server_timing") and previous_context.get(
                 "race_id"

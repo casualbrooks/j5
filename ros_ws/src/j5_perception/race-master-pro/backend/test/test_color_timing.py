@@ -46,3 +46,14 @@ def test_unidentifiable_and_overlapping_colors_do_not_create_false_laps():
         {"id": "other-red", "name": "Other red", "color": "#ed2010"},
     ]
     assert detect_colors(image, racers) == []
+
+
+def test_finish_region_ignores_same_colored_objects_elsewhere():
+    image = np.zeros((200, 300, 3), dtype=np.uint8)
+    cv2.rectangle(image, (150, 80), (175, 100), (0, 0, 255), -1)
+    cv2.rectangle(image, (20, 20), (45, 40), (0, 0, 255), -1)
+    racer = [{"id": "red", "name": "Red", "color": "#ff0000"}]
+    detections = detect_colors(image, racer, region=(0.35, 0.3, 0.8, 0.6))
+    assert len(detections) == 1
+    assert detections[0]["racer_id"] == "red"
+    assert detections[0]["box"] == [150, 80, 26, 21]

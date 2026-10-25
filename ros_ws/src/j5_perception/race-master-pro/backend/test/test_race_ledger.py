@@ -69,7 +69,7 @@ def test_finish_scores_once_and_survives_restart(client):
     standings = client.get(
         f"/api/analytics/championship/{session['championship_id']}/standings"
     ).json()
-    assert [s["total_points"] for s in standings] == [25, 18]
+    assert [s["total_points"] for s in standings] == [10, 7]
     assert len(client.get(f"/api/results?race_id={rid}").json()) == 2
     client.portal.call(runtime.stop)
     with TestClient(app) as restarted:
@@ -113,13 +113,37 @@ def test_concurrent_delivery_creates_one_lap(client):
     assert len(client.get(f"/api/laps?race_id={session['race_id']}").json()) == 1
 
 
-def test_unfinished_car_is_dnf_and_scores_zero(client):
+def test_video_round_scores_completed_laps_even_below_target(client):
     session, racers = prepare(client)
     assert lap(client, session["race_id"], racers[0]["id"], 1, 3000).status_code == 200
     assert client.post("/api/quick/control/finish").status_code == 200
     results = client.get(f"/api/results?race_id={session['race_id']}").json()
     assert len(results) == 2
-    assert all(r["status"] == "dnf" and r["points_earned"] == 0 for r in results)
+    ranked = sorted(results, key=lambda row: row["finish_position"])
+    assert [(r["status"], r["points_earned"]) for r in ranked] == [
+        ("finished", 10),
+        ("dnf", 0),
+    ]
+
+
+def test_empty_round_awards_no_points_and_custom_points_are_saved(client):
+    response = client.post(
+        "/api/quick/session",
+        json={
+            "racers": [{"name": "Red", "color": "#ff0000"}],
+            "points_by_place": [12, 8, 6, 3],
+        },
+    )
+    assert response.status_code == 200, response.text
+    championship = client.get(
+        f"/api/championships/{response.json()['championship_id']}"
+    ).json()
+    assert championship["points_system"] == '{"1": 12, "2": 8, "3": 6, "4": 3}'
+    runtime.camera.frame_time = time.monotonic()
+    assert client.post("/api/quick/control/start").status_code == 200
+    assert client.post("/api/quick/control/finish").status_code == 200
+    result = client.get(f"/api/results?race_id={response.json()['race_id']}").json()[0]
+    assert (result["status"], result["points_earned"]) == ("dnf", 0)
 
 
 def test_ambiguous_colors_warn_and_invalid_sources_are_rejected(client):
@@ -423,7 +447,7 @@ def test_second_round_reuses_racers_and_accumulates_points(client):
     standings = client.get(
         f"/api/analytics/championship/{first['championship_id']}/standings"
     ).json()
-    assert [s["total_points"] for s in standings] == [50, 36]
+    assert [s["total_points"] for s in standings] == [20, 14]
     assert all(s["races_completed"] == 2 for s in standings)
 
 
@@ -450,6 +474,15 @@ def test_camera_loss_pauses_even_before_first_processed_frame(client):
     asyncio.run(worker.process_frame(None, 0, now=10))
     assert client.get(f"/api/races/{session['race_id']}").json()["status"] == "paused"
     assert "Camera frames stopped" in worker.error
+
+
+def test_old_worker_snapshot_after_start_uses_current_camera_frame(client):
+    session, _ = prepare(client)
+    worker = TimingRuntime()
+    image = np.zeros((200, 300, 3), dtype=np.uint8)
+    worker.camera.latest = lambda: (image, time.monotonic())
+    asyncio.run(worker.process_frame(None, 0))
+    assert client.get(f"/api/races/{session['race_id']}").json()["status"] == "active"
 
 
 def test_wrong_camera_cannot_resume_and_active_camera_cannot_reconnect(client):

@@ -72,7 +72,7 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 <p id="savedRange" class="status"></p><p><small>Starting a prepared video race opens its saved start marker. The end marker pauses counting for review. Race Pause freezes a replay; Resume continues from that frame.</small></p><button id="nextRace" hidden>Set up another race from this video</button>
 <p id="colorWarnings" role="status" hidden></p><div id="savedRacers"></div><table><thead><tr><th>Racer</th><th>Laps</th><th>Last lap</th><th>Best lap</th></tr></thead><tbody id="lapRows"></tbody></table></section>
 <section class="card" id="assessmentCard"><h2>Replay tracking assessment</h2><p>Analyze the marked interval. Motion crossings are candidates, not car identities or verified laps. Inspect sample frames and label candidates to build training data for this track.</p><div class="row"><button id="assessReplay">Assess marked replay</button><button id="downloadAssessment">Download review data</button></div><p id="assessmentStatus" class="status">Save a replay setup to assess it.</p><div id="assessmentWindows" class="status"></div><img id="assessmentFrame" alt="Selected replay frame with finish line" style="max-width:100%;display:block;margin:12px 0" hidden><div id="assessmentEvents"></div></section>
-<section class="card" id="computeCard"><h2>Off-Pi video review</h2><p>Request analysis of the marked recording. This queues work for a connected computer; the Pi cannot run the vision model. Uncertain crossings stay out of the results.</p><div class="row"><button id="requestCompute">Request computer analysis</button><button id="applyCompute" class="primary">Apply complete proposal</button></div><p id="computeStatus" class="status">No compute review requested.</p><div id="computeComparison"></div><div id="reviewPlayerWrap" hidden><video id="reviewPlayer" controls playsinline preload="metadata" aria-label="Race replay with provisional tracking overlay"></video><canvas id="reviewMarks" width="640" height="360" aria-hidden="true"></canvas><div id="reviewHud"><div id="reviewHudTitle">Replay analysis · provisional</div><div id="reviewHudRows"></div><div id="reviewUnknown">No offboard passes loaded.</div><div id="reviewRecent"></div></div></div><p><a id="reviewManifest" href="#">Review manifest</a> · <a id="reviewVideo" href="#" download>Download race recording</a></p></section>
+<section class="card" id="computeCard"><h2>Off-Pi video review</h2><p>Request analysis of the marked recording. This queues work for a connected computer; the Pi cannot run the vision model. Uncertain crossings stay out of the results.</p><div class="row"><button id="requestCompute">Request computer analysis</button><button id="applyCompute" class="primary">Apply complete proposal</button></div><p id="computeStatus" class="status">No compute review requested.</p><div id="computeComparison"></div><div id="reviewPlayerWrap" hidden><video id="reviewPlayer" controls playsinline preload="metadata" aria-label="Race replay with provisional tracking overlay"></video><canvas id="reviewMarks" width="640" height="360" aria-hidden="true"></canvas><div id="reviewHud"><div id="reviewHudTitle">Replay analysis · provisional</div><div id="reviewHudRows"></div><div id="reviewUnknown">No offboard passes loaded.</div><div id="reviewRecent"></div></div></div><p id="trackingStatus" class="status">No frame-by-frame track preview loaded.</p><p><a id="reviewManifest" href="#">Review manifest</a> · <a id="reviewVideo" href="#" download>Download race recording</a></p></section>
 <section class="card" id="standingsCard"><h2>Championship standings</h2><p id="scoring">Finish awards 10 / 7 / 5 / 4 points by position, ranked by recorded laps. Review experimental replay counts before awarding points.</p><table><thead><tr><th>Racer</th><th>Points</th><th>Wins</th><th>Races</th></tr></thead><tbody id="standings"></tbody></table></section>
 <p><small>Race data is saved on this Pi. The browser can close while the backend continues counting. Keep a clear view of the finish line and validate a practice run before scoring a championship.</small></p>
 </main></div>
@@ -80,7 +80,7 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 const $=id=>document.getElementById(id), canvas=$('preview'), ctx=canvas.getContext('2d');
 let current=null, sampledInput=null, rawFrame=null, hydrated=false, polling=false, scrubbing=false, assessmentRenderKey='',overlayRaceId=null;
 const overlayRows=new Map(),lastLapCounts=new Map(),reviewRows=new Map();
-let reviewPlayerRaceId=null,lastReviewFlash=null,appearanceRenderKey='';
+let reviewPlayerRaceId=null,lastReviewFlash=null,appearanceRenderKey='',trackingPreview=null,trackingPreviewId=null,reviewAnimation=null;
 const message=text=>$('message').textContent=text;
 const formatTime=seconds=>{if(seconds==null||!Number.isFinite(Number(seconds)))return '—';const tenths=Math.round(Number(seconds)*10);return `${Math.floor(tenths/600)}:${String(Math.floor((tenths%600)/10)).padStart(2,'0')}.${tenths%10}`;};
 function updateClipRange(){const start=Number($('videoStart').value||0),end=$('videoEnd').value.trim()?Number($('videoEnd').value):null;$('clipRange').textContent=`Race interval: ${formatTime(start)} to ${end==null?'end of video':formatTime(end)}.`;}
@@ -167,13 +167,42 @@ function renderReviewPlayer(data){
  }
  renderReviewOverlay();
 }
+async function syncTrackingPreview(data){
+ const summary=data.tracking_preview,raceId=data.race?.id;
+ if(!raceId||!summary){trackingPreview=null;trackingPreviewId=null;$('trackingStatus').textContent='No frame-by-frame track preview loaded.';return}
+ if(trackingPreviewId===summary.id)return;
+ const preview=await api(`/api/quick/review/${encodeURIComponent(raceId)}/tracks`);
+ if(preview?.id!==summary.id)return;
+ trackingPreview=preview;trackingPreviewId=summary.id;
+ $('trackingStatus').textContent=`Experimental lower-straight tracks: ${summary.track_count} crossing candidates, ${summary.point_count} frame positions. Green dots are detections; amber dots bridge short gaps. Rings mark candidate crossings. These are not verified laps or stable car identities.`;
+ renderReviewOverlay();
+}
+function renderTrackDots(ctxReview,time,config){
+ const preview=trackingPreview;
+ if(!preview||preview.race_id!==current?.race?.id||!['finish_x','y_min','y_max','direction'].every(key=>Math.abs(Number(preview.analysis_gate[key])-Number(config[key]))<.00001))return;
+ for(const track of preview.tracks){
+  const points=track.points,first=points[0],last=points.at(-1);
+  if(time<first.second-.08||time>last.second+.08)continue;
+  let before=null,after=null;
+  for(const point of points){if(point.second<=time)before=point;else{after=point;break}}
+  let x,y,interpolated=false;
+  if(before&&after&&after.second-before.second<=.4){const fraction=(time-before.second)/(after.second-before.second);x=before.x+(after.x-before.x)*fraction;y=before.y+(after.y-before.y)*fraction;interpolated=time-before.second>.035}
+  else if(before&&time-before.second<=.08){x=before.x;y=before.y}
+  else if(after&&after.second-time<=.08){x=after.x;y=after.y}
+  else continue;
+  const trail=points.filter(point=>point.second>=time-.5&&point.second<=time);
+  if(trail.length>1){ctxReview.beginPath();ctxReview.moveTo(trail[0].x*640,trail[0].y*360);for(const point of trail.slice(1))ctxReview.lineTo(point.x*640,point.y*360);ctxReview.strokeStyle='#5df0c5b0';ctxReview.lineWidth=2;ctxReview.stroke()}
+  ctxReview.beginPath();ctxReview.arc(x*640,y*360,6,0,2*Math.PI);ctxReview.fillStyle=interpolated?'#ffbb55':'#5df0c5';ctxReview.fill();ctxReview.strokeStyle='#07111b';ctxReview.lineWidth=2;ctxReview.stroke();
+  if(Math.abs(track.crossing_second-time)<.1){ctxReview.beginPath();ctxReview.arc(x*640,y*360,12,0,2*Math.PI);ctxReview.strokeStyle='#ffdd67';ctxReview.lineWidth=3;ctxReview.stroke()}
+ }
+}
 function renderReviewOverlay(){
  const player=$('reviewPlayer'),data=current;if(!data?.race||$('reviewPlayerWrap').hidden)return;
  const time=player.currentTime||0,start=Number(data.config?.video_start_s)||0,end=Number(data.config?.video_end_s)||Infinity;
  const proposal=data.replay_proposal,matchingGate=reviewGateMatches(data),observations=matchingGate?(proposal?.observations||[]).filter(event=>atSavedFinish(event,data.config)):[],crossings=matchingGate?proposal?.crossings||[]:[];
  $('reviewHudTitle').textContent=proposal?.status==='ready'||proposal?.status==='applied'?'Replay laps':'Mapped candidate laps · unverified';
  const ctxReview=$('reviewMarks').getContext('2d');ctxReview.clearRect(0,0,640,360);
- const gate=data.config;if(gate){ctxReview.beginPath();ctxReview.moveTo(gate.finish_x*640,gate.y_min*360);ctxReview.lineTo(gate.finish_x*640,gate.y_max*360);ctxReview.strokeStyle='#72f5bf';ctxReview.lineWidth=3;ctxReview.stroke()}
+ const gate=data.config;if(gate){ctxReview.beginPath();ctxReview.moveTo(gate.finish_x*640,gate.y_min*360);ctxReview.lineTo(gate.finish_x*640,gate.y_max*360);ctxReview.strokeStyle='#72f5bf';ctxReview.lineWidth=3;ctxReview.stroke();renderTrackDots(ctxReview,time,gate)}
  const visible=observations.filter(event=>event.second>=start&&event.second<=end&&Math.abs(event.second-time)<0.3);
  for(const event of visible){ctxReview.beginPath();ctxReview.arc(event.x*640,event.y*360,10,0,2*Math.PI);ctxReview.strokeStyle=event.direction==='outward'?'#f6d27c':'#75c9fa';ctxReview.lineWidth=3;ctxReview.stroke()}
  const outward=observations.filter(event=>event.direction==='outward'&&event.second>=start&&event.second<=Math.min(time,end)).length;
@@ -195,6 +224,8 @@ function renderReviewOverlay(){
 }
 $('reviewPlayer').addEventListener('timeupdate',renderReviewOverlay);
 $('reviewPlayer').addEventListener('seeked',renderReviewOverlay);
+$('reviewPlayer').addEventListener('play',()=>{if(reviewAnimation)return;const draw=()=>{renderReviewOverlay();reviewAnimation=$('reviewPlayer').paused?null:requestAnimationFrame(draw)};reviewAnimation=requestAnimationFrame(draw)});
+$('reviewPlayer').addEventListener('pause',()=>{if(reviewAnimation)cancelAnimationFrame(reviewAnimation);reviewAnimation=null;renderReviewOverlay()});
 function renderLapOverlay(data){
  const race=data.race,box=$('lapOverlay'),racers=data.context?.racers||[];
  box.hidden=!race||!racers.length;
@@ -222,7 +253,7 @@ const lapTime=n=>n?`${(n/1000).toFixed(3)}s`:'—';
 async function championships(){const items=await api('/api/championships');const chosen=$('championship').value;$('championship').replaceChildren(new Option('Create / reuse by name',''),...items.map(c=>new Option(c.name,c.id)));$('championship').value=chosen;}
 async function refresh(force=false){
 if(polling){if(!force)return;while(polling)await new Promise(resolve=>setTimeout(resolve,25));}polling=true;
-try{current=await api('/api/quick/state');renderVision(current);renderAssessment(current);renderCompute(current);renderLapOverlay(current);$('connection').textContent='Connected to the Pi';
+try{current=await api('/api/quick/state');renderVision(current);renderAssessment(current);renderCompute(current);renderLapOverlay(current);await syncTrackingPreview(current);$('connection').textContent='Connected to the Pi';
 if(!hydrated){hydrated=true;const c=current.config;if(c.racers){$('racers').replaceChildren();c.racers.forEach(r=>addRacer(r.name,r.color));$('source').value=c.source;$('eventName').value=c.event_name;$('championshipName').value=c.championship_name;$('laps').value=c.total_laps;$('pointsByPlace').value=(c.points_by_place??[10,7,5,4]).join(', ');$('finishX').value=c.finish_x*100;$('yMin').value=c.y_min*100;$('yMax').value=c.y_max*100;$('direction').value=c.direction;$('minimumLap').value=c.minimum_lap_ms/1000;$('championship').value=current.context.championship_id||'';$('videos').value=c.source;$('videoStart').value=c.video_start_s??0;$('videoEnd').value=c.video_end_s??'';}if(current.race?.status==='active'||(current.race?.status==='paused'&&current.laps.length))setStage(4);}
 const status=current.race?.status;const locked=status==='active'||(status==='paused'&&current.laps.length>0),unsaved=!locked&&setupChanged();$('prepare').disabled=locked;document.querySelectorAll('aside input, aside select, #addRacer, .racer button, #camera, #cameraStop, #uploadButton, #applyVision, #sampleVision').forEach(el=>el.disabled=locked);if(locked)sampledInput=null;$('editNotice').textContent=status==='paused'&&!current.laps.length?'No laps saved yet. You can revise this setup; saving returns it to Ready.':locked?'Finish this race before changing its scoring setup.':'';const replay=status==='setup'&&current.config?.source?.startsWith('video:');$('start').disabled=!['setup','paused'].includes(status)||unsaved||(!replay&&!current.camera.ready);$('start').textContent=replay?'Start race & replay video':status==='paused'?'Resume race':'Start race';$('pause').disabled=status!=='active';$('finish').disabled=!['active','paused'].includes(status);$('toGate').disabled=!current.camera.ready;
 $('setupState').textContent=unsaved?'Unsaved setup changes — use step 3 to save before starting.':status==='paused'&&!current.laps.length?'Paused with no laps saved — setup can be edited.':status==='paused'?`Paused with ${current.laps.length} saved laps.`:status==='active'?`Race running — ${current.laps.length} saved laps.`:status==='setup'?'Race ready for setup and testing.':'Choose a camera or video to begin.';

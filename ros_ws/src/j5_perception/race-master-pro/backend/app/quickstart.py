@@ -27,16 +27,20 @@ from app.replay_assessment import assess_replay
 from app.review_service import (
     GroupAssignment,
     ReviewProposal,
+    TrackingPreview,
     apply_proposal,
     assign_group,
     finish_observation,
     gate_matches,
     get_review_job,
     get_proposal,
+    get_tracking_preview,
+    get_tracking_preview_summary,
     list_review_jobs,
     manifest as review_manifest,
     request_review,
     submit_proposal,
+    submit_tracking_preview,
 )
 
 router = APIRouter()
@@ -391,6 +395,9 @@ async def state():
         "replay_assessment": runtime.replay_assessment,
         "replay_labels": await _get_state_json(f"replay_labels:{race_id}", {}),
         "replay_proposal": await get_proposal(race_id) if race_id else None,
+        "tracking_preview": (
+            await get_tracking_preview_summary(race_id) if race_id else None
+        ),
         "review_job": await get_review_job(race_id) if race_id else None,
         "error": runtime.error,
     }
@@ -584,6 +591,18 @@ async def review_submit_proposal(race_id: str, proposal: ReviewProposal):
     if proposal.race_id != race_id:
         raise HTTPException(422, "Proposal race ID does not match the URL")
     return await submit_proposal(proposal)
+
+
+@router.get("/api/quick/review/{race_id}/tracks")
+async def review_current_tracks(race_id: str):
+    return await get_tracking_preview(race_id)
+
+
+@router.post("/api/quick/review/{race_id}/tracks")
+async def review_submit_tracks(race_id: str, preview: TrackingPreview):
+    if preview.race_id != race_id:
+        raise HTTPException(422, "Tracking race ID does not match the URL")
+    return await submit_tracking_preview(preview)
 
 
 @router.post("/api/quick/review/{race_id}/groups")

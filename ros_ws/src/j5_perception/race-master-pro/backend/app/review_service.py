@@ -73,6 +73,42 @@ class GroupAssignment(BaseModel):
     racer_id: str | None = None
 
 
+class TrackPoint(BaseModel):
+    second: float = Field(ge=0, le=86400)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    observed: bool = True
+
+
+class TrackTrace(BaseModel):
+    track_id: int = Field(ge=1)
+    crossing_second: float = Field(ge=0, le=86400)
+    points: list[TrackPoint] = Field(min_length=2, max_length=500)
+
+    @model_validator(mode="after")
+    def ordered_points(self):
+        seconds = [point.second for point in self.points]
+        if any(later <= earlier for earlier, later in zip(seconds, seconds[1:])):
+            raise ValueError("Track points must be ordered by video time")
+        return self
+
+
+class TrackingPreview(BaseModel):
+    race_id: str
+    video_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source: str = Field(min_length=1, max_length=160)
+    analysis_gate: ReviewGate
+    tracks: list[TrackTrace] = Field(max_length=1000)
+
+    @model_validator(mode="after")
+    def bounded_points(self):
+        if len({track.track_id for track in self.tracks}) != len(self.tracks):
+            raise ValueError("Track IDs must be unique")
+        if sum(len(track.points) for track in self.tracks) > 50000:
+            raise ValueError("Tracking preview has too many points")
+        return self
+
+
 def gate_matches(proposed, saved):
     return proposed is not None and all(
         abs(proposed[key] - saved[key]) < 0.00001
@@ -285,6 +321,62 @@ async def submit_proposal(data):
 
 async def get_proposal(race_id):
     return await _state(f"replay_proposal:{race_id}")
+
+
+async def submit_tracking_preview(data: TrackingPreview):
+    """Store anonymous track evidence for replay inspection without scoring laps."""
+    info = await manifest(data.race_id)
+    if info["race_status"] == "active":
+        raise HTTPException(409, "Pause the race before reviewing its video")
+    if data.video_sha256 != info["video_sha256"]:
+        raise HTTPException(409, "Tracking video does not match the saved replay")
+    if not gate_matches(data.analysis_gate.model_dump(), info["finish_gate"]):
+        raise HTTPException(409, "Tracking gate does not match the saved finish line")
+    start = info["video_start_s"]
+    end = info["video_end_s"] or 86400
+    if any(
+        not start <= track.crossing_second <= end
+        or not track.points[0].second
+        <= track.crossing_second
+        <= track.points[-1].second
+        or any(not start <= point.second <= end for point in track.points)
+        for track in data.tracks
+    ):
+        raise HTTPException(
+            422, "Tracking points must bracket a crossing in the race interval"
+        )
+    preview = {
+        "id": str(uuid.uuid4()),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        **data.model_dump(),
+    }
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO system_state(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [f"tracking_preview:{data.race_id}", json.dumps(preview)],
+        )
+        await db.commit()
+    return tracking_preview_summary(preview)
+
+
+def tracking_preview_summary(preview):
+    if preview is None:
+        return None
+    return {
+        "id": preview["id"],
+        "source": preview["source"],
+        "track_count": len(preview["tracks"]),
+        "point_count": sum(len(track["points"]) for track in preview["tracks"]),
+    }
+
+
+async def get_tracking_preview(race_id):
+    return await _state(f"tracking_preview:{race_id}")
+
+
+async def get_tracking_preview_summary(race_id):
+    return tracking_preview_summary(await get_tracking_preview(race_id))
 
 
 async def assign_group(race_id, assignment: GroupAssignment):

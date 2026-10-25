@@ -39,6 +39,74 @@ def _proposal(manifest, shift=0):
     }
 
 
+def test_tracking_preview_is_video_bound_and_does_not_score(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DB_PATH", str(tmp_path / "race.db"))
+    directory = tmp_path / "videos"
+    directory.mkdir()
+    _video(directory / "heat.mp4")
+    with TestClient(app) as client:
+        race_id = client.post(
+            "/api/quick/session",
+            json={
+                "source": "video:heat.mp4",
+                "video_start_s": 0.5,
+                "video_end_s": 3.0,
+                "finish_x": 0.55,
+                "y_min": 0.59,
+                "y_max": 0.66,
+                "direction": -1,
+                "racers": [{"name": "A", "color": "#ff0000"}],
+            },
+        ).json()["race_id"]
+        info = client.get(f"/api/quick/review/{race_id}/manifest").json()
+        preview = {
+            "race_id": race_id,
+            "video_sha256": info["video_sha256"],
+            "source": "test-lower-straight",
+            "analysis_gate": info["finish_gate"],
+            "tracks": [
+                {
+                    "track_id": 1,
+                    "crossing_second": 1.5,
+                    "points": [
+                        {"second": 1.45, "x": 0.57, "y": 0.61},
+                        {"second": 1.55, "x": 0.53, "y": 0.61},
+                    ],
+                }
+            ],
+        }
+        endpoint = f"/api/quick/review/{race_id}/tracks"
+        wrong_video = {**preview, "video_sha256": "0" * 64}
+        assert client.post(endpoint, json=wrong_video).status_code == 409
+        wrong_gate = {**preview, "analysis_gate": {**info["finish_gate"], "y_max": 0.7}}
+        assert client.post(endpoint, json=wrong_gate).status_code == 409
+        out_of_range = {
+            **preview,
+            "tracks": [
+                {
+                    **preview["tracks"][0],
+                    "points": [
+                        {"second": 0.4, "x": 0.57, "y": 0.61},
+                        preview["tracks"][0]["points"][1],
+                    ],
+                }
+            ],
+        }
+        assert client.post(endpoint, json=out_of_range).status_code == 422
+        sent = client.post(endpoint, json=preview)
+        assert sent.status_code == 200, sent.text
+        assert sent.json()["track_count"] == 1
+        assert sent.json()["point_count"] == 2
+        stored = client.get(endpoint).json()["tracks"]
+        assert stored[0]["track_id"] == 1
+        assert [point["second"] for point in stored[0]["points"]] == [1.45, 1.55]
+        assert (
+            client.get("/api/quick/state").json()["tracking_preview"]["id"]
+            == sent.json()["id"]
+        )
+        assert client.get(f"/api/laps?race_id={race_id}").json() == []
+
+
 def test_offboard_proposal_replaces_laps_and_rescores_finished_race(
     tmp_path, monkeypatch
 ):

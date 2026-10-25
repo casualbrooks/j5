@@ -295,12 +295,12 @@ Expose per-car aggregates that the UI can bind to existing proof-of-concept fiel
 
 1. Copy an MP4 from another machine to the Pi:
    ```bash
-   scp /path/to/session_2026-02-25.mp4 racetime@<pi5-ip>:~/j5/replays/
+   scp /path/to/session_2026-02-25.mp4 <pi-user>@<pi5-ip>:~/j5/replays/
    ```
 
 2. Or sync a whole replay folder from another machine:
    ```bash
-   rsync -avP /path/to/replay_folder/ racetime@<pi5-ip>:~/j5/replays/
+   rsync -avP /path/to/replay_folder/ <pi-user>@<pi5-ip>:~/j5/replays/
    ```
 
 3. Or copy from a USB stick plugged into the Pi:

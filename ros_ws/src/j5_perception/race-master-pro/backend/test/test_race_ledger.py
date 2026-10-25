@@ -212,7 +212,7 @@ def test_uploaded_video_can_be_selected_and_invalid_video_is_rejected(client, tm
 def test_start_opens_saved_replay_from_beginning_but_resume_does_not_rewind(
     client, monkeypatch
 ):
-    source = "video:/home/racetime/videotest_masked.mp4"
+    source = "video:/home/piuser/videotest_masked.mp4"
     calls = []
 
     def stop():
@@ -233,7 +233,7 @@ def test_start_opens_saved_replay_from_beginning_but_resume_does_not_rewind(
         json={"source": source, "racers": [{"name": "Red", "color": "#ff0000"}]},
     )
     assert response.status_code == 200, response.text
-    runtime.camera.source = "video:/home/racetime/videotest.mp4"
+    runtime.camera.source = "video:/home/piuser/videotest.mp4"
     runtime.camera.frame_time = 0
     assert client.post("/api/quick/control/start").status_code == 200
     assert calls == [

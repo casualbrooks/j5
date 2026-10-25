@@ -127,11 +127,11 @@ class Camera:
         path = path.resolve()
         allowed = {
             Path(database.DB_PATH).parent.joinpath("videos").resolve(),
-            Path("/home/racetime"),
+            Path.home().resolve(),
         }
         if path.parent not in allowed or path.suffix.lower() != ".mp4":
             raise ValueError(
-                "Replay videos must be uploaded or stored in /home/racetime"
+                "Replay videos must be uploaded or stored in the service user's home directory"
             )
         return path
 

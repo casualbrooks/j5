@@ -354,7 +354,7 @@ def import_classifications(pi, race_id, output_dir, classification_file, submit)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pi", default="http://192.168.1.134:8080")
+    parser.add_argument("--pi", default=os.environ.get("J5_PI_URL"))
     parser.add_argument("--race-id")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--submit", action="store_true")
@@ -364,6 +364,8 @@ def main():
     parser.add_argument("--detect-only", action="store_true")
     parser.add_argument("--import-classifications", type=Path)
     args = parser.parse_args()
+    if not args.pi:
+        parser.error("Provide --pi or set J5_PI_URL on this computer")
     if not args.race_id and not args.watch:
         parser.error("Provide --race-id or --watch")
     if args.import_classifications:

@@ -120,7 +120,7 @@ def color_warnings(racers):
 
 def validate_source(source):
     if not re.fullmatch(
-        r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+|video:(?:/home/racetime/)?[A-Za-z0-9_-]+\.mp4)",
+        r"(?:[0-9]|/dev/video[0-9]+|ros:/[A-Za-z0-9_/]+|video:(?:/home/[A-Za-z0-9_-]+/)?[A-Za-z0-9_-]+\.mp4)",
         source,
     ):
         raise ValueError(
@@ -590,7 +590,7 @@ async def list_videos():
     videos = []
     for directory, legacy in (
         (video_directory(), False),
-        (Path("/home/racetime"), True),
+        (Path.home(), True),
     ):
         if not directory.is_dir():
             continue

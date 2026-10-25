@@ -50,10 +50,10 @@ def test_reverse_and_large_foreground_object_are_not_counted():
 
 
 def test_replay_source_is_limited_to_recordings_in_pi_home():
-    validate_source("video:/home/racetime/videotest.mp4")
+    validate_source("video:/home/piuser/videotest.mp4")
     for source in (
         "video:/etc/passwd",
-        "video:/home/racetime/../secret.mp4",
+        "video:/home/piuser/../secret.mp4",
         "http://example.com/video",
     ):
         try:

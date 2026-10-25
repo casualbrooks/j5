@@ -30,7 +30,7 @@ candidate frames and rows are kept in memory. This test does not insert laps
 or championship scores and cannot identify visually similar cars.
 
 For the existing whole-track GoPro recording on the Pi, enter
-`video:/home/racetime/videotest.mp4` as the source and click **Use full-track
+`video:/home/<pi-user>/videotest.mp4` as the source and click **Use full-track
 video line** immediately after connecting. The preset watches the upper
 straight around x=61%, y=10-20%, moving right to left. The video plays at its
 recorded rate; reconnect it to restart. This preset is specific to that

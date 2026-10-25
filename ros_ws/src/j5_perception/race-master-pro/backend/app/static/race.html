@@ -12,6 +12,7 @@ canvas{aspect-ratio:auto;height:auto}
 #replayControls{margin-top:14px;padding:14px;border:1px solid #405268;border-radius:8px}#replayControls input[type=range]{width:100%}#replayControls .row button{min-width:110px}[hidden]{display:none!important}
 #previewWrap{position:relative}#lapOverlay{position:absolute;top:10px;right:10px;z-index:2;min-width:170px;max-width:min(46%,290px);padding:10px;border:1px solid #8ca5ba88;border-radius:10px;background:#0b1520d9;backdrop-filter:blur(5px);pointer-events:none;box-shadow:0 5px 22px #0008}#lapOverlayTitle{display:flex;justify-content:space-between;gap:8px;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#d8e7f4;margin-bottom:6px}#lapOverlayStatus{font-size:11px;color:#aebbc9;text-transform:none;letter-spacing:0}.lap-overlay-row{display:flex;align-items:center;gap:8px;padding:5px 3px;border-radius:6px;font-variant-numeric:tabular-nums}.lap-overlay-dot{width:8px;height:8px;border-radius:50%;flex:none}.lap-overlay-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.lap-overlay-count{font-size:20px;font-weight:750;min-width:2ch;text-align:right}.lap-flash{animation:lapPulse 1.7s ease-out}@keyframes lapPulse{0%{background:#3fe3a5;color:#06150f;transform:scale(1.05)}30%{background:#248665;color:#fff}100%{background:transparent;color:inherit;transform:scale(1)}}@media(max-width:550px){#lapOverlay{min-width:130px;max-width:55%;padding:7px}.lap-overlay-count{font-size:17px}}
 #reviewPlayerWrap{position:relative;max-width:960px;margin:16px 0}#reviewPlayer{display:block;width:100%;aspect-ratio:16/9;background:#070b11}#reviewMarks{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:16/9;background:transparent;border-radius:0;cursor:default;pointer-events:none}#reviewHud{position:absolute;top:10px;right:10px;z-index:2;min-width:175px;max-width:45%;padding:9px;border:1px solid #8ca5ba88;border-radius:8px;background:#0b1520df;pointer-events:none;font-size:12px}#reviewHudTitle{font-weight:700;color:#d8e7f4}#reviewHudRows .lap-overlay-count{font-size:16px}#reviewUnknown{color:#f6d27c;margin-top:5px}#reviewRecent{color:#8fddfa;margin-top:4px;min-height:1em}@media(max-width:550px){#reviewHud{min-width:135px;max-width:55%;font-size:10px;padding:6px}}
+#appearanceGroups{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin:16px 0}#appearanceGroups>p{grid-column:1/-1}.appearance-group{border:1px solid #405268;border-radius:8px;padding:12px}.appearance-group h3{margin:0 0 8px;font-size:16px}.appearance-samples{display:flex;gap:6px}.appearance-samples button{padding:3px;min-width:0;flex:1}.appearance-samples img{display:block;width:100%;aspect-ratio:9/5;object-fit:cover}.appearance-group select{margin-top:10px}
 main{display:flex;flex-direction:column}#previewCard{order:0}#visionCard{order:1}#raceCard{order:2}#standingsCard{order:3}
 body[data-step="1"] #setupCard,body[data-step="2"] #sourceCard,body[data-step="2"] #raceFields,body[data-step="3"] #sourceCard,body[data-step="3"] #gateFields,body[data-step="4"] aside{display:none}
 body[data-step="4"] .layout{grid-template-columns:1fr}body[data-step="4"] #raceCard{order:0}body[data-step="4"] #previewCard{order:1}
@@ -51,7 +52,6 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 <section class="card" id="visionCard"><h2>Camera-only crossing test</h2>
 <p>Edit the finish line above and watch it move on the preview. Apply the line to start counting forward passes without changing championship scores.</p>
 <button id="applyVision">Apply test line and reset candidates</button>
-<button id="sampleVision">Use full-track video line</button>
 <p id="visionStatus" class="status">Connect a camera to begin.</p>
 <p id="visionCount" class="metric">0 candidate passes</p>
 <p><a href="/api/quick/crossings.csv" download>Download candidate log (CSV)</a></p>
@@ -79,7 +79,7 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 const $=id=>document.getElementById(id), canvas=$('preview'), ctx=canvas.getContext('2d');
 let current=null, sampledInput=null, rawFrame=null, hydrated=false, polling=false, scrubbing=false, assessmentRenderKey='',overlayRaceId=null;
 const overlayRows=new Map(),lastLapCounts=new Map(),reviewRows=new Map();
-let reviewPlayerRaceId=null,lastReviewFlash=null;
+let reviewPlayerRaceId=null,lastReviewFlash=null,appearanceRenderKey='';
 const message=text=>$('message').textContent=text;
 const formatTime=seconds=>{if(seconds==null||!Number.isFinite(Number(seconds)))return '—';const tenths=Math.round(Number(seconds)*10);return `${Math.floor(tenths/600)}:${String(Math.floor((tenths%600)/10)).padStart(2,'0')}.${tenths%10}`;};
 function updateClipRange(){const start=Number($('videoStart').value||0),end=$('videoEnd').value.trim()?Number($('videoEnd').value):null;$('clipRange').textContent=`Race interval: ${formatTime(start)} to ${end==null?'end of video':formatTime(end)}.`;}
@@ -117,13 +117,37 @@ function renderAssessment(data){
   row.append(inspect,select,save);$('assessmentEvents').append(row);
  }
 }
+const appearanceBox=document.createElement('div');appearanceBox.id='appearanceGroups';$('reviewPlayerWrap').insertAdjacentElement('afterend',appearanceBox);
+function reviewGateMatches(data){const gate=data.replay_proposal?.analysis_gate,config=data.config;if(!gate||!config)return false;return ['finish_x','y_min','y_max','direction'].every(key=>Math.abs(Number(gate[key])-Number(config[key]))<.00001)}
+function renderAppearanceGroups(data){
+ const proposal=data.replay_proposal,raceId=data.race?.id,groups=new Map();
+ if(!reviewGateMatches(data)){appearanceRenderKey='';appearanceBox.replaceChildren();if(proposal?.observations?.length)appearanceBox.textContent='This analysis was not tied to the saved finish line. Reanalyze the lower finish before mapping car appearances.';return}
+ for(const event of proposal?.observations||[]){if(event.appearance_cluster==null)continue;const group=event.appearance_cluster;if(!groups.has(group))groups.set(group,[]);groups.get(group).push(event)}
+ const key=JSON.stringify([proposal?.id,proposal?.group_assignments,data.context?.racers]);if(key===appearanceRenderKey)return;appearanceRenderKey=key;appearanceBox.replaceChildren();
+ if(!groups.size){appearanceBox.textContent='No appearance groups at the saved finish line yet.';return}
+ const intro=document.createElement('p');intro.textContent='Compare several passes, then assign groups that consistently show the same car. One car may appear in several groups; a group can also contain false detections. Leave uncertain groups unassigned. Mappings do not count laps.';appearanceBox.append(intro);
+ const roster=data.context?.racers||[];
+ for(const [group,events] of [...groups].sort((a,b)=>a[0]-b[0])){
+  const card=document.createElement('div');card.className='appearance-group';
+  const title=document.createElement('h3');title.textContent=`Appearance group ${group+1}`;
+  const detail=document.createElement('p');detail.textContent=`${events.length} candidate passes at the saved finish line`;
+  const samples=document.createElement('div');samples.className='appearance-samples';
+  const chosen=[];for(const event of [...events].sort((a,b)=>b.confidence-a.confidence)){if(chosen.every(old=>Math.abs(old.second-event.second)>3))chosen.push(event);if(chosen.length===3)break}
+  for(const event of chosen){const button=document.createElement('button');button.type='button';button.title=`Watch pass at ${formatTime(event.second)}`;const img=document.createElement('img');img.src=`/api/quick/review/${encodeURIComponent(raceId)}/sample/${event.tracklet_id}.jpg`;img.alt=`Car appearance near ${formatTime(event.second)}`;const label=document.createElement('small');label.textContent=formatTime(event.second);button.append(img,label);button.onclick=()=>{const player=$('reviewPlayer');player.currentTime=Math.max(Number(data.config.video_start_s)||0,event.second-.35);player.playbackRate=.25;player.play().catch(()=>{});player.scrollIntoView({behavior:'smooth',block:'center'})};samples.append(button)}
+  const select=document.createElement('select');select.ariaLabel=`Racer for appearance group ${group+1}`;select.append(new Option('Unassigned',''),...roster.map(racer=>new Option(racer.name,racer.id)));select.value=proposal.group_assignments?.[String(group)]||'';
+  select.onchange=async()=>{try{const updated=await api(`/api/quick/review/${encodeURIComponent(raceId)}/groups`,'POST',{appearance_cluster:group,racer_id:select.value||null});current.replay_proposal=updated;renderAppearanceGroups(current);message(`Appearance group ${group+1} mapping saved. Laps remain unverified.`)}catch(error){select.value=proposal.group_assignments?.[String(group)]||'';message(error.message)}};
+  card.append(title,detail,samples,select);appearanceBox.append(card)
+ }
+}
 function renderCompute(data){
  const raceId=data.race?.id,video=data.config?.source?.startsWith('video:'),proposal=data.replay_proposal,job=data.review_job;
  renderReviewPlayer(data);
+ renderAppearanceGroups(data);
  $('computeCard').hidden=!video;$('requestCompute').disabled=!video||!raceId||data.race.status==='active';
- $('applyCompute').disabled=!proposal||proposal.status!=='ready'||!['paused','finished'].includes(data.race?.status);
+ $('applyCompute').disabled=!proposal||proposal.status!=='ready'||!reviewGateMatches(data)||!['paused','finished'].includes(data.race?.status);
  $('reviewManifest').href=raceId?`/api/quick/review/${encodeURIComponent(raceId)}/manifest`:'#';
  $('reviewVideo').href=raceId?`/api/quick/review/${encodeURIComponent(raceId)}/video`:'#';
+ if(proposal?.observations?.length&&!reviewGateMatches(data)){$('computeStatus').textContent='Previous computer analysis was not bound to your saved lower finish line. Its upper-track observations cannot be used for racer mapping or lap results. Reanalyze at the saved finish.';$('computeComparison').replaceChildren();return}
  if(!job){$('computeStatus').textContent='No compute review requested.';$('computeComparison').replaceChildren();return}
  $('computeStatus').textContent=job.status==='requested'?`Analysis queued at ${new Date(job.requested_at).toLocaleTimeString()}. The Pi is waiting for an off-Pi worker to connect; the button alone cannot start NVIDIA inference.${proposal?' The proposal below is from an earlier, incomplete run.':''}`:proposal?.status==='incomplete'&&!proposal.crossings.length?`Insufficient evidence: the computer could not identify any racer in the sampled crossings. No results were changed. ${proposal.notes||''}`:proposal?`Computer review: ${proposal.status}. ${proposal.summary.unassigned_crossings} crossings unresolved. ${proposal.notes||''}`:`Computer review: ${job.status}.`;
  $('computeComparison').replaceChildren();if(!proposal)return;
@@ -143,13 +167,14 @@ function renderReviewPlayer(data){
 function renderReviewOverlay(){
  const player=$('reviewPlayer'),data=current;if(!data?.race||$('reviewPlayerWrap').hidden)return;
  const time=player.currentTime||0,start=Number(data.config?.video_start_s)||0,end=Number(data.config?.video_end_s)||Infinity;
- const proposal=data.replay_proposal,observations=proposal?.observations||[],crossings=proposal?.crossings||[];
+ const proposal=data.replay_proposal,matchingGate=reviewGateMatches(data),observations=matchingGate?proposal?.observations||[]:[],crossings=matchingGate?proposal?.crossings||[]:[];
  const ctxReview=$('reviewMarks').getContext('2d');ctxReview.clearRect(0,0,640,360);
+ const gate=data.config;if(gate){ctxReview.beginPath();ctxReview.moveTo(gate.finish_x*640,gate.y_min*360);ctxReview.lineTo(gate.finish_x*640,gate.y_max*360);ctxReview.strokeStyle='#72f5bf';ctxReview.lineWidth=3;ctxReview.stroke()}
  const visible=observations.filter(event=>event.second>=start&&event.second<=end&&Math.abs(event.second-time)<0.3);
  for(const event of visible){ctxReview.beginPath();ctxReview.arc(event.x*640,event.y*360,10,0,2*Math.PI);ctxReview.strokeStyle=event.direction==='outward'?'#f6d27c':'#75c9fa';ctxReview.lineWidth=3;ctxReview.stroke()}
  const outward=observations.filter(event=>event.direction==='outward'&&event.second>=start&&event.second<=Math.min(time,end)).length;
  const returning=observations.filter(event=>event.direction==='return'&&event.second>=start&&event.second<=Math.min(time,end)).length;
- $('reviewUnknown').textContent=observations.length?`${outward} outward passes · ${returning} return passes · identities unverified`:'No offboard passes loaded.';
+ $('reviewUnknown').textContent=observations.length?`${outward} outward passes · ${returning} return passes · identities unverified`:proposal?.observations?.length&&!matchingGate?'Previous analysis used an unverified line. Reanalyze this finish.':'No offboard passes loaded.';
  const recent=[...observations].reverse().find(event=>event.second<=time&&time-event.second<1.7);
  $('reviewRecent').textContent=recent?`${recent.direction==='outward'?'Recent outward pass':'Recent return pass'} · ${recent.appearance_cluster==null?'car unknown':`appearance group ${recent.appearance_cluster+1}`}`:'';
  const roster=data.context?.racers||[],ids=new Set(roster.map(racer=>racer.id));
@@ -158,7 +183,7 @@ function renderReviewOverlay(){
   let row=reviewRows.get(racer.id);
   if(!row){row=document.createElement('div');row.className='lap-overlay-row';const dot=document.createElement('span');dot.className='lap-overlay-dot';dot.style.backgroundColor=racer.color||'#fff';const name=document.createElement('span');name.className='lap-overlay-name';name.textContent=racer.name;const count=document.createElement('span');count.className='lap-overlay-count';row.append(dot,name,count);$('reviewHudRows').append(row);reviewRows.set(racer.id,row)}
   const seen=crossings.filter(event=>event.racer_id===racer.id&&event.second>=start&&event.second<=Math.min(time,end));
-  row.lastElementChild.textContent=proposal?.status==='ready'||proposal?.status==='applied'?String(Math.max(0,seen.length-1)):'?';
+  row.lastElementChild.textContent=matchingGate&&(proposal?.status==='ready'||proposal?.status==='applied')?String(Math.max(0,seen.length-1)):'?';
   const latest=seen.at(-1);if(latest&&seen.length>1&&time-latest.second<1.7){const key=`${racer.id}:${latest.second}`;if(lastReviewFlash!==key){row.classList.remove('lap-flash');void row.offsetWidth;row.classList.add('lap-flash');lastReviewFlash=key}}
  }
 }
@@ -210,7 +235,6 @@ $('applyCompute').onclick=act(async()=>{const raceId=current?.race?.id;if(!raceI
 $('downloadAssessment').onclick=()=>{const payload={config:current.config,racers:current.context.racers,assessment:current.replay_assessment,labels:current.replay_labels};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`replay-review-${current.race.id}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 for(const action of ['start','pause','finish'])$(action).onclick=act(async()=>{if(action==='start'&&setupChanged())throw Error('Save the setup in step 3 before starting.');await api(`/api/quick/control/${action}`,'POST');message(action==='finish'?'Results and championship points saved.':action==='pause'?'Race paused. Video replay and lap counting are halted.':'Race running. Each car’s first forward crossing starts its timer.');});
 $('applyVision').onclick=act(async()=>{await api('/api/quick/vision','POST',testGate());message('Crossing test reset. Keep the camera steady during calibration.');});
-$('sampleVision').onclick=act(async()=>{$('finishX').value=61;$('yMin').value=10;$('yMax').value=20;$('direction').value=-1;await api('/api/quick/vision','POST',testGate());message('Full-track video gate applied: upper straight, right to left.');});
 $('videos').onchange=act(async()=>{if(!$('videos').value)return;if($('videos').value!==$('source').value){$('videoStart').value=0;$('videoEnd').value='';}$('source').value=$('videos').value;await api('/api/quick/camera','POST',{source:$('source').value});message('Opening replay. Pause or scrub to inspect cars, then continue.');});
 $('uploadButton').onclick=act(async()=>{const file=$('upload').files[0];if(!file)throw Error('Choose an MP4 file first.');if(!file.name.toLowerCase().endsWith('.mp4'))throw Error('Choose an MP4 file.');const req=new XMLHttpRequest();const result=await new Promise((resolve,reject)=>{req.open('POST',`/api/quick/videos/${encodeURIComponent(file.name)}`);req.upload.onprogress=e=>{if(e.lengthComputable)$('uploadStatus').textContent=`Uploading ${Math.round(e.loaded/e.total*100)}%`;};req.onerror=()=>reject(Error('Upload connection failed'));req.onload=()=>{let body;try{body=JSON.parse(req.responseText)}catch{body={}}if(req.status>=200&&req.status<300)resolve(body);else reject(Error(body.detail||`Upload failed (${req.status})`))};req.send(file)});$('source').value=result.source;$('videoStart').value=0;$('videoEnd').value='';await videos();if(current?.camera.source&&current.camera.source!==result.source)await api('/api/quick/camera','DELETE');await api('/api/quick/camera','POST',{source:result.source});$('uploadStatus').textContent=`Uploaded ${file.name}; opening replay.`;message('Video uploaded. Pause or scrub to inspect cars, then mark its race interval.');});
 for(const action of ['play','pause'])$('preview'+action[0].toUpperCase()+action.slice(1)).onclick=act(async()=>{await api(`/api/quick/camera/preview/${action}`,'POST');message(action==='pause'?'Preview paused. Sample car colors or mark a race point.':'Preview playing; lap counting is still off.');});

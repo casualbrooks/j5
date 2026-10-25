@@ -34,10 +34,24 @@ class ObservedPass(BaseModel):
     appearance_cluster: int | None = Field(default=None, ge=0)
 
 
+class ReviewGate(BaseModel):
+    finish_x: float = Field(ge=0.1, le=0.9)
+    y_min: float = Field(ge=0, le=1)
+    y_max: float = Field(ge=0, le=1)
+    direction: Literal[-1, 1]
+
+    @model_validator(mode="after")
+    def ordered_y(self):
+        if self.y_min >= self.y_max:
+            raise ValueError("Gate top must be above its bottom")
+        return self
+
+
 class ReviewProposal(BaseModel):
     race_id: str
     video_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     model: str = Field(min_length=1, max_length=160)
+    analysis_gate: ReviewGate | None = None
     crossings: list[ProposedCrossing] = Field(max_length=10000)
     observations: list[ObservedPass] = Field(default_factory=list, max_length=10000)
     unassigned_crossings: int = Field(ge=0)
@@ -52,6 +66,18 @@ class ReviewProposal(BaseModel):
         if observed_seconds != sorted(observed_seconds):
             raise ValueError("Observations must be sorted by video time")
         return self
+
+
+class GroupAssignment(BaseModel):
+    appearance_cluster: int = Field(ge=0)
+    racer_id: str | None = None
+
+
+def gate_matches(proposed, saved):
+    return proposed is not None and all(
+        abs(proposed[key] - saved[key]) < 0.00001
+        for key in ("finish_x", "y_min", "y_max", "direction")
+    )
 
 
 async def _state(key):
@@ -155,6 +181,10 @@ async def submit_proposal(data):
         raise HTTPException(409, "Pause the race before reviewing its video")
     if data.video_sha256 != info["video_sha256"]:
         raise HTTPException(409, "Proposal video does not match the saved replay")
+    if data.analysis_gate and not gate_matches(
+        data.analysis_gate.model_dump(), info["finish_gate"]
+    ):
+        raise HTTPException(409, "Analysis gate does not match the saved finish line")
     roster = {racer["id"] for racer in info["racers"]}
     if any(event.racer_id not in roster for event in data.crossings):
         raise HTTPException(422, "Proposal contains a racer outside this race")
@@ -186,6 +216,7 @@ async def submit_proposal(data):
         "baseline_sha256": info["baseline_sha256"],
         "status": "ready" if summary["complete"] else "incomplete",
         "summary": summary,
+        "group_assignments": {},
         **data.model_dump(),
     }
     async with aiosqlite.connect(database.DB_PATH) as db:
@@ -214,6 +245,51 @@ async def submit_proposal(data):
 
 async def get_proposal(race_id):
     return await _state(f"replay_proposal:{race_id}")
+
+
+async def assign_group(race_id, assignment: GroupAssignment):
+    """Record a human identity hint without turning candidate passes into laps."""
+    info = await manifest(race_id)
+    if info["race_status"] == "active":
+        raise HTTPException(409, "Pause the race before assigning an appearance group")
+    key = f"replay_proposal:{race_id}"
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (
+            await db.execute("SELECT value FROM system_state WHERE key=?", [key])
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "No proposal for this race")
+        proposal = json.loads(row[0])
+        if proposal["status"] == "applied":
+            raise HTTPException(409, "This proposal has already been applied")
+        if proposal["video_sha256"] != info["video_sha256"] or not gate_matches(
+            proposal.get("analysis_gate"), info["finish_gate"]
+        ):
+            raise HTTPException(
+                409, "Review the saved video at its current finish line"
+            )
+        groups = {
+            event["appearance_cluster"]
+            for event in proposal.get("observations", [])
+            if event.get("appearance_cluster") is not None
+        }
+        if assignment.appearance_cluster not in groups:
+            raise HTTPException(422, "Appearance group is not in this proposal")
+        roster = {racer["id"] for racer in info["racers"]}
+        if assignment.racer_id is not None and assignment.racer_id not in roster:
+            raise HTTPException(422, "Racer is not in this race")
+        mappings = proposal.setdefault("group_assignments", {})
+        group = str(assignment.appearance_cluster)
+        if assignment.racer_id is None:
+            mappings.pop(group, None)
+        else:
+            mappings[group] = assignment.racer_id
+        await db.execute(
+            "UPDATE system_state SET value=? WHERE key=?", [json.dumps(proposal), key]
+        )
+        await db.commit()
+    return proposal
 
 
 async def request_review(race_id):
@@ -261,6 +337,10 @@ async def apply_proposal(race_id):
         raise HTTPException(409, "Pause or finish the race before applying a review")
     if proposal["video_sha256"] != info["video_sha256"]:
         raise HTTPException(409, "Saved replay video changed after analysis")
+    if proposal.get("observations") and not gate_matches(
+        proposal.get("analysis_gate"), info["finish_gate"]
+    ):
+        raise HTTPException(409, "Analysis did not use the saved finish line")
     if proposal["baseline_sha256"] != info["baseline_sha256"]:
         raise HTTPException(409, "Lap ledger changed after this proposal was prepared")
     by_racer = {racer["id"]: [] for racer in info["racers"]}

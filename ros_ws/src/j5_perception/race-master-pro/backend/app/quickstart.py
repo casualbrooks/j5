@@ -25,8 +25,11 @@ from app.motion_timing import MotionFinishDetector
 from app.models import LapRecordCreate
 from app.replay_assessment import assess_replay
 from app.review_service import (
+    GroupAssignment,
     ReviewProposal,
     apply_proposal,
+    assign_group,
+    gate_matches,
     get_review_job,
     get_proposal,
     list_review_jobs,
@@ -580,6 +583,60 @@ async def review_submit_proposal(race_id: str, proposal: ReviewProposal):
     if proposal.race_id != race_id:
         raise HTTPException(422, "Proposal race ID does not match the URL")
     return await submit_proposal(proposal)
+
+
+@router.post("/api/quick/review/{race_id}/groups")
+async def review_assign_group(race_id: str, assignment: GroupAssignment):
+    return await assign_group(race_id, assignment)
+
+
+@router.get("/api/quick/review/{race_id}/sample/{tracklet_id}.jpg")
+async def review_sample_frame(race_id: str, tracklet_id: int):
+    info = await review_manifest(race_id)
+    proposal = await get_proposal(race_id)
+    if not proposal or not gate_matches(
+        proposal.get("analysis_gate"), info["finish_gate"]
+    ):
+        raise HTTPException(404, "No finish-line appearance samples available")
+    event = next(
+        (
+            item
+            for item in proposal.get("observations", [])
+            if item["tracklet_id"] == tracklet_id
+            and item.get("appearance_cluster") is not None
+        ),
+        None,
+    )
+    if event is None:
+        raise HTTPException(404, "Appearance sample not found")
+
+    def crop_frame():
+        capture = cv2.VideoCapture(str(info["path"]))
+        try:
+            capture.set(cv2.CAP_PROP_POS_MSEC, event["second"] * 1000)
+            okay, frame = capture.read()
+            if not okay:
+                return None
+            height, width = frame.shape[:2]
+            cx, cy = round(event["x"] * width), round(event["y"] * height)
+            half_width, half_height = 54, 30
+            x0, x1 = max(0, cx - half_width), min(width, cx + half_width)
+            y0, y1 = max(0, cy - half_height), min(height, cy + half_height)
+            crop = frame[y0:y1, x0:x1]
+            if crop.size == 0:
+                return None
+            enlarged = cv2.resize(crop, (432, 240), interpolation=cv2.INTER_NEAREST)
+            okay, jpeg = cv2.imencode(".jpg", enlarged)
+            return jpeg.tobytes() if okay else None
+        finally:
+            capture.release()
+
+    jpeg = await asyncio.to_thread(crop_frame)
+    if jpeg is None:
+        raise HTTPException(404, "Appearance frame unavailable")
+    return Response(
+        jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.post("/api/quick/review/{race_id}/apply")

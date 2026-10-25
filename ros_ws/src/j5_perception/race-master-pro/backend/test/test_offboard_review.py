@@ -170,3 +170,82 @@ def test_incomplete_or_wrong_video_proposal_cannot_replace_ledger(
             ).status_code
             == 422
         )
+
+
+def test_finish_line_groups_can_be_mapped_without_scoring(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DB_PATH", str(tmp_path / "race.db"))
+    directory = tmp_path / "videos"
+    directory.mkdir()
+    _video(directory / "heat.mp4")
+    with TestClient(app) as client:
+        race_id = client.post(
+            "/api/quick/session",
+            json={
+                "source": "video:heat.mp4",
+                "finish_x": 0.55,
+                "y_min": 0.59,
+                "y_max": 0.66,
+                "direction": -1,
+                "racers": [
+                    {"name": "A", "color": "#ff0000"},
+                    {"name": "B", "color": "#0000ff"},
+                ],
+            },
+        ).json()["race_id"]
+        manifest = client.get(f"/api/quick/review/{race_id}/manifest").json()
+        proposal = {
+            "race_id": race_id,
+            "video_sha256": manifest["video_sha256"],
+            "model": "test-lower-gate",
+            "analysis_gate": {**manifest["finish_gate"], "finish_x": 0.62},
+            "crossings": [],
+            "unassigned_crossings": 2,
+            "observations": [
+                {
+                    "second": second,
+                    "direction": "outward",
+                    "x": 0.55,
+                    "y": 0.62,
+                    "confidence": 0.8,
+                    "tracklet_id": index + 1,
+                    "appearance_cluster": index,
+                }
+                for index, second in enumerate((1.0, 2.0))
+            ],
+        }
+        assert (
+            client.post(
+                f"/api/quick/review/{race_id}/proposal", json=proposal
+            ).status_code
+            == 409
+        )
+        proposal["analysis_gate"] = manifest["finish_gate"]
+        sent = client.post(f"/api/quick/review/{race_id}/proposal", json=proposal)
+        assert sent.status_code == 200, sent.text
+        assert sent.json()["status"] == "incomplete"
+        sample = client.get(f"/api/quick/review/{race_id}/sample/1.jpg")
+        assert sample.status_code == 200
+        assert sample.headers["content-type"] == "image/jpeg"
+        first, second = [racer["id"] for racer in manifest["racers"]]
+        mapped = client.post(
+            f"/api/quick/review/{race_id}/groups",
+            json={"appearance_cluster": 0, "racer_id": first},
+        )
+        assert mapped.status_code == 200, mapped.text
+        assert mapped.json()["group_assignments"] == {"0": first}
+        assert mapped.json()["status"] == "incomplete"
+        duplicate = client.post(
+            f"/api/quick/review/{race_id}/groups",
+            json={"appearance_cluster": 1, "racer_id": first},
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["group_assignments"] == {"0": first, "1": first}
+        assert (
+            client.post(
+                f"/api/quick/review/{race_id}/groups",
+                json={"appearance_cluster": 1, "racer_id": second},
+            ).status_code
+            == 200
+        )
+        assert client.get(f"/api/laps?race_id={race_id}").json() == []
+        assert client.post(f"/api/quick/review/{race_id}/apply").status_code == 409

@@ -23,6 +23,7 @@ from app.camera import Camera
 from app.color_timing import FinishGate, detect_colors, hue_for_color
 from app.motion_timing import MotionFinishDetector
 from app.models import LapRecordCreate
+from app.replay_assessment import assess_replay
 
 router = APIRouter()
 
@@ -130,6 +131,11 @@ class VisionGate(BaseModel):
         return self
 
 
+class ReplayLabel(BaseModel):
+    event_key: str
+    label: str
+
+
 class TimingRuntime:
     def __init__(self):
         self.camera = Camera()
@@ -143,6 +149,8 @@ class TimingRuntime:
         self.vision_config = VisionGate(finish_x=0.5, y_min=0.1, y_max=0.9, direction=1)
         self.motion = MotionFinishDetector(**self.vision_config.model_dump())
         self.motion_evidence = {}
+        self.replay_assessment = None
+        self.assessment_task = None
         self.cached_state = None
         self.cache_until = 0
 
@@ -366,6 +374,8 @@ async def state():
             "boxes": runtime.motion.boxes,
             "recent": list(runtime.motion.recent)[-20:],
         },
+        "replay_assessment": runtime.replay_assessment,
+        "replay_labels": await _get_state_json(f"replay_labels:{race_id}", {}),
         "error": runtime.error,
     }
 
@@ -397,6 +407,128 @@ def video_metadata(source):
         return frames / fps, fps
     finally:
         capture.release()
+
+
+@router.post("/api/quick/replay/assess")
+async def start_replay_assessment():
+    """Analyze three short sections of the saved replay without starting a race."""
+    from app.main import _get_state_json
+
+    config = await _get_state_json("quick_config", {})
+    context = await _get_state_json("race_context", {})
+    race = await database.get_row("races", context.get("race_id", ""))
+    if not config.get("source", "").startswith("video:") or not race:
+        raise HTTPException(409, "Save a replay race setup first")
+    if race["status"] == "active":
+        raise HTTPException(409, "Pause the race before assessing its replay")
+    if runtime.assessment_task and not runtime.assessment_task.done():
+        raise HTTPException(409, "Replay assessment is already running")
+    try:
+        path = Camera.video_path(config["source"][6:])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    gate = {key: config[key] for key in ("finish_x", "y_min", "y_max", "direction")}
+    runtime.replay_assessment = {"status": "running", "race_id": race["id"]}
+
+    async def run():
+        try:
+            result = await asyncio.to_thread(
+                assess_replay,
+                path,
+                config.get("video_start_s", 0),
+                config.get("video_end_s"),
+                gate,
+                len(context.get("racers", [])),
+            )
+            runtime.replay_assessment = {**result, "race_id": race["id"]}
+        except Exception as exc:
+            runtime.replay_assessment = {
+                "status": "error",
+                "race_id": race["id"],
+                "message": str(exc),
+            }
+
+    runtime.assessment_task = asyncio.create_task(run())
+    return runtime.replay_assessment
+
+
+@router.post("/api/quick/replay/label")
+async def label_replay_event(data: ReplayLabel):
+    """Save a human car ID or false-positive annotation for one candidate."""
+    from app.main import _get_state_json, _set_state_json
+
+    context = await _get_state_json("race_context", {})
+    race_id = context.get("race_id", "")
+    race = await database.get_row("races", race_id)
+    report = runtime.replay_assessment
+    if (
+        not race
+        or race["status"] == "active"
+        or not report
+        or report.get("race_id") != race_id
+    ):
+        raise HTTPException(409, "Assess this prepared replay before labeling")
+    events = [
+        event for window in report.get("windows", []) for event in window["events"]
+    ]
+    if data.event_key not in {event["key"] for event in events}:
+        raise HTTPException(404, "Candidate crossing not found")
+    valid = {racer["id"] for racer in context.get("racers", [])} | {
+        "false",
+        "uncertain",
+    }
+    if data.label not in valid:
+        raise HTTPException(422, "Choose a saved racer, false positive, or uncertain")
+    key = f"replay_labels:{race_id}"
+    labels = await _get_state_json(key, {})
+    labels[data.event_key] = data.label
+    await _set_state_json(key, labels)
+    return {"event_key": data.event_key, "label": data.label}
+
+
+@router.get("/api/quick/replay/frame.jpg")
+async def replay_assessment_frame(second: float):
+    """Show a replay frame for labeling without moving the race camera."""
+    from app.main import _get_state_json
+
+    config = await _get_state_json("quick_config", {})
+    source = config.get("source", "")
+    if not source.startswith("video:"):
+        raise HTTPException(409, "Save a replay setup first")
+    if (
+        not config.get("video_start_s", 0)
+        <= second
+        <= (config.get("video_end_s") or 86400)
+    ):
+        raise HTTPException(422, "Frame must be within the marked race interval")
+    try:
+        path = Camera.video_path(source[6:])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    def read_frame():
+        capture = cv2.VideoCapture(str(path))
+        try:
+            capture.set(cv2.CAP_PROP_POS_MSEC, second * 1000)
+            ok, frame = capture.read()
+            if not ok:
+                return None
+            height, width = frame.shape[:2]
+            x = round(config.get("finish_x", 0.5) * width)
+            y0 = round(config.get("y_min", 0.1) * height)
+            y1 = round(config.get("y_max", 0.9) * height)
+            cv2.line(frame, (x, y0), (x, y1), (100, 230, 130), 2)
+            ok, jpeg = cv2.imencode(".jpg", frame)
+            return jpeg.tobytes() if ok else None
+        finally:
+            capture.release()
+
+    jpeg = await asyncio.to_thread(read_frame)
+    if jpeg is None:
+        raise HTTPException(404, "Frame not available")
+    return Response(
+        jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.get("/api/quick/videos")
@@ -801,6 +933,9 @@ async def create_session(data: SessionSetup):
                     "INSERT INTO system_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     [key, json.dumps(value)],
                 )
+            await db.execute(
+                "DELETE FROM system_state WHERE key=?", [f"replay_labels:{race_id}"]
+            )
             await db.commit()
         runtime.race_key = None
         runtime.cache_until = 0
@@ -812,6 +947,9 @@ async def create_session(data: SessionSetup):
         )
         runtime.motion = MotionFinishDetector(**runtime.vision_config.model_dump())
         runtime.motion_evidence.clear()
+        if runtime.assessment_task and not runtime.assessment_task.done():
+            runtime.assessment_task.cancel()
+        runtime.replay_assessment = None
     return {
         "race_id": race_id,
         "championship_id": champ_id,

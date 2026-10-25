@@ -11,6 +11,7 @@
 canvas{aspect-ratio:auto;height:auto}
 #replayControls{margin-top:14px;padding:14px;border:1px solid #405268;border-radius:8px}#replayControls input[type=range]{width:100%}#replayControls .row button{min-width:110px}[hidden]{display:none!important}
 #previewWrap{position:relative}#lapOverlay{position:absolute;top:10px;right:10px;z-index:2;min-width:170px;max-width:min(46%,290px);padding:10px;border:1px solid #8ca5ba88;border-radius:10px;background:#0b1520d9;backdrop-filter:blur(5px);pointer-events:none;box-shadow:0 5px 22px #0008}#lapOverlayTitle{display:flex;justify-content:space-between;gap:8px;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#d8e7f4;margin-bottom:6px}#lapOverlayStatus{font-size:11px;color:#aebbc9;text-transform:none;letter-spacing:0}.lap-overlay-row{display:flex;align-items:center;gap:8px;padding:5px 3px;border-radius:6px;font-variant-numeric:tabular-nums}.lap-overlay-dot{width:8px;height:8px;border-radius:50%;flex:none}.lap-overlay-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.lap-overlay-count{font-size:20px;font-weight:750;min-width:2ch;text-align:right}.lap-flash{animation:lapPulse 1.7s ease-out}@keyframes lapPulse{0%{background:#3fe3a5;color:#06150f;transform:scale(1.05)}30%{background:#248665;color:#fff}100%{background:transparent;color:inherit;transform:scale(1)}}@media(max-width:550px){#lapOverlay{min-width:130px;max-width:55%;padding:7px}.lap-overlay-count{font-size:17px}}
+#reviewPlayerWrap{position:relative;max-width:960px;margin:16px 0}#reviewPlayer{display:block;width:100%;aspect-ratio:16/9;background:#070b11}#reviewMarks{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:16/9;background:transparent;border-radius:0;cursor:default;pointer-events:none}#reviewHud{position:absolute;top:10px;right:10px;z-index:2;min-width:175px;max-width:45%;padding:9px;border:1px solid #8ca5ba88;border-radius:8px;background:#0b1520df;pointer-events:none;font-size:12px}#reviewHudTitle{font-weight:700;color:#d8e7f4}#reviewHudRows .lap-overlay-count{font-size:16px}#reviewUnknown{color:#f6d27c;margin-top:5px}#reviewRecent{color:#8fddfa;margin-top:4px;min-height:1em}@media(max-width:550px){#reviewHud{min-width:135px;max-width:55%;font-size:10px;padding:6px}}
 main{display:flex;flex-direction:column}#previewCard{order:0}#visionCard{order:1}#raceCard{order:2}#standingsCard{order:3}
 body[data-step="1"] #setupCard,body[data-step="2"] #sourceCard,body[data-step="2"] #raceFields,body[data-step="3"] #sourceCard,body[data-step="3"] #gateFields,body[data-step="4"] aside{display:none}
 body[data-step="4"] .layout{grid-template-columns:1fr}body[data-step="4"] #raceCard{order:0}body[data-step="4"] #previewCard{order:1}
@@ -70,14 +71,15 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 <p id="savedRange" class="status"></p><p><small>Starting a prepared video race opens its saved start marker. The end marker pauses counting for review. Race Pause freezes a replay; Resume continues from that frame.</small></p><button id="nextRace" hidden>Set up another race from this video</button>
 <p id="colorWarnings" role="status" hidden></p><div id="savedRacers"></div><table><thead><tr><th>Racer</th><th>Laps</th><th>Last lap</th><th>Best lap</th></tr></thead><tbody id="lapRows"></tbody></table></section>
 <section class="card" id="assessmentCard"><h2>Replay tracking assessment</h2><p>Analyze the marked interval. Motion crossings are candidates, not car identities or verified laps. Inspect sample frames and label candidates to build training data for this track.</p><div class="row"><button id="assessReplay">Assess marked replay</button><button id="downloadAssessment">Download review data</button></div><p id="assessmentStatus" class="status">Save a replay setup to assess it.</p><div id="assessmentWindows" class="status"></div><img id="assessmentFrame" alt="Selected replay frame with finish line" style="max-width:100%;display:block;margin:12px 0" hidden><div id="assessmentEvents"></div></section>
-<section class="card" id="computeCard"><h2>Off-Pi video review</h2><p>Request analysis of the marked recording. This queues work for a connected computer; the Pi cannot run the vision model. Uncertain crossings stay out of the results.</p><div class="row"><button id="requestCompute">Request computer analysis</button><button id="applyCompute" class="primary">Apply complete proposal</button></div><p id="computeStatus" class="status">No compute review requested.</p><div id="computeComparison"></div><p><a id="reviewManifest" href="#">Review manifest</a> · <a id="reviewVideo" href="#">Download race recording</a></p></section>
+<section class="card" id="computeCard"><h2>Off-Pi video review</h2><p>Request analysis of the marked recording. This queues work for a connected computer; the Pi cannot run the vision model. Uncertain crossings stay out of the results.</p><div class="row"><button id="requestCompute">Request computer analysis</button><button id="applyCompute" class="primary">Apply complete proposal</button></div><p id="computeStatus" class="status">No compute review requested.</p><div id="computeComparison"></div><div id="reviewPlayerWrap" hidden><video id="reviewPlayer" controls playsinline preload="metadata" aria-label="Race replay with provisional tracking overlay"></video><canvas id="reviewMarks" width="640" height="360" aria-hidden="true"></canvas><div id="reviewHud"><div id="reviewHudTitle">Replay analysis · provisional</div><div id="reviewHudRows"></div><div id="reviewUnknown">No offboard passes loaded.</div><div id="reviewRecent"></div></div></div><p><a id="reviewManifest" href="#">Review manifest</a> · <a id="reviewVideo" href="#" download>Download race recording</a></p></section>
 <section class="card" id="standingsCard"><h2>Championship standings</h2><p id="scoring">Finish awards 10 / 7 / 5 / 4 points by position, ranked by recorded laps. Review experimental replay counts before awarding points.</p><table><thead><tr><th>Racer</th><th>Points</th><th>Wins</th><th>Races</th></tr></thead><tbody id="standings"></tbody></table></section>
 <p><small>Race data is saved on this Pi. The browser can close while the backend continues counting. Keep a clear view of the finish line and validate a practice run before scoring a championship.</small></p>
 </main></div>
 <script>
 const $=id=>document.getElementById(id), canvas=$('preview'), ctx=canvas.getContext('2d');
 let current=null, sampledInput=null, rawFrame=null, hydrated=false, polling=false, scrubbing=false, assessmentRenderKey='',overlayRaceId=null;
-const overlayRows=new Map(),lastLapCounts=new Map();
+const overlayRows=new Map(),lastLapCounts=new Map(),reviewRows=new Map();
+let reviewPlayerRaceId=null,lastReviewFlash=null;
 const message=text=>$('message').textContent=text;
 const formatTime=seconds=>{if(seconds==null||!Number.isFinite(Number(seconds)))return '—';const tenths=Math.round(Number(seconds)*10);return `${Math.floor(tenths/600)}:${String(Math.floor((tenths%600)/10)).padStart(2,'0')}.${tenths%10}`;};
 function updateClipRange(){const start=Number($('videoStart').value||0),end=$('videoEnd').value.trim()?Number($('videoEnd').value):null;$('clipRange').textContent=`Race interval: ${formatTime(start)} to ${end==null?'end of video':formatTime(end)}.`;}
@@ -117,6 +119,7 @@ function renderAssessment(data){
 }
 function renderCompute(data){
  const raceId=data.race?.id,video=data.config?.source?.startsWith('video:'),proposal=data.replay_proposal,job=data.review_job;
+ renderReviewPlayer(data);
  $('computeCard').hidden=!video;$('requestCompute').disabled=!video||!raceId||data.race.status==='active';
  $('applyCompute').disabled=!proposal||proposal.status!=='ready'||!['paused','finished'].includes(data.race?.status);
  $('reviewManifest').href=raceId?`/api/quick/review/${encodeURIComponent(raceId)}/manifest`:'#';
@@ -126,6 +129,41 @@ function renderCompute(data){
  $('computeComparison').replaceChildren();if(!proposal)return;
  for(const racer of data.context.racers||[]){const p=document.createElement('p');p.textContent=`${racer.name}: recorded ${data.laps.filter(l=>l.racer_profile_id===racer.id).length} laps → proposed ${proposal.summary.proposed_laps[racer.id]??0}`;$('computeComparison').append(p)}
 }
+function renderReviewPlayer(data){
+ const raceId=data.race?.id,available=!!raceId&&data.config?.source?.startsWith('video:'),player=$('reviewPlayer');
+ $('reviewPlayerWrap').hidden=!available;
+ if(!available)return;
+ if(reviewPlayerRaceId!==raceId){
+  reviewPlayerRaceId=raceId;reviewRows.clear();lastReviewFlash=null;$('reviewHudRows').replaceChildren();
+  player.src=`/api/quick/review/${encodeURIComponent(raceId)}/video`;
+  player.onloadedmetadata=()=>{player.currentTime=Number(data.config?.video_start_s)||0;renderReviewOverlay()};
+ }
+ renderReviewOverlay();
+}
+function renderReviewOverlay(){
+ const player=$('reviewPlayer'),data=current;if(!data?.race||$('reviewPlayerWrap').hidden)return;
+ const time=player.currentTime||0,start=Number(data.config?.video_start_s)||0,end=Number(data.config?.video_end_s)||Infinity;
+ const proposal=data.replay_proposal,observations=proposal?.observations||[],crossings=proposal?.crossings||[];
+ const ctxReview=$('reviewMarks').getContext('2d');ctxReview.clearRect(0,0,640,360);
+ const visible=observations.filter(event=>event.second>=start&&event.second<=end&&Math.abs(event.second-time)<0.3);
+ for(const event of visible){ctxReview.beginPath();ctxReview.arc(event.x*640,event.y*360,10,0,2*Math.PI);ctxReview.strokeStyle=event.direction==='outward'?'#f6d27c':'#75c9fa';ctxReview.lineWidth=3;ctxReview.stroke()}
+ const outward=observations.filter(event=>event.direction==='outward'&&event.second>=start&&event.second<=Math.min(time,end)).length;
+ const returning=observations.filter(event=>event.direction==='return'&&event.second>=start&&event.second<=Math.min(time,end)).length;
+ $('reviewUnknown').textContent=observations.length?`${outward} outward passes · ${returning} return passes · identities unverified`:'No offboard passes loaded.';
+ const recent=[...observations].reverse().find(event=>event.second<=time&&time-event.second<1.7);
+ $('reviewRecent').textContent=recent?`${recent.direction==='outward'?'Recent outward pass':'Recent return pass'} · ${recent.appearance_cluster==null?'car unknown':`appearance group ${recent.appearance_cluster+1}`}`:'';
+ const roster=data.context?.racers||[],ids=new Set(roster.map(racer=>racer.id));
+ for(const [id,row] of reviewRows)if(!ids.has(id)){row.remove();reviewRows.delete(id)}
+ for(const racer of roster){
+  let row=reviewRows.get(racer.id);
+  if(!row){row=document.createElement('div');row.className='lap-overlay-row';const dot=document.createElement('span');dot.className='lap-overlay-dot';dot.style.backgroundColor=racer.color||'#fff';const name=document.createElement('span');name.className='lap-overlay-name';name.textContent=racer.name;const count=document.createElement('span');count.className='lap-overlay-count';row.append(dot,name,count);$('reviewHudRows').append(row);reviewRows.set(racer.id,row)}
+  const seen=crossings.filter(event=>event.racer_id===racer.id&&event.second>=start&&event.second<=Math.min(time,end));
+  row.lastElementChild.textContent=proposal?.status==='ready'||proposal?.status==='applied'?String(Math.max(0,seen.length-1)):'?';
+  const latest=seen.at(-1);if(latest&&seen.length>1&&time-latest.second<1.7){const key=`${racer.id}:${latest.second}`;if(lastReviewFlash!==key){row.classList.remove('lap-flash');void row.offsetWidth;row.classList.add('lap-flash');lastReviewFlash=key}}
+ }
+}
+$('reviewPlayer').addEventListener('timeupdate',renderReviewOverlay);
+$('reviewPlayer').addEventListener('seeked',renderReviewOverlay);
 function renderLapOverlay(data){
  const race=data.race,box=$('lapOverlay'),racers=data.context?.racers||[];
  box.hidden=!race||!racers.length;

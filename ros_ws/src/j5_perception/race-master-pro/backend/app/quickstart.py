@@ -562,7 +562,12 @@ async def review_request(race_id: str):
 @router.get("/api/quick/review/{race_id}/video")
 async def review_export_video(race_id: str):
     info = await review_manifest(race_id)
-    return FileResponse(info["path"], media_type="video/mp4", filename=info["video"])
+    return FileResponse(
+        info["path"],
+        media_type="video/mp4",
+        filename=info["video"],
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/api/quick/review/{race_id}/proposal")

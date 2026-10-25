@@ -5,6 +5,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 import aiosqlite
 from fastapi import HTTPException
@@ -21,11 +22,24 @@ class ProposedCrossing(BaseModel):
     evidence_seconds: list[float] = Field(min_length=2, max_length=15)
 
 
+class ObservedPass(BaseModel):
+    """A visible directed pass that has not necessarily been assigned to a racer."""
+
+    second: float = Field(ge=0, le=86400)
+    direction: Literal["outward", "return"]
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
+    tracklet_id: int = Field(ge=1)
+    appearance_cluster: int | None = Field(default=None, ge=0)
+
+
 class ReviewProposal(BaseModel):
     race_id: str
     video_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     model: str = Field(min_length=1, max_length=160)
     crossings: list[ProposedCrossing] = Field(max_length=10000)
+    observations: list[ObservedPass] = Field(default_factory=list, max_length=10000)
     unassigned_crossings: int = Field(ge=0)
     notes: str = Field(default="", max_length=2000)
 
@@ -34,6 +48,9 @@ class ReviewProposal(BaseModel):
         seconds = [event.second for event in self.crossings]
         if seconds != sorted(seconds):
             raise ValueError("Crossings must be sorted by video time")
+        observed_seconds = [event.second for event in self.observations]
+        if observed_seconds != sorted(observed_seconds):
+            raise ValueError("Observations must be sorted by video time")
         return self
 
 
@@ -116,6 +133,12 @@ def proposal_summary(data, info):
     return {
         "proposed_laps": {racer: max(0, count - 1) for racer, count in counts.items()},
         "unassigned_crossings": data.unassigned_crossings,
+        "observed_outward": sum(
+            event.direction == "outward" for event in data.observations
+        ),
+        "observed_return": sum(
+            event.direction == "return" for event in data.observations
+        ),
         "minimum_confidence": min(
             (event.confidence for event in data.crossings), default=0
         ),
@@ -137,6 +160,8 @@ async def submit_proposal(data):
         raise HTTPException(422, "Proposal contains a racer outside this race")
     start = info["video_start_s"]
     end = info["video_end_s"] or 86400
+    if any(not start <= event.second <= end for event in data.observations):
+        raise HTTPException(422, "Observed pass is outside the race interval")
     previous = {}
     counts = {racer: 0 for racer in roster}
     for event in data.crossings:

@@ -68,7 +68,9 @@ def test_offboard_proposal_replaces_laps_and_rescores_finished_race(
         manifest = client.get(f"/api/quick/review/{race_id}/manifest").json()
         assert manifest["video_start_s"] == 0
         assert len(manifest["video_sha256"]) == 64
-        assert client.get(f"/api/quick/review/{race_id}/video").status_code == 200
+        video = client.get(f"/api/quick/review/{race_id}/video")
+        assert video.status_code == 200
+        assert video.headers["content-disposition"].startswith("inline;")
 
         proposal = _proposal(manifest)
         sent = client.post(f"/api/quick/review/{race_id}/proposal", json=proposal)
@@ -117,6 +119,7 @@ def test_incomplete_or_wrong_video_proposal_cannot_replace_ledger(
             "/api/quick/session",
             json={
                 "source": "video:heat.mp4",
+                "video_end_s": 3.0,
                 "racers": [{"name": "A", "color": "#ff0000"}],
             },
         ).json()["race_id"]
@@ -129,6 +132,17 @@ def test_incomplete_or_wrong_video_proposal_cannot_replace_ledger(
             "model": "test",
             "crossings": [],
             "unassigned_crossings": 1,
+            "observations": [
+                {
+                    "second": 1.25,
+                    "direction": "outward",
+                    "x": 0.5,
+                    "y": 0.25,
+                    "confidence": 0.8,
+                    "tracklet_id": 7,
+                    "appearance_cluster": 2,
+                }
+            ],
         }
         assert (
             client.post(
@@ -140,5 +154,19 @@ def test_incomplete_or_wrong_video_proposal_cannot_replace_ledger(
         sent = client.post(f"/api/quick/review/{race_id}/proposal", json=proposal)
         assert sent.status_code == 200
         assert sent.json()["status"] == "incomplete"
+        assert sent.json()["summary"]["observed_outward"] == 1
+        assert (
+            client.get(f"/api/quick/review/{race_id}/proposal").json()["observations"][
+                0
+            ]["tracklet_id"]
+            == 7
+        )
         assert client.post(f"/api/quick/review/{race_id}/apply").status_code == 409
         assert client.get(f"/api/laps?race_id={race_id}").json() == []
+        proposal["observations"][0]["second"] = 3.2
+        assert (
+            client.post(
+                f"/api/quick/review/{race_id}/proposal", json=proposal
+            ).status_code
+            == 422
+        )

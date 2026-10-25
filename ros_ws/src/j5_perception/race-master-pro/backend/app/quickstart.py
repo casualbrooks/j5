@@ -24,6 +24,16 @@ from app.color_timing import FinishGate, detect_colors, hue_for_color
 from app.motion_timing import MotionFinishDetector
 from app.models import LapRecordCreate
 from app.replay_assessment import assess_replay
+from app.review_service import (
+    ReviewProposal,
+    apply_proposal,
+    get_review_job,
+    get_proposal,
+    list_review_jobs,
+    manifest as review_manifest,
+    request_review,
+    submit_proposal,
+)
 
 router = APIRouter()
 
@@ -376,6 +386,8 @@ async def state():
         },
         "replay_assessment": runtime.replay_assessment,
         "replay_labels": await _get_state_json(f"replay_labels:{race_id}", {}),
+        "replay_proposal": await get_proposal(race_id) if race_id else None,
+        "review_job": await get_review_job(race_id) if race_id else None,
         "error": runtime.error,
     }
 
@@ -529,6 +541,48 @@ async def replay_assessment_frame(second: float):
     return Response(
         jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
     )
+
+
+@router.get("/api/quick/review/{race_id}/manifest")
+async def review_export_manifest(race_id: str):
+    info = await review_manifest(race_id)
+    return {key: value for key, value in info.items() if key != "path"}
+
+
+@router.get("/api/quick/review/jobs")
+async def review_jobs():
+    return await list_review_jobs()
+
+
+@router.post("/api/quick/review/{race_id}/request")
+async def review_request(race_id: str):
+    return await request_review(race_id)
+
+
+@router.get("/api/quick/review/{race_id}/video")
+async def review_export_video(race_id: str):
+    info = await review_manifest(race_id)
+    return FileResponse(info["path"], media_type="video/mp4", filename=info["video"])
+
+
+@router.get("/api/quick/review/{race_id}/proposal")
+async def review_current_proposal(race_id: str):
+    return await get_proposal(race_id)
+
+
+@router.post("/api/quick/review/{race_id}/proposal")
+async def review_submit_proposal(race_id: str, proposal: ReviewProposal):
+    if proposal.race_id != race_id:
+        raise HTTPException(422, "Proposal race ID does not match the URL")
+    return await submit_proposal(proposal)
+
+
+@router.post("/api/quick/review/{race_id}/apply")
+async def review_apply_proposal(race_id: str):
+    result = await apply_proposal(race_id)
+    runtime.race_key = None
+    runtime.cache_until = 0
+    return result
 
 
 @router.get("/api/quick/videos")
@@ -782,6 +836,11 @@ async def create_session(data: SessionSetup):
                 )
             ).fetchone()
             previous_context = json.loads(saved_context[0]) if saved_context else {}
+            previous_config = await (
+                await db.execute(
+                    "SELECT value FROM system_state WHERE key='quick_config'"
+                )
+            ).fetchone()
             unfinished = None
             if previous_context.get("server_timing"):
                 unfinished = await (
@@ -812,6 +871,14 @@ async def create_session(data: SessionSetup):
                         json.dumps(previous_context),
                     ],
                 )
+                if previous_config:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO system_state(key,value) VALUES(?,?)",
+                        [
+                            f"quick_config:{previous_context['race_id']}",
+                            previous_config[0],
+                        ],
+                    )
             champ_id = data.championship_id
             if champ_id:
                 if not await (
@@ -928,6 +995,7 @@ async def create_session(data: SessionSetup):
                 ("race_context", context),
                 (f"race_context:{race_id}", context),
                 ("quick_config", data.model_dump()),
+                (f"quick_config:{race_id}", data.model_dump()),
             ]:
                 await db.execute(
                     "INSERT INTO system_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",

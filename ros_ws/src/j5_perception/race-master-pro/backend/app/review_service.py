@@ -1,0 +1,299 @@
+"""Exchange replay reviews with stronger computers without trusting model output as laps."""
+
+import asyncio
+import hashlib
+import json
+import uuid
+from datetime import datetime, timezone
+
+import aiosqlite
+from fastapi import HTTPException
+from pydantic import BaseModel, Field, model_validator
+
+from app import database
+from app.camera import Camera
+
+
+class ProposedCrossing(BaseModel):
+    racer_id: str
+    second: float = Field(ge=0, le=86400)
+    confidence: float = Field(ge=0, le=1)
+    evidence_seconds: list[float] = Field(min_length=2, max_length=15)
+
+
+class ReviewProposal(BaseModel):
+    race_id: str
+    video_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model: str = Field(min_length=1, max_length=160)
+    crossings: list[ProposedCrossing] = Field(max_length=10000)
+    unassigned_crossings: int = Field(ge=0)
+    notes: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def sorted_crossings(self):
+        seconds = [event.second for event in self.crossings]
+        if seconds != sorted(seconds):
+            raise ValueError("Crossings must be sorted by video time")
+        return self
+
+
+async def _state(key):
+    row = await database.get_row("system_state", key, id_column="key")
+    return json.loads(row["value"]) if row else None
+
+
+def _video_hash(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _lap_checksum(laps):
+    return hashlib.sha256(
+        json.dumps(
+            sorted(
+                (row["racer_profile_id"], row["lap_number"], row["lap_time"])
+                for row in laps
+            ),
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+async def manifest(race_id):
+    """Return an immutable video identity and the saved configuration for a race."""
+    race = await database.get_row("races", race_id)
+    if not race:
+        raise HTTPException(404, "Race not found")
+    context = await _state(f"race_context:{race_id}") or {}
+    current = await _state("race_context") or {}
+    if not context and current.get("race_id") == race_id:
+        context = current
+    config = await _state(f"quick_config:{race_id}") or {}
+    if not config and current.get("race_id") == race_id:
+        config = await _state("quick_config") or {}
+    source = config.get("source", "")
+    if not context.get("server_timing") or not source.startswith("video:"):
+        raise HTTPException(409, "This race has no saved replay video")
+    try:
+        path = Camera.video_path(source[6:])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not path.is_file():
+        raise HTTPException(404, "Saved replay video is missing")
+    digest = await asyncio.to_thread(_video_hash, path)
+    laps = await database.get_all_rows("lap_records", {"race_id": race_id})
+    baseline = _lap_checksum(laps)
+    return {
+        "race_id": race_id,
+        "race_status": race["status"],
+        "video": path.name,
+        "video_sha256": digest,
+        "video_bytes": path.stat().st_size,
+        "video_start_s": config.get("video_start_s", 0),
+        "video_end_s": config.get("video_end_s"),
+        "finish_gate": {
+            key: config[key] for key in ("finish_x", "y_min", "y_max", "direction")
+        },
+        "minimum_lap_ms": config.get("minimum_lap_ms", 2000),
+        "total_laps": race["total_laps"],
+        "racers": context.get("racers", []),
+        "recorded_laps": {
+            racer["id"]: sum(row["racer_profile_id"] == racer["id"] for row in laps)
+            for racer in context.get("racers", [])
+        },
+        "baseline_sha256": baseline,
+        "path": path,
+    }
+
+
+def proposal_summary(data, info):
+    counts = {racer["id"]: 0 for racer in info["racers"]}
+    for event in data.crossings:
+        counts[event.racer_id] += 1
+    return {
+        "proposed_laps": {racer: max(0, count - 1) for racer, count in counts.items()},
+        "unassigned_crossings": data.unassigned_crossings,
+        "minimum_confidence": min(
+            (event.confidence for event in data.crossings), default=0
+        ),
+        "complete": bool(data.crossings)
+        and data.unassigned_crossings == 0
+        and all(count >= 2 for count in counts.values())
+        and all(event.confidence >= 0.9 for event in data.crossings),
+    }
+
+
+async def submit_proposal(data):
+    info = await manifest(data.race_id)
+    if info["race_status"] == "active":
+        raise HTTPException(409, "Pause the race before reviewing its video")
+    if data.video_sha256 != info["video_sha256"]:
+        raise HTTPException(409, "Proposal video does not match the saved replay")
+    roster = {racer["id"] for racer in info["racers"]}
+    if any(event.racer_id not in roster for event in data.crossings):
+        raise HTTPException(422, "Proposal contains a racer outside this race")
+    start = info["video_start_s"]
+    end = info["video_end_s"] or 86400
+    previous = {}
+    counts = {racer: 0 for racer in roster}
+    for event in data.crossings:
+        if not start <= event.second <= end or any(
+            not start <= second <= end for second in event.evidence_seconds
+        ):
+            raise HTTPException(422, "Proposal evidence is outside the race interval")
+        earlier = previous.get(event.racer_id)
+        if (
+            earlier is not None
+            and (event.second - earlier) * 1000 < info["minimum_lap_ms"]
+        ):
+            raise HTTPException(422, "A proposed lap is shorter than the saved minimum")
+        previous[event.racer_id] = event.second
+        counts[event.racer_id] += 1
+        if counts[event.racer_id] > info["total_laps"] + 1:
+            raise HTTPException(422, "Proposal exceeds the race lap target")
+    summary = proposal_summary(data, info)
+    proposal = {
+        "id": str(uuid.uuid4()),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "baseline_sha256": info["baseline_sha256"],
+        "status": "ready" if summary["complete"] else "incomplete",
+        "summary": summary,
+        **data.model_dump(),
+    }
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO system_state(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [f"replay_proposal:{data.race_id}", json.dumps(proposal)],
+        )
+        await db.execute(
+            "INSERT INTO system_state(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [
+                f"review_job:{data.race_id}",
+                json.dumps(
+                    {
+                        "race_id": data.race_id,
+                        "status": proposal["status"],
+                        "proposal_id": proposal["id"],
+                    }
+                ),
+            ],
+        )
+        await db.commit()
+    return proposal
+
+
+async def get_proposal(race_id):
+    return await _state(f"replay_proposal:{race_id}")
+
+
+async def request_review(race_id):
+    info = await manifest(race_id)
+    if info["race_status"] == "active":
+        raise HTTPException(409, "Pause the race before requesting off-Pi review")
+    job = {
+        "race_id": race_id,
+        "status": "requested",
+        "video_sha256": info["video_sha256"],
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO system_state(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [f"review_job:{race_id}", json.dumps(job)],
+        )
+        await db.commit()
+    return job
+
+
+async def list_review_jobs():
+    rows = await database.query(
+        "SELECT value FROM system_state WHERE key LIKE 'review_job:%' ORDER BY updated_at"
+    )
+    return [json.loads(row["value"]) for row in rows]
+
+
+async def get_review_job(race_id):
+    return await _state(f"review_job:{race_id}")
+
+
+async def apply_proposal(race_id):
+    """Atomically snapshot and replace laps; rescore an already finished race."""
+    proposal = await get_proposal(race_id)
+    if not proposal:
+        raise HTTPException(404, "No proposal for this race")
+    if proposal["status"] == "applied":
+        return proposal
+    if proposal["status"] != "ready":
+        raise HTTPException(409, "Proposal has unresolved or low-confidence crossings")
+    info = await manifest(race_id)
+    if info["race_status"] not in ("paused", "finished"):
+        raise HTTPException(409, "Pause or finish the race before applying a review")
+    if proposal["video_sha256"] != info["video_sha256"]:
+        raise HTTPException(409, "Saved replay video changed after analysis")
+    if proposal["baseline_sha256"] != info["baseline_sha256"]:
+        raise HTTPException(409, "Lap ledger changed after this proposal was prepared")
+    by_racer = {racer["id"]: [] for racer in info["racers"]}
+    for event in proposal["crossings"]:
+        by_racer[event["racer_id"]].append(event["second"])
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA foreign_keys=ON")
+        await db.execute("BEGIN IMMEDIATE")
+        race = await (
+            await db.execute("SELECT * FROM races WHERE id=?", [race_id])
+        ).fetchone()
+        if race["status"] not in ("paused", "finished"):
+            raise HTTPException(409, "Race status changed during review")
+        old_laps = [
+            dict(row)
+            for row in await (
+                await db.execute("SELECT * FROM lap_records WHERE race_id=?", [race_id])
+            ).fetchall()
+        ]
+        if _lap_checksum(old_laps) != proposal["baseline_sha256"]:
+            raise HTTPException(409, "Lap ledger changed during review")
+        old_results = [
+            dict(row)
+            for row in await (
+                await db.execute(
+                    "SELECT * FROM race_results WHERE race_id=?", [race_id]
+                )
+            ).fetchall()
+        ]
+        backup = {"laps": old_laps, "results": old_results, "proposal": proposal}
+        await db.execute(
+            "INSERT INTO system_state(key,value) VALUES(?,?)",
+            [f"review_backup:{race_id}:{proposal['id']}", json.dumps(backup)],
+        )
+        await db.execute("DELETE FROM lap_records WHERE race_id=?", [race_id])
+        for racer_id, seconds in by_racer.items():
+            for number, (earlier, later) in enumerate(zip(seconds, seconds[1:]), 1):
+                await db.execute(
+                    "INSERT INTO lap_records(id,race_id,racer_profile_id,lap_number,lap_time) "
+                    "VALUES(?,?,?,?,?)",
+                    [
+                        str(uuid.uuid4()),
+                        race_id,
+                        racer_id,
+                        number,
+                        round((later - earlier) * 1000, 3),
+                    ],
+                )
+        if race["status"] == "finished":
+            from app.race_service import write_scored_results
+
+            await write_scored_results(db, race)
+        proposal["status"] = "applied"
+        proposal["applied_at"] = datetime.now(timezone.utc).isoformat()
+        await db.execute(
+            "UPDATE system_state SET value=? WHERE key=?",
+            [json.dumps(proposal), f"replay_proposal:{race_id}"],
+        )
+        await db.commit()
+    return proposal

@@ -62,6 +62,86 @@ async def save_lap(data):
     return row, True
 
 
+async def write_scored_results(db, race):
+    """Rebuild standings from the current lap ledger within the caller's transaction."""
+    race_id = race["id"]
+    championship = await (
+        await db.execute(
+            "SELECT c.points_system FROM championships c JOIN race_events e "
+            "ON e.championship_id=c.id WHERE e.id=?",
+            [race["event_id"]],
+        )
+    ).fetchone()
+    try:
+        points = json.loads(championship[0]) if championship else {}
+        if not isinstance(points, dict) or any(
+            type(value) is not int or value < 0 for value in points.values()
+        ):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(409, "Championship points must be nonnegative integers")
+    rows = [
+        dict(row)
+        for row in await (
+            await db.execute(
+                """SELECT racer_profile_id, COUNT(*) laps, SUM(lap_time) total,
+                MIN(lap_time) best, AVG(lap_time) average FROM lap_records
+                WHERE race_id=? GROUP BY racer_profile_id
+                ORDER BY laps DESC, total ASC, racer_profile_id ASC""",
+                [race_id],
+            )
+        ).fetchall()
+    ]
+    saved = await (
+        await db.execute(
+            "SELECT value FROM system_state WHERE key=?", [f"race_context:{race_id}"]
+        )
+    ).fetchone()
+    if not saved:
+        saved = await (
+            await db.execute("SELECT value FROM system_state WHERE key='race_context'")
+        ).fetchone()
+    roster = json.loads(saved[0]) if saved else {}
+    present = {row["racer_profile_id"] for row in rows}
+    if roster.get("race_id") == race_id:
+        rows.extend(
+            {
+                "racer_profile_id": racer["id"],
+                "laps": 0,
+                "total": 0,
+                "best": None,
+                "average": None,
+            }
+            for racer in roster.get("racers", [])
+            if racer["id"] not in present
+        )
+    await db.execute("DELETE FROM race_results WHERE race_id=?", [race_id])
+    for position, row in enumerate(rows, 1):
+        completed = row["laps"] > 0
+        await db.execute(
+            """INSERT INTO race_results
+            (id,race_id,racer_profile_id,finish_position,total_time,best_lap_time,
+             avg_lap_time,laps_completed,status,points_earned)
+            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            [
+                str(uuid.uuid4()),
+                race_id,
+                row["racer_profile_id"],
+                position,
+                row["total"],
+                row["best"],
+                row["average"],
+                row["laps"],
+                "finished" if completed else "dnf",
+                (
+                    points.get(str(position), 0)
+                    if completed and race["type"] == "main"
+                    else 0
+                ),
+            ],
+        )
+
+
 async def finalize_race(race_id):
     """Finish and score once, in the same transaction as the race state change."""
     async with aiosqlite.connect(database.DB_PATH) as db:
@@ -77,88 +157,7 @@ async def finalize_race(race_id):
             return dict(race)
         if race["status"] not in ("active", "paused"):
             raise HTTPException(409, "Only an active or paused race can finish")
-        championship = await (
-            await db.execute(
-                "SELECT c.points_system FROM championships c JOIN race_events e ON e.championship_id=c.id WHERE e.id=?",
-                [race["event_id"]],
-            )
-        ).fetchone()
-        try:
-            points = json.loads(championship[0]) if championship else {}
-            if not isinstance(points, dict) or any(
-                type(v) is not int or v < 0 for v in points.values()
-            ):
-                raise ValueError()
-        except (ValueError, TypeError):
-            raise HTTPException(
-                409, "Championship points must be a JSON object of nonnegative integers"
-            )
-        rows = [
-            dict(row)
-            for row in await (
-                await db.execute(
-                    """SELECT racer_profile_id, COUNT(*) laps, SUM(lap_time) total,
-               MIN(lap_time) best, AVG(lap_time) average FROM lap_records
-               WHERE race_id=? GROUP BY racer_profile_id
-               ORDER BY laps DESC, total ASC, racer_profile_id ASC""",
-                    [race_id],
-                )
-            ).fetchall()
-        ]
-        saved = await (
-            await db.execute(
-                "SELECT value FROM system_state WHERE key=?",
-                [f"race_context:{race_id}"],
-            )
-        ).fetchone()
-        if not saved:
-            saved = await (
-                await db.execute(
-                    "SELECT value FROM system_state WHERE key='race_context'"
-                )
-            ).fetchone()
-        roster = json.loads(saved[0]) if saved else {}
-        present = {row["racer_profile_id"] for row in rows}
-        if roster.get("race_id") == race_id:
-            rows.extend(
-                {
-                    "racer_profile_id": r["id"],
-                    "laps": 0,
-                    "total": 0,
-                    "best": None,
-                    "average": None,
-                }
-                for r in roster.get("racers", [])
-                if r["id"] not in present
-            )
-        await db.execute("DELETE FROM race_results WHERE race_id=?", [race_id])
-        for position, row in enumerate(rows, 1):
-            # A marked replay can end before the target. Cars that completed
-            # laps still receive their finishing-position points; a car with
-            # no verified lap remains DNF.
-            completed = row["laps"] > 0
-            await db.execute(
-                """INSERT INTO race_results
-                (id,race_id,racer_profile_id,finish_position,total_time,best_lap_time,
-                 avg_lap_time,laps_completed,status,points_earned)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                [
-                    str(uuid.uuid4()),
-                    race_id,
-                    row["racer_profile_id"],
-                    position,
-                    row["total"],
-                    row["best"],
-                    row["average"],
-                    row["laps"],
-                    "finished" if completed else "dnf",
-                    (
-                        points.get(str(position), 0)
-                        if completed and race["type"] == "main"
-                        else 0
-                    ),
-                ],
-            )
+        await write_scored_results(db, race)
         now = datetime.now(timezone.utc).isoformat()
         await db.execute(
             "UPDATE races SET status='finished', end_time=? WHERE id=?", [now, race_id]

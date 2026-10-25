@@ -336,7 +336,7 @@ def import_classifications(pi, race_id, output_dir, classification_file, submit)
         "model": result.get("model", "offboard-vision"),
         "crossings": crossings,
         "unassigned_crossings": unknown,
-        "notes": "Temporal vision review; ambiguous identities were withheld.",
+        "notes": f"Reviewed {len(by_index)} of {len(prepared['events'])} crossing clips; ambiguous identities were withheld.",
     }
     path = output_dir / race_id / "imported-proposal.json"
     path.write_text(json.dumps(proposal, indent=2))

@@ -4,6 +4,24 @@ Thumbs.db
 *.log
 .env
 
+# Keep race footage, extracted frames, and model artifacts local.
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.pt
+*.pth
+*.onnx
+
 # Python
 __pycache__/
 *.pyc

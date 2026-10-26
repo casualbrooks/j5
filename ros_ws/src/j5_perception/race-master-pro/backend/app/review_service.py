@@ -83,6 +83,9 @@ class TrackPoint(BaseModel):
 class TrackTrace(BaseModel):
     track_id: int = Field(ge=1)
     crossing_second: float = Field(ge=0, le=86400)
+    appearance_cluster: int | None = Field(default=None, ge=0)
+    assigned_racer_id: str | None = None
+    excluded: bool = False
     points: list[TrackPoint] = Field(min_length=2, max_length=500)
 
     @model_validator(mode="after")
@@ -107,6 +110,12 @@ class TrackingPreview(BaseModel):
         if sum(len(track.points) for track in self.tracks) > 50000:
             raise ValueError("Tracking preview has too many points")
         return self
+
+
+class TrackAssignment(BaseModel):
+    track_id: int = Field(ge=1)
+    racer_id: str | None = None
+    excluded: bool = False
 
 
 def gate_matches(proposed, saved):
@@ -332,6 +341,13 @@ async def submit_tracking_preview(data: TrackingPreview):
         raise HTTPException(409, "Tracking video does not match the saved replay")
     if not gate_matches(data.analysis_gate.model_dump(), info["finish_gate"]):
         raise HTTPException(409, "Tracking gate does not match the saved finish line")
+    roster = {racer["id"] for racer in info["racers"]}
+    if any(
+        track.assigned_racer_id not in roster
+        for track in data.tracks
+        if track.assigned_racer_id
+    ):
+        raise HTTPException(422, "Tracking preview contains a racer outside this race")
     start = info["video_start_s"]
     end = info["video_end_s"] or 86400
     if any(
@@ -377,6 +393,49 @@ async def get_tracking_preview(race_id):
 
 async def get_tracking_preview_summary(race_id):
     return tracking_preview_summary(await get_tracking_preview(race_id))
+
+
+async def assign_track(race_id: str, assignment: TrackAssignment):
+    """Save a human review of one crossing without touching the lap ledger."""
+    info = await manifest(race_id)
+    if info["race_status"] == "active":
+        raise HTTPException(409, "Pause the race before reviewing a track")
+    if assignment.racer_id and assignment.racer_id not in {
+        racer["id"] for racer in info["racers"]
+    }:
+        raise HTTPException(422, "Racer is outside this race")
+    key = f"tracking_preview:{race_id}"
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (
+            await db.execute("SELECT value FROM system_state WHERE key=?", [key])
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "No tracking preview for this race")
+        preview = json.loads(row[0])
+        if preview["video_sha256"] != info["video_sha256"] or not gate_matches(
+            preview["analysis_gate"], info["finish_gate"]
+        ):
+            raise HTTPException(409, "Tracking preview no longer matches this race")
+        track = next(
+            (
+                item
+                for item in preview["tracks"]
+                if item["track_id"] == assignment.track_id
+            ),
+            None,
+        )
+        if track is None:
+            raise HTTPException(404, "Track not found")
+        track["assigned_racer_id"] = assignment.racer_id
+        track["excluded"] = assignment.excluded
+        preview["id"] = str(uuid.uuid4())
+        preview["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.execute(
+            "UPDATE system_state SET value=? WHERE key=?", [json.dumps(preview), key]
+        )
+        await db.commit()
+    return tracking_preview_summary(preview)
 
 
 async def assign_group(race_id, assignment: GroupAssignment):

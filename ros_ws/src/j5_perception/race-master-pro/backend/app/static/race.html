@@ -12,6 +12,7 @@ canvas{aspect-ratio:auto;height:auto}
 #replayControls{margin-top:14px;padding:14px;border:1px solid #405268;border-radius:8px}#replayControls input[type=range]{width:100%}#replayControls .row button{min-width:110px}[hidden]{display:none!important}
 #previewWrap{position:relative}#lapOverlay{position:absolute;top:10px;right:10px;z-index:2;min-width:170px;max-width:min(46%,290px);padding:10px;border:1px solid #8ca5ba88;border-radius:10px;background:#0b1520d9;backdrop-filter:blur(5px);pointer-events:none;box-shadow:0 5px 22px #0008}#lapOverlayTitle{display:flex;justify-content:space-between;gap:8px;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#d8e7f4;margin-bottom:6px}#lapOverlayStatus{font-size:11px;color:#aebbc9;text-transform:none;letter-spacing:0}.lap-overlay-row{display:flex;align-items:center;gap:8px;padding:5px 3px;border-radius:6px;font-variant-numeric:tabular-nums}.lap-overlay-dot{width:8px;height:8px;border-radius:50%;flex:none}.lap-overlay-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.lap-overlay-count{font-size:20px;font-weight:750;min-width:2ch;text-align:right}.lap-flash{animation:lapPulse 1.7s ease-out}@keyframes lapPulse{0%{background:#3fe3a5;color:#06150f;transform:scale(1.05)}30%{background:#248665;color:#fff}100%{background:transparent;color:inherit;transform:scale(1)}}@media(max-width:550px){#lapOverlay{min-width:130px;max-width:55%;padding:7px}.lap-overlay-count{font-size:17px}}
 #reviewPlayerWrap{position:relative;max-width:960px;margin:16px 0}#reviewPlayer{display:block;width:100%;aspect-ratio:16/9;background:#070b11}#reviewMarks{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:16/9;background:transparent;border-radius:0;cursor:default;pointer-events:none}#reviewHud{position:absolute;top:10px;right:10px;z-index:2;min-width:175px;max-width:45%;padding:9px;border:1px solid #8ca5ba88;border-radius:8px;background:#0b1520df;pointer-events:none;font-size:12px}#reviewHudTitle{font-weight:700;color:#d8e7f4}#reviewHudRows .lap-overlay-count{font-size:16px}#reviewUnknown{color:#f6d27c;margin-top:5px}#reviewRecent{color:#8fddfa;margin-top:4px;min-height:1em}@media(max-width:550px){#reviewHud{min-width:135px;max-width:55%;font-size:10px;padding:6px}}
+#trackReviewBox{margin:12px 0}#trackReviewList{max-height:320px;overflow:auto}.track-review-row{display:flex;align-items:center;gap:8px;padding:4px 0}.lap-best{font-size:11px;color:#ffdc77;white-space:nowrap}.lap-best[hidden]{display:none}
 #appearanceGroups{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin:16px 0}#appearanceGroups>p{grid-column:1/-1}.appearance-group{border:1px solid #405268;border-radius:8px;padding:12px}.appearance-group h3{margin:0 0 8px;font-size:16px}.appearance-samples{display:flex;gap:6px}.appearance-samples button{padding:3px;min-width:0;flex:1}.appearance-samples img{display:block;width:100%;aspect-ratio:9/5;object-fit:cover}.appearance-group select{margin-top:10px}
 main{display:flex;flex-direction:column}#previewCard{order:0}#visionCard{order:1}#raceCard{order:2}#standingsCard{order:3}
 body[data-step="1"] #setupCard,body[data-step="2"] #sourceCard,body[data-step="2"] #raceFields,body[data-step="3"] #sourceCard,body[data-step="3"] #gateFields,body[data-step="4"] aside{display:none}
@@ -72,7 +73,7 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 <p id="savedRange" class="status"></p><p><small>Starting a prepared video race opens its saved start marker. The end marker pauses counting for review. Race Pause freezes a replay; Resume continues from that frame.</small></p><button id="nextRace" hidden>Set up another race from this video</button>
 <p id="colorWarnings" role="status" hidden></p><div id="savedRacers"></div><table><thead><tr><th>Racer</th><th>Laps</th><th>Last lap</th><th>Best lap</th></tr></thead><tbody id="lapRows"></tbody></table></section>
 <section class="card" id="assessmentCard"><h2>Replay tracking assessment</h2><p>Analyze the marked interval. Motion crossings are candidates, not car identities or verified laps. Inspect sample frames and label candidates to build training data for this track.</p><div class="row"><button id="assessReplay">Assess marked replay</button><button id="downloadAssessment">Download review data</button></div><p id="assessmentStatus" class="status">Save a replay setup to assess it.</p><div id="assessmentWindows" class="status"></div><img id="assessmentFrame" alt="Selected replay frame with finish line" style="max-width:100%;display:block;margin:12px 0" hidden><div id="assessmentEvents"></div></section>
-<section class="card" id="computeCard"><h2>Off-Pi video review</h2><p>Request analysis of the marked recording. This queues work for a connected computer; the Pi cannot run the vision model. Uncertain crossings stay out of the results.</p><div class="row"><button id="requestCompute">Request computer analysis</button><button id="applyCompute" class="primary">Apply complete proposal</button></div><p id="computeStatus" class="status">No compute review requested.</p><div id="computeComparison"></div><div id="reviewPlayerWrap" hidden><video id="reviewPlayer" controls playsinline preload="metadata" aria-label="Race replay with provisional tracking overlay"></video><canvas id="reviewMarks" width="640" height="360" aria-hidden="true"></canvas><div id="reviewHud"><div id="reviewHudTitle">Replay analysis · provisional</div><div id="reviewHudRows"></div><div id="reviewUnknown">No offboard passes loaded.</div><div id="reviewRecent"></div></div></div><p id="trackingStatus" class="status">No frame-by-frame track preview loaded.</p><p><a id="reviewManifest" href="#">Review manifest</a> · <a id="reviewVideo" href="#" download>Download race recording</a></p></section>
+<section class="card" id="computeCard"><h2>Off-Pi video review</h2><p>Request analysis of the marked recording. This queues work for a connected computer; the Pi cannot run the vision model. Uncertain crossings stay out of the results.</p><div class="row"><button id="requestCompute">Request computer analysis</button><button id="applyCompute" class="primary">Apply complete proposal</button></div><p id="computeStatus" class="status">No compute review requested.</p><div id="computeComparison"></div><div id="reviewPlayerWrap" hidden><video id="reviewPlayer" controls playsinline preload="metadata" aria-label="Race replay with provisional tracking overlay"></video><canvas id="reviewMarks" width="640" height="360" aria-hidden="true"></canvas><div id="reviewHud"><div id="reviewHudTitle">Replay analysis · provisional</div><div id="reviewHudRows"></div><div id="reviewUnknown">No offboard passes loaded.</div><div id="reviewRecent"></div></div></div><p id="trackingStatus" class="status">No frame-by-frame track preview loaded.</p><details id="trackReviewBox" hidden><summary id="trackReviewSummary">Review unassigned crossing tracks</summary><p>Watch a crossing before assigning its car. Ignore a false detection. These choices update provisional counts only.</p><div id="trackReviewList"></div></details><p><a id="reviewManifest" href="#">Review manifest</a> · <a id="reviewVideo" href="#" download>Download race recording</a></p></section>
 <section class="card" id="standingsCard"><h2>Championship standings</h2><p id="scoring">Finish awards 10 / 7 / 5 / 4 points by position, ranked by recorded laps. Review experimental replay counts before awarding points.</p><table><thead><tr><th>Racer</th><th>Points</th><th>Wins</th><th>Races</th></tr></thead><tbody id="standings"></tbody></table></section>
 <p><small>Race data is saved on this Pi. The browser can close while the backend continues counting. Keep a clear view of the finish line and validate a practice run before scoring a championship.</small></p>
 </main></div>
@@ -80,7 +81,7 @@ body:not([data-step="4"]) #raceCard,body:not([data-step="4"]) #assessmentCard,bo
 const $=id=>document.getElementById(id), canvas=$('preview'), ctx=canvas.getContext('2d');
 let current=null, sampledInput=null, rawFrame=null, hydrated=false, polling=false, scrubbing=false, assessmentRenderKey='',overlayRaceId=null;
 const overlayRows=new Map(),lastLapCounts=new Map(),reviewRows=new Map();
-let reviewPlayerRaceId=null,lastReviewFlash=null,appearanceRenderKey='',trackingPreview=null,trackingPreviewId=null,reviewAnimation=null;
+let reviewPlayerRaceId=null,lastReviewFlash=null,appearanceRenderKey='',trackingPreview=null,trackingPreviewId=null,reviewAnimation=null,trackReviewKey='',candidateCacheKey='',candidateCache=[];
 const message=text=>$('message').textContent=text;
 const formatTime=seconds=>{if(seconds==null||!Number.isFinite(Number(seconds)))return '—';const tenths=Math.round(Number(seconds)*10);return `${Math.floor(tenths/600)}:${String(Math.floor((tenths%600)/10)).padStart(2,'0')}.${tenths%10}`;};
 function updateClipRange(){const start=Number($('videoStart').value||0),end=$('videoEnd').value.trim()?Number($('videoEnd').value):null;$('clipRange').textContent=`Race interval: ${formatTime(start)} to ${end==null?'end of video':formatTime(end)}.`;}
@@ -121,14 +122,33 @@ function renderAssessment(data){
 const appearanceBox=document.createElement('div');appearanceBox.id='appearanceGroups';$('reviewPlayerWrap').insertAdjacentElement('afterend',appearanceBox);
 function reviewGateMatches(data){const gate=data.replay_proposal?.analysis_gate,config=data.config;if(!gate||!config)return false;return ['finish_x','y_min','y_max','direction'].every(key=>Math.abs(Number(gate[key])-Number(config[key]))<.00001)}
 function atSavedFinish(event,config){return event.direction==='outward'&&event.y>=config.y_min&&event.y<=config.y_max&&Math.abs(event.x-config.finish_x)<=.02}
-function mappedCandidatePasses(data,racerId,until){const proposal=data.replay_proposal,config=data.config;if(!reviewGateMatches(data)||!proposal)return [];const minimum=Number(config.minimum_lap_ms||2000)/1000,times=[];for(const event of proposal.observations||[]){if(event.second>until)break;if(!atSavedFinish(event,config))continue;if(proposal.group_assignments?.[String(event.appearance_cluster)]!==racerId)continue;if(!times.length||event.second-times.at(-1)>=minimum)times.push(event.second)}return times}
+function trackingGateMatches(data){const gate=trackingPreview?.analysis_gate,config=data.config;return !!gate&&trackingPreview.race_id===data.race?.id&&['finish_x','y_min','y_max','direction'].every(key=>Math.abs(Number(gate[key])-Number(config[key]))<.00001)}
+function trackCrossingY(track){return track.points.reduce((best,point)=>Math.abs(point.second-track.crossing_second)<Math.abs(best.second-track.crossing_second)?point:best).y}
+function matchingTrackObservation(track,observations){const y=trackCrossingY(track);let best=null,score=Infinity;for(const event of observations){const dt=Math.abs(event.second-track.crossing_second),dy=Math.abs(event.y-y);if(dt>.25||dy>.025)continue;const distance=dt+dy*2;if(distance<score){best=event;score=distance}}return best}
+function trackRacerId(track,data,matchingObservation=null){if(track.excluded)return null;return track.assigned_racer_id||data.replay_proposal?.group_assignments?.[String(track.appearance_cluster??matchingObservation?.appearance_cluster)]||null}
+function candidateEvents(data){
+ const proposal=data.replay_proposal,tracks=trackingGateMatches(data)?trackingPreview.tracks:[],key=JSON.stringify([data.race?.id,proposal?.id,proposal?.group_assignments,trackingPreviewId,data.config?.finish_x,data.config?.y_min,data.config?.y_max,data.config?.direction]);
+ if(key===candidateCacheKey)return candidateCache;
+ candidateCacheKey=key;candidateCache=[];
+ if(!reviewGateMatches(data)||!proposal)return candidateCache;
+ const observations=(proposal.observations||[]).filter(event=>atSavedFinish(event,data.config));
+ const used=new Set();
+ for(const track of tracks){const matching=matchingTrackObservation(track,observations),racerId=trackRacerId(track,data,matching);if(matching)used.add(matching);if(!track.excluded&&racerId)candidateCache.push({second:matching?.second??track.crossing_second,racerId,trackId:track.track_id})}
+ for(const event of observations){if(used.has(event))continue;const racerId=proposal.group_assignments?.[String(event.appearance_cluster)];if(racerId)candidateCache.push({second:event.second,racerId,trackId:null})}
+ candidateCache.sort((a,b)=>a.second-b.second);return candidateCache;
+}
+function mappedCandidatePasses(data,racerId,until){const minimum=Number(data.config?.minimum_lap_ms||2000)/1000,times=[];for(const event of candidateEvents(data)){if(event.second>until)break;if(event.racerId!==racerId)continue;if(!times.length||event.second-times.at(-1)>=minimum)times.push(event.second)}return times}
+function fastestFromPasses(passes){let best=null;for(let index=1;index<passes.length;index++){const duration=passes[index]-passes[index-1];if(best===null||duration<best)best=duration}return best}
+function fastestCandidate(data,until){let best=null;for(const racer of data.context?.racers||[]){const duration=fastestFromPasses(mappedCandidatePasses(data,racer.id,until));if(duration!==null&&(!best||duration<best.duration))best={racerId:racer.id,duration}}return best}
+function fastestRecorded(data){const lap=data.laps.reduce((best,item)=>item.lap_time>0&&(!best||item.lap_time<best.lap_time)?item:best,null);return lap?{racerId:lap.racer_profile_id,duration:lap.lap_time/1000}:null}
+function setFastestBadge(row,fastest,racerId,provisional,source='candidate'){let badge=row.querySelector('.lap-best');if(!badge){badge=document.createElement('span');badge.className='lap-best';row.append(badge)}badge.hidden=!fastest||fastest.racerId!==racerId;if(!badge.hidden){badge.textContent=`★ ${provisional?'~':''}${fastest.duration.toFixed(2)}s`;badge.title=provisional?`Fastest ${source} lap; unverified`:'Fastest recorded lap'}}
 function renderAppearanceGroups(data){
  const proposal=data.replay_proposal,raceId=data.race?.id,groups=new Map();
  if(!reviewGateMatches(data)){appearanceRenderKey='';appearanceBox.replaceChildren();if(proposal?.observations?.length)appearanceBox.textContent='This analysis was not tied to the saved finish line. Reanalyze the lower finish before mapping car appearances.';return}
  for(const event of proposal?.observations||[]){if(event.appearance_cluster==null||!atSavedFinish(event,data.config))continue;const group=event.appearance_cluster;if(!groups.has(group))groups.set(group,[]);groups.get(group).push(event)}
  const key=JSON.stringify([proposal?.id,proposal?.group_assignments,data.context?.racers]);if(key===appearanceRenderKey)return;appearanceRenderKey=key;appearanceBox.replaceChildren();
  if(!groups.size){appearanceBox.textContent='No appearance groups at the saved finish line yet.';return}
- const intro=document.createElement('p');intro.textContent='Compare several passes, then assign groups that consistently show the same car. One car may appear in several groups; a group can also contain false detections. Leave uncertain groups unassigned. Mappings do not count laps.';appearanceBox.append(intro);
+ const intro=document.createElement('p');intro.textContent='Compare several passes, then assign groups that consistently show the same car. One car may appear in several groups; a group can also contain false detections. Leave uncertain groups unassigned. Mappings update provisional replay counts, not saved results.';appearanceBox.append(intro);
  const roster=data.context?.racers||[];
  for(const [group,events] of [...groups].sort((a,b)=>a[0]-b[0])){
   const card=document.createElement('div');card.className='appearance-group';
@@ -154,7 +174,7 @@ function renderCompute(data){
  if(!job){$('computeStatus').textContent='No compute review requested.';$('computeComparison').replaceChildren();return}
  $('computeStatus').textContent=job.status==='requested'?`Analysis queued at ${new Date(job.requested_at).toLocaleTimeString()}. The Pi is waiting for an off-Pi worker to connect; the button alone cannot start NVIDIA inference.${proposal?' The proposal below is from an earlier, incomplete run.':''}`:proposal?.status==='incomplete'&&!proposal.crossings.length?`Mapped appearance groups show tentative lap counts in the replay. Detection and identity are still incomplete; no results were changed. ${proposal.notes||''}`:proposal?`Computer review: ${proposal.status}. ${proposal.summary.unassigned_crossings} crossings unresolved. ${proposal.notes||''}`:`Computer review: ${job.status}.`;
  $('computeComparison').replaceChildren();if(!proposal)return;
- for(const racer of data.context.racers||[]){const p=document.createElement('p'),mapped=Object.values(proposal.group_assignments||{}).includes(racer.id),candidate=proposal.candidate_summary?.candidate_laps?.[racer.id];p.textContent=`${racer.name}: recorded ${data.laps.filter(l=>l.racer_profile_id===racer.id).length} laps · mapped candidate laps ${mapped?`~${candidate??Math.max(0,mappedCandidatePasses(data,racer.id,Infinity).length-1)}`:'?'}`;$('computeComparison').append(p)}
+ for(const racer of data.context.racers||[]){const p=document.createElement('p'),passes=mappedCandidatePasses(data,racer.id,Infinity),mapped=passes.length||Object.values(proposal.group_assignments||{}).includes(racer.id);p.textContent=`${racer.name}: recorded ${data.laps.filter(l=>l.racer_profile_id===racer.id).length} laps · mapped candidate laps ${mapped?`~${Math.max(0,passes.length-1)}`:'?'}`;$('computeComparison').append(p)}
 }
 function renderReviewPlayer(data){
  const raceId=data.race?.id,available=!!raceId&&data.config?.source?.startsWith('video:'),player=$('reviewPlayer');
@@ -169,18 +189,37 @@ function renderReviewPlayer(data){
 }
 async function syncTrackingPreview(data){
  const summary=data.tracking_preview,raceId=data.race?.id;
- if(!raceId||!summary){trackingPreview=null;trackingPreviewId=null;$('trackingStatus').textContent='No frame-by-frame track preview loaded.';return}
- if(trackingPreviewId===summary.id)return;
+ if(!raceId||!summary){trackingPreview=null;trackingPreviewId=null;$('trackingStatus').textContent='No frame-by-frame track preview loaded.';$('trackReviewBox').hidden=true;return}
+ if(trackingPreviewId===summary.id){renderTrackReview(data);return}
  const preview=await api(`/api/quick/review/${encodeURIComponent(raceId)}/tracks`);
  if(preview?.id!==summary.id)return;
  trackingPreview=preview;trackingPreviewId=summary.id;
- $('trackingStatus').textContent=`Experimental lower-straight tracks: ${summary.track_count} crossing candidates, ${summary.point_count} frame positions. Green dots are detections; amber dots bridge short gaps. Rings mark candidate crossings. These are not verified laps or stable car identities.`;
+ renderTrackReview(data);
  renderReviewOverlay();
+}
+function renderTrackReview(data){
+ if(!trackingGateMatches(data)){$('trackReviewBox').hidden=true;return}
+ const tracks=trackingPreview.tracks,observations=(data.replay_proposal?.observations||[]).filter(event=>atSavedFinish(event,data.config)),unassigned=[];
+ let mapped=0,excluded=0;
+ for(const track of tracks){const matching=matchingTrackObservation(track,observations);if(track.excluded)excluded++;else if(trackRacerId(track,data,matching))mapped++;else unassigned.push(track)}
+ $('trackingStatus').textContent=`Experimental lower-straight tracks: ${tracks.length} crossing candidates, ${mapped} mapped to racers, ${unassigned.length} unassigned, ${excluded} ignored. Green dots are detections; amber dots bridge short gaps. Counts and fastest laps remain provisional.`;
+ $('trackReviewBox').hidden=!unassigned.length;$('trackReviewSummary').textContent=`Review ${unassigned.length} unassigned crossing tracks`;
+ const key=JSON.stringify([trackingPreviewId,data.replay_proposal?.group_assignments,data.context?.racers]);if(key===trackReviewKey)return;trackReviewKey=key;
+ $('trackReviewList').replaceChildren();
+ for(const track of unassigned){
+  const row=document.createElement('div');row.className='track-review-row';
+  const watch=document.createElement('button');watch.textContent=`Watch ${formatTime(track.crossing_second)}`;watch.onclick=()=>{const player=$('reviewPlayer');player.currentTime=Math.max(Number(data.config.video_start_s)||0,track.crossing_second-.35);player.playbackRate=.25;player.play().catch(()=>{});player.scrollIntoView({behavior:'smooth',block:'center'})};
+  const select=document.createElement('select');select.ariaLabel=`Car for crossing at ${formatTime(track.crossing_second)}`;select.append(new Option('Unassigned',''),...data.context.racers.map(racer=>new Option(racer.name,racer.id)),new Option('Ignore detection','ignore'));
+  select.onchange=async()=>{const value=select.value;if(!value)return;select.disabled=true;try{const summary=await api(`/api/quick/review/${encodeURIComponent(data.race.id)}/tracks/assign`,'POST',{track_id:track.track_id,racer_id:value==='ignore'?null:value,excluded:value==='ignore'});current.tracking_preview=summary;trackingPreviewId=null;await syncTrackingPreview(current);renderCompute(current);message(`${value==='ignore'?'Ignored':'Assigned'} crossing at ${formatTime(track.crossing_second)}. Candidate laps updated; saved results unchanged.`)}catch(error){select.value='';select.disabled=false;message(error.message)}};
+  row.append(watch,select);$('trackReviewList').append(row)
+ }
 }
 function renderTrackDots(ctxReview,time,config){
  const preview=trackingPreview;
  if(!preview||preview.race_id!==current?.race?.id||!['finish_x','y_min','y_max','direction'].every(key=>Math.abs(Number(preview.analysis_gate[key])-Number(config[key]))<.00001))return;
+ const observations=(current.replay_proposal?.observations||[]).filter(event=>atSavedFinish(event,config));
  for(const track of preview.tracks){
+  if(track.excluded)continue;
   const points=track.points,first=points[0],last=points.at(-1);
   if(time<first.second-.08||time>last.second+.08)continue;
   let before=null,after=null;
@@ -190,9 +229,10 @@ function renderTrackDots(ctxReview,time,config){
   else if(before&&time-before.second<=.08){x=before.x;y=before.y}
   else if(after&&after.second-time<=.08){x=after.x;y=after.y}
   else continue;
+  const racerId=trackRacerId(track,current,matchingTrackObservation(track,observations)),racer=current.context?.racers?.find(item=>item.id===racerId),color=racer?.color||'#5df0c5';
   const trail=points.filter(point=>point.second>=time-.5&&point.second<=time);
-  if(trail.length>1){ctxReview.beginPath();ctxReview.moveTo(trail[0].x*640,trail[0].y*360);for(const point of trail.slice(1))ctxReview.lineTo(point.x*640,point.y*360);ctxReview.strokeStyle='#5df0c5b0';ctxReview.lineWidth=2;ctxReview.stroke()}
-  ctxReview.beginPath();ctxReview.arc(x*640,y*360,6,0,2*Math.PI);ctxReview.fillStyle=interpolated?'#ffbb55':'#5df0c5';ctxReview.fill();ctxReview.strokeStyle='#07111b';ctxReview.lineWidth=2;ctxReview.stroke();
+  if(trail.length>1){ctxReview.beginPath();ctxReview.moveTo(trail[0].x*640,trail[0].y*360);for(const point of trail.slice(1))ctxReview.lineTo(point.x*640,point.y*360);ctxReview.strokeStyle=color;ctxReview.lineWidth=2;ctxReview.stroke()}
+  ctxReview.beginPath();ctxReview.arc(x*640,y*360,6,0,2*Math.PI);ctxReview.fillStyle=interpolated?'#ffbb55':'#5df0c5';ctxReview.fill();ctxReview.strokeStyle=racer?color:'#07111b';ctxReview.lineWidth=2;ctxReview.stroke();
   if(Math.abs(track.crossing_second-time)<.1){ctxReview.beginPath();ctxReview.arc(x*640,y*360,12,0,2*Math.PI);ctxReview.strokeStyle='#ffdd67';ctxReview.lineWidth=3;ctxReview.stroke()}
  }
 }
@@ -207,18 +247,20 @@ function renderReviewOverlay(){
  for(const event of visible){ctxReview.beginPath();ctxReview.arc(event.x*640,event.y*360,10,0,2*Math.PI);ctxReview.strokeStyle=event.direction==='outward'?'#f6d27c':'#75c9fa';ctxReview.lineWidth=3;ctxReview.stroke()}
  const outward=observations.filter(event=>event.direction==='outward'&&event.second>=start&&event.second<=Math.min(time,end)).length;
  const returning=observations.filter(event=>event.direction==='return'&&event.second>=start&&event.second<=Math.min(time,end)).length;
- $('reviewUnknown').textContent=observations.length?`${outward} outward passes · ${returning} return passes · identities unverified`:proposal?.observations?.length&&!matchingGate?'Previous analysis used an unverified line. Reanalyze this finish.':'No offboard passes loaded.';
+ const mappedPasses=candidateEvents(data).filter(event=>event.second>=start&&event.second<=Math.min(time,end)).length;
+ $('reviewUnknown').textContent=mappedPasses?`${mappedPasses} mapped candidate passes · identities still unverified`:observations.length?`${outward} outward passes · ${returning} return passes · identities unverified`:proposal?.observations?.length&&!matchingGate?'Previous analysis used an unverified line. Reanalyze this finish.':'No offboard passes loaded.';
  const recent=[...observations].reverse().find(event=>event.second<=time&&time-event.second<1.7);
  const recentRacer=recent&&data.context?.racers?.find(racer=>racer.id===proposal?.group_assignments?.[String(recent.appearance_cluster)]);
  $('reviewRecent').textContent=recent?`${recent.direction==='outward'?'Recent outward pass':'Recent return pass'} · ${recentRacer?.name||(recent.appearance_cluster==null?'car unknown':`appearance group ${recent.appearance_cluster+1}`)}`:'';
- const roster=data.context?.racers||[],ids=new Set(roster.map(racer=>racer.id));
+ const roster=data.context?.racers||[],ids=new Set(roster.map(racer=>racer.id)),provisional=proposal?.status!=='applied',fastest=provisional?fastestCandidate(data,Math.min(time,end)):fastestRecorded(data);
  for(const [id,row] of reviewRows)if(!ids.has(id)){row.remove();reviewRows.delete(id)}
  for(const racer of roster){
   let row=reviewRows.get(racer.id);
   if(!row){row=document.createElement('div');row.className='lap-overlay-row';const dot=document.createElement('span');dot.className='lap-overlay-dot';dot.style.backgroundColor=racer.color||'#fff';const name=document.createElement('span');name.className='lap-overlay-name';name.textContent=racer.name;const count=document.createElement('span');count.className='lap-overlay-count';row.append(dot,name,count);$('reviewHudRows').append(row);reviewRows.set(racer.id,row)}
   const seen=crossings.filter(event=>event.racer_id===racer.id&&event.second>=start&&event.second<=Math.min(time,end));
-  const mapped=Object.values(proposal?.group_assignments||{}).includes(racer.id),candidate=mappedCandidatePasses(data,racer.id,Math.min(time,end));
-  row.lastElementChild.textContent=matchingGate&&(proposal?.status==='ready'||proposal?.status==='applied')?String(Math.max(0,seen.length-1)):mapped?`~${Math.max(0,candidate.length-1)}`:'?';
+  const candidate=mappedCandidatePasses(data,racer.id,Math.min(time,end)),mapped=candidate.length||Object.values(proposal?.group_assignments||{}).includes(racer.id);
+  row.querySelector('.lap-overlay-count').textContent=matchingGate&&(proposal?.status==='ready'||proposal?.status==='applied')?String(Math.max(0,seen.length-1)):mapped?`~${Math.max(0,candidate.length-1)}`:'?';
+  setFastestBadge(row,fastest,racer.id,provisional);
   const latest=(seen.at(-1)?.second)||candidate.at(-1);if(latest&&time-latest<1.7&&((seen.length>1)||(candidate.length>1))){const key=`${racer.id}:${latest}`;if(lastReviewFlash!==key){row.classList.remove('lap-flash');void row.offsetWidth;row.classList.add('lap-flash');lastReviewFlash=key}}
  }
 }
@@ -234,13 +276,14 @@ function renderLapOverlay(data){
  const video=data.config?.source?.startsWith('video:');
  const phase=race.status==='active'?'LIVE':race.status==='paused'?'PAUSED':race.status==='finished'?'FINISHED':'READY';
  $('lapOverlayStatus').textContent=video&&data.replay_proposal?.status!=='applied'?`${phase} · unverified`:phase;
- const ids=new Set(racers.map(r=>r.id));
+ const ids=new Set(racers.map(r=>r.id)),fastest=fastestRecorded(data);
  for(const [id,row] of overlayRows)if(!ids.has(id)){row.remove();overlayRows.delete(id);lastLapCounts.delete(id)}
  for(const racer of racers){
   let row=overlayRows.get(racer.id);
   if(!row){row=document.createElement('div');row.className='lap-overlay-row';const dot=document.createElement('span');dot.className='lap-overlay-dot';dot.style.backgroundColor=racer.color||'#fff';const name=document.createElement('span');name.className='lap-overlay-name';name.textContent=racer.name;const count=document.createElement('span');count.className='lap-overlay-count';row.append(dot,name,count);$('lapOverlayRows').append(row);overlayRows.set(racer.id,row)}
   const count=data.laps.filter(lap=>lap.racer_profile_id===racer.id).length;
-  row.lastElementChild.textContent=String(count);
+  row.querySelector('.lap-overlay-count').textContent=String(count);
+  setFastestBadge(row,fastest,racer.id,video&&data.replay_proposal?.status!=='applied','saved');
   if(lastLapCounts.has(racer.id)&&count>lastLapCounts.get(racer.id)&&race.status==='active'){
    row.classList.remove('lap-flash');void row.offsetWidth;row.classList.add('lap-flash');setTimeout(()=>row.classList.remove('lap-flash'),1800);
   }
@@ -253,7 +296,7 @@ const lapTime=n=>n?`${(n/1000).toFixed(3)}s`:'—';
 async function championships(){const items=await api('/api/championships');const chosen=$('championship').value;$('championship').replaceChildren(new Option('Create / reuse by name',''),...items.map(c=>new Option(c.name,c.id)));$('championship').value=chosen;}
 async function refresh(force=false){
 if(polling){if(!force)return;while(polling)await new Promise(resolve=>setTimeout(resolve,25));}polling=true;
-try{current=await api('/api/quick/state');renderVision(current);renderAssessment(current);renderCompute(current);renderLapOverlay(current);await syncTrackingPreview(current);$('connection').textContent='Connected to the Pi';
+try{current=await api('/api/quick/state');renderVision(current);renderAssessment(current);await syncTrackingPreview(current);renderCompute(current);renderLapOverlay(current);$('connection').textContent='Connected to the Pi';
 if(!hydrated){hydrated=true;const c=current.config;if(c.racers){$('racers').replaceChildren();c.racers.forEach(r=>addRacer(r.name,r.color));$('source').value=c.source;$('eventName').value=c.event_name;$('championshipName').value=c.championship_name;$('laps').value=c.total_laps;$('pointsByPlace').value=(c.points_by_place??[10,7,5,4]).join(', ');$('finishX').value=c.finish_x*100;$('yMin').value=c.y_min*100;$('yMax').value=c.y_max*100;$('direction').value=c.direction;$('minimumLap').value=c.minimum_lap_ms/1000;$('championship').value=current.context.championship_id||'';$('videos').value=c.source;$('videoStart').value=c.video_start_s??0;$('videoEnd').value=c.video_end_s??'';}if(current.race?.status==='active'||(current.race?.status==='paused'&&current.laps.length))setStage(4);}
 const status=current.race?.status;const locked=status==='active'||(status==='paused'&&current.laps.length>0),unsaved=!locked&&setupChanged();$('prepare').disabled=locked;document.querySelectorAll('aside input, aside select, #addRacer, .racer button, #camera, #cameraStop, #uploadButton, #applyVision, #sampleVision').forEach(el=>el.disabled=locked);if(locked)sampledInput=null;$('editNotice').textContent=status==='paused'&&!current.laps.length?'No laps saved yet. You can revise this setup; saving returns it to Ready.':locked?'Finish this race before changing its scoring setup.':'';const replay=status==='setup'&&current.config?.source?.startsWith('video:');$('start').disabled=!['setup','paused'].includes(status)||unsaved||(!replay&&!current.camera.ready);$('start').textContent=replay?'Start race & replay video':status==='paused'?'Resume race':'Start race';$('pause').disabled=status!=='active';$('finish').disabled=!['active','paused'].includes(status);$('toGate').disabled=!current.camera.ready;
 $('setupState').textContent=unsaved?'Unsaved setup changes — use step 3 to save before starting.':status==='paused'&&!current.laps.length?'Paused with no laps saved — setup can be edited.':status==='paused'?`Paused with ${current.laps.length} saved laps.`:status==='active'?`Race running — ${current.laps.length} saved laps.`:status==='setup'?'Race ready for setup and testing.':'Choose a camera or video to begin.';

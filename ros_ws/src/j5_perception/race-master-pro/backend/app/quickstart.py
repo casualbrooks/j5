@@ -27,9 +27,11 @@ from app.replay_assessment import assess_replay
 from app.review_service import (
     GroupAssignment,
     ReviewProposal,
+    TrackAssignment,
     TrackingPreview,
     apply_proposal,
     assign_group,
+    assign_track,
     finish_observation,
     gate_matches,
     get_review_job,
@@ -603,6 +605,11 @@ async def review_submit_tracks(race_id: str, preview: TrackingPreview):
     if preview.race_id != race_id:
         raise HTTPException(422, "Tracking race ID does not match the URL")
     return await submit_tracking_preview(preview)
+
+
+@router.post("/api/quick/review/{race_id}/tracks/assign")
+async def review_assign_track(race_id: str, assignment: TrackAssignment):
+    return await assign_track(race_id, assignment)
 
 
 @router.post("/api/quick/review/{race_id}/groups")

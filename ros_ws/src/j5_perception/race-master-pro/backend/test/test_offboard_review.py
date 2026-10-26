@@ -104,6 +104,28 @@ def test_tracking_preview_is_video_bound_and_does_not_score(tmp_path, monkeypatc
             client.get("/api/quick/state").json()["tracking_preview"]["id"]
             == sent.json()["id"]
         )
+        assignment = client.post(
+            f"{endpoint}/assign",
+            json={"track_id": 1, "racer_id": info["racers"][0]["id"]},
+        )
+        assert assignment.status_code == 200, assignment.text
+        assert assignment.json()["id"] != sent.json()["id"]
+        assert (
+            client.get(endpoint).json()["tracks"][0]["assigned_racer_id"]
+            == info["racers"][0]["id"]
+        )
+        assert (
+            client.post(
+                f"{endpoint}/assign", json={"track_id": 1, "racer_id": "unknown"}
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                f"{endpoint}/assign", json={"track_id": 999, "excluded": True}
+            ).status_code
+            == 404
+        )
         assert client.get(f"/api/laps?race_id={race_id}").json() == []
 
 

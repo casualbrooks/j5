@@ -68,6 +68,18 @@ def test_tracking_preview_is_video_bound_and_does_not_score(tmp_path, monkeypatc
                 {
                     "track_id": 1,
                     "crossing_second": 1.5,
+                    "crossing_confidence": 0.96,
+                    "suggested_appearance_cluster": 2,
+                    "suggestion_confidence": 0.91,
+                    "identity_source": "multiframe_model",
+                    "identity_confidence": 0.91,
+                    "motion_evidence": {
+                        "consistent": True,
+                        "median_px_per_frame": 12.3,
+                        "speed_variation": 1.1,
+                        "backward_fraction": 0,
+                        "distance_px": 80,
+                    },
                     "points": [
                         {"second": 1.45, "x": 0.57, "y": 0.61},
                         {"second": 1.55, "x": 0.53, "y": 0.61},
@@ -99,6 +111,8 @@ def test_tracking_preview_is_video_bound_and_does_not_score(tmp_path, monkeypatc
         assert sent.json()["point_count"] == 2
         stored = client.get(endpoint).json()["tracks"]
         assert stored[0]["track_id"] == 1
+        assert stored[0]["motion_evidence"]["consistent"] is True
+        assert stored[0]["suggestion_confidence"] == 0.91
         assert [point["second"] for point in stored[0]["points"]] == [1.45, 1.55]
         assert (
             client.get("/api/quick/state").json()["tracking_preview"]["id"]
@@ -110,10 +124,10 @@ def test_tracking_preview_is_video_bound_and_does_not_score(tmp_path, monkeypatc
         )
         assert assignment.status_code == 200, assignment.text
         assert assignment.json()["id"] != sent.json()["id"]
-        assert (
-            client.get(endpoint).json()["tracks"][0]["assigned_racer_id"]
-            == info["racers"][0]["id"]
-        )
+        assigned_track = client.get(endpoint).json()["tracks"][0]
+        assert assigned_track["assigned_racer_id"] == info["racers"][0]["id"]
+        assert assigned_track["identity_source"] == "human_review"
+        assert assigned_track["identity_confidence"] == 1.0
         assert (
             client.post(
                 f"{endpoint}/assign", json={"track_id": 1, "racer_id": "unknown"}

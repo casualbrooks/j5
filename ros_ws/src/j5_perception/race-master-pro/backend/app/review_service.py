@@ -80,12 +80,27 @@ class TrackPoint(BaseModel):
     observed: bool = True
 
 
+class MotionEvidence(BaseModel):
+    consistent: bool
+    median_px_per_frame: float
+    speed_variation: float = Field(ge=0)
+    backward_fraction: float = Field(ge=0, le=1)
+    distance_px: float
+
+
 class TrackTrace(BaseModel):
     track_id: int = Field(ge=1)
     crossing_second: float = Field(ge=0, le=86400)
     appearance_cluster: int | None = Field(default=None, ge=0)
     assigned_racer_id: str | None = None
     excluded: bool = False
+    crossing_confidence: float | None = Field(default=None, ge=0, le=1)
+    suggested_appearance_cluster: int | None = Field(default=None, ge=0)
+    suggestion_confidence: float | None = Field(default=None, ge=0, le=1)
+    identity_source: str | None = Field(default=None, max_length=80)
+    identity_confidence: float | None = Field(default=None, ge=0, le=1)
+    motion_evidence: MotionEvidence | None = None
+    review_reason: str | None = Field(default=None, max_length=240)
     points: list[TrackPoint] = Field(min_length=2, max_length=500)
 
     @model_validator(mode="after")
@@ -429,6 +444,12 @@ async def assign_track(race_id: str, assignment: TrackAssignment):
             raise HTTPException(404, "Track not found")
         track["assigned_racer_id"] = assignment.racer_id
         track["excluded"] = assignment.excluded
+        if assignment.racer_id:
+            track["identity_source"] = "human_review"
+            track["identity_confidence"] = 1.0
+            track["review_reason"] = None
+        elif assignment.excluded:
+            track["review_reason"] = "Human marked this as a false detection"
         preview["id"] = str(uuid.uuid4())
         preview["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.execute(

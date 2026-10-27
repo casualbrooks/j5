@@ -133,7 +133,7 @@ function candidateEvents(data){
  if(!reviewGateMatches(data)||!proposal)return candidateCache;
  const observations=(proposal.observations||[]).filter(event=>atSavedFinish(event,data.config));
  const used=new Set();
- for(const track of tracks){const matching=matchingTrackObservation(track,observations),racerId=trackRacerId(track,data,matching);if(matching)used.add(matching);if(!track.excluded&&racerId)candidateCache.push({second:matching?.second??track.crossing_second,racerId,trackId:track.track_id})}
+ for(const track of tracks){const matching=matchingTrackObservation(track,observations),racerId=trackRacerId(track,data,matching);if(matching)used.add(matching);if(!track.excluded&&racerId)candidateCache.push({second:matching?.second??track.crossing_second,racerId,trackId:track.track_id,crossingConfidence:track.crossing_confidence,identityConfidence:track.identity_confidence})}
  for(const event of observations){if(used.has(event))continue;const racerId=proposal.group_assignments?.[String(event.appearance_cluster)];if(racerId)candidateCache.push({second:event.second,racerId,trackId:null})}
  candidateCache.sort((a,b)=>a.second-b.second);return candidateCache;
 }
@@ -202,16 +202,18 @@ function renderTrackReview(data){
  const tracks=trackingPreview.tracks,observations=(data.replay_proposal?.observations||[]).filter(event=>atSavedFinish(event,data.config)),unassigned=[];
  let mapped=0,excluded=0;
  for(const track of tracks){const matching=matchingTrackObservation(track,observations);if(track.excluded)excluded++;else if(trackRacerId(track,data,matching))mapped++;else unassigned.push(track)}
- $('trackingStatus').textContent=`Experimental lower-straight tracks: ${tracks.length} crossing candidates, ${mapped} mapped to racers, ${unassigned.length} unassigned, ${excluded} ignored. Green dots are detections; amber dots bridge short gaps. Counts and fastest laps remain provisional.`;
+ const modeled=tracks.filter(track=>track.identity_source==='multiframe_model'&&!track.excluded).length;
+ $('trackingStatus').textContent=`Experimental lower-straight tracks: ${tracks.length} crossing candidates, ${mapped} mapped to racers (${modeled} by multiframe model), ${unassigned.length} unassigned, ${excluded} ignored. Green dots are detections; amber dots bridge short gaps. Confidence estimates describe the evidence, not verified accuracy. Counts and fastest laps remain provisional.`;
  $('trackReviewBox').hidden=!unassigned.length;$('trackReviewSummary').textContent=`Review ${unassigned.length} unassigned crossing tracks`;
  const key=JSON.stringify([trackingPreviewId,data.replay_proposal?.group_assignments,data.context?.racers]);if(key===trackReviewKey)return;trackReviewKey=key;
  $('trackReviewList').replaceChildren();
  for(const track of unassigned){
   const row=document.createElement('div');row.className='track-review-row';
   const watch=document.createElement('button');watch.textContent=`Watch ${formatTime(track.crossing_second)}`;watch.onclick=()=>{const player=$('reviewPlayer');player.currentTime=Math.max(Number(data.config.video_start_s)||0,track.crossing_second-.35);player.playbackRate=.25;player.play().catch(()=>{});player.scrollIntoView({behavior:'smooth',block:'center'})};
+  const evidence=document.createElement('span');const suggested=track.suggested_appearance_cluster,who=data.context.racers.find(racer=>racer.id===data.replay_proposal?.group_assignments?.[String(suggested)]);const score=value=>Number.isFinite(value)?`${Math.round(value*100)}%`:'?';evidence.textContent=`Crossing evidence ${score(track.crossing_confidence)} · ${who?`appearance suggests ${who.name} (${score(track.suggestion_confidence)})`:'identity unknown'}${track.review_reason?` · ${track.review_reason}`:''}`;evidence.title='These scores are uncalibrated estimates from this video; confirm uncertain tracks before scoring.';
   const select=document.createElement('select');select.ariaLabel=`Car for crossing at ${formatTime(track.crossing_second)}`;select.append(new Option('Unassigned',''),...data.context.racers.map(racer=>new Option(racer.name,racer.id)),new Option('Ignore detection','ignore'));
   select.onchange=async()=>{const value=select.value;if(!value)return;select.disabled=true;try{const summary=await api(`/api/quick/review/${encodeURIComponent(data.race.id)}/tracks/assign`,'POST',{track_id:track.track_id,racer_id:value==='ignore'?null:value,excluded:value==='ignore'});current.tracking_preview=summary;trackingPreviewId=null;await syncTrackingPreview(current);renderCompute(current);message(`${value==='ignore'?'Ignored':'Assigned'} crossing at ${formatTime(track.crossing_second)}. Candidate laps updated; saved results unchanged.`)}catch(error){select.value='';select.disabled=false;message(error.message)}};
-  row.append(watch,select);$('trackReviewList').append(row)
+  row.append(watch,evidence,select);$('trackReviewList').append(row)
  }
 }
 function renderTrackDots(ctxReview,time,config){
@@ -252,6 +254,8 @@ function renderReviewOverlay(){
  const recent=[...observations].reverse().find(event=>event.second<=time&&time-event.second<1.7);
  const recentRacer=recent&&data.context?.racers?.find(racer=>racer.id===proposal?.group_assignments?.[String(recent.appearance_cluster)]);
  $('reviewRecent').textContent=recent?`${recent.direction==='outward'?'Recent outward pass':'Recent return pass'} · ${recentRacer?.name||(recent.appearance_cluster==null?'car unknown':`appearance group ${recent.appearance_cluster+1}`)}`:'';
+ const recentCandidate=[...candidateEvents(data)].reverse().find(event=>event.second<=time&&time-event.second<1.7);
+ if(recentCandidate){const name=data.context?.racers?.find(racer=>racer.id===recentCandidate.racerId)?.name||'car unknown';const crossing=recentCandidate.crossingConfidence==null?'':` · crossing evidence ${Math.round(recentCandidate.crossingConfidence*100)}%`;const identity=recentCandidate.identityConfidence==null?'':` · identity evidence ${Math.round(recentCandidate.identityConfidence*100)}%`;$('reviewRecent').textContent=`Recent candidate pass · ${name}${crossing}${identity}`}
  const roster=data.context?.racers||[],ids=new Set(roster.map(racer=>racer.id)),provisional=proposal?.status!=='applied',fastest=provisional?fastestCandidate(data,Math.min(time,end)):fastestRecorded(data);
  for(const [id,row] of reviewRows)if(!ids.has(id)){row.remove();reviewRows.delete(id)}
  for(const racer of roster){

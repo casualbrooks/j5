@@ -205,7 +205,7 @@ function renderTrackReview(data){
  for(const track of tracks){const matching=matchingTrackObservation(track,observations);if(track.excluded)excluded++;else if(trackRacerId(track,data,matching))mapped++;else unassigned.push(track)}
  const modeled=tracks.filter(track=>track.identity_source==='multiframe_model'&&!track.excluded).length;
  const legacyOnly=candidateEvents(data).filter(event=>event.source==='legacy_observation').length;
- $('trackingStatus').textContent=`Experimental lower-straight tracks: ${tracks.length} crossing candidates, ${mapped} mapped to racers (${modeled} by multiframe model), ${unassigned.length} unassigned, ${excluded} ignored; ${legacyOnly} older mapped passes lack track evidence. Green dots are detections; amber dots bridge short gaps. Confidence estimates describe the evidence, not verified accuracy. Counts and fastest laps remain provisional.`;
+ $('trackingStatus').textContent=`Experimental lower-straight tracks: ${tracks.length} crossing candidates, ${mapped} mapped to racers (${modeled} by multiframe model), ${unassigned.length} unassigned, ${excluded} ignored; ${legacyOnly} older mapped passes lack track evidence. Green dots are observed detections; amber dots are estimated positions or short gaps. Confidence estimates describe the evidence, not verified accuracy. Counts and fastest laps remain provisional.`;
  $('trackReviewBox').hidden=!unassigned.length;$('trackReviewSummary').textContent=`Review ${unassigned.length} unassigned crossing tracks`;
  const key=JSON.stringify([trackingPreviewId,data.replay_proposal?.group_assignments,data.context?.racers]);if(key===trackReviewKey)return;trackReviewKey=key;
  $('trackReviewList').replaceChildren();
@@ -236,7 +236,7 @@ function renderTrackDots(ctxReview,time,config){
   const racerId=trackRacerId(track,current,matchingTrackObservation(track,observations)),racer=current.context?.racers?.find(item=>item.id===racerId),color=racer?.color||'#5df0c5';
   const trail=points.filter(point=>point.second>=time-.5&&point.second<=time);
   if(trail.length>1){ctxReview.beginPath();ctxReview.moveTo(trail[0].x*640,trail[0].y*360);for(const point of trail.slice(1))ctxReview.lineTo(point.x*640,point.y*360);ctxReview.strokeStyle=color;ctxReview.lineWidth=2;ctxReview.stroke()}
-  ctxReview.beginPath();ctxReview.arc(x*640,y*360,6,0,2*Math.PI);ctxReview.fillStyle=interpolated?'#ffbb55':'#5df0c5';ctxReview.fill();ctxReview.strokeStyle=racer?color:'#07111b';ctxReview.lineWidth=2;ctxReview.stroke();
+  ctxReview.beginPath();ctxReview.arc(x*640,y*360,6,0,2*Math.PI);ctxReview.fillStyle=interpolated||before?.observed===false||after?.observed===false?'#ffbb55':'#5df0c5';ctxReview.fill();ctxReview.strokeStyle=racer?color:'#07111b';ctxReview.lineWidth=2;ctxReview.stroke();
   if(Math.abs(track.crossing_second-time)<.1){ctxReview.beginPath();ctxReview.arc(x*640,y*360,12,0,2*Math.PI);ctxReview.strokeStyle='#ffdd67';ctxReview.lineWidth=3;ctxReview.stroke()}
  }
 }

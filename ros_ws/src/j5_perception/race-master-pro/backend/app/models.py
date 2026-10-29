@@ -150,8 +150,8 @@ class RaceResultResponse(RaceResultCreate):
 class LapRecordCreate(BaseModel):
     race_id: str
     racer_profile_id: str
-    lap_number: int
-    lap_time: float
+    lap_number: int = Field(ge=1)
+    lap_time: float = Field(gt=0, allow_inf_nan=False)
     sector1_time: Optional[float] = None
     sector2_time: Optional[float] = None
     sector3_time: Optional[float] = None
